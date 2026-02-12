@@ -22,7 +22,6 @@ import { Gender } from '../types/constants';
 import { RequestPhoneOtpDto } from '../dtos/requests/RequestPhoneOtpDto';
 import { VerifyPhoneOtpDto } from '../dtos/requests/VerifyPhoneOtpDto';
 import {Staff} from "../entities/staff.entity";
-import {UserRole} from "../../all_user_entities/user-role.entity";
 import { Business } from '../entities/business.entity';
 import { BusinessService } from './business.service';
 import { CompanySize } from '../types/constants';

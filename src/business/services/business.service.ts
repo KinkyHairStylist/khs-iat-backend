@@ -37,6 +37,7 @@ import { BusinessOwnerSettingsService } from './business-owner-settings.service'
 import { ZohoBooksService } from 'src/integration/services/zohobooks.service';
 import {UserRole} from "../../all_user_entities/user-role.entity";
 import {PasswordUtil} from "../utils/password.util";
+import { promises } from 'dns';
 
 @Injectable()
 export class BusinessService {
@@ -83,11 +84,18 @@ export class BusinessService {
     createBusinessDto: CreateBusinessDto,
     owner: User,
   ): Promise<Business> {
+    if (!owner) {
+      throw new BadRequestException('Owner is required to create a business');
+    }
+
     const business = this.businessRepo.create({
       ...createBusinessDto,
       owner,
     });
 
+    if (!owner.role) {
+      owner.role = new UserRole();
+    }
     owner.role.isBusiness = true;
     await this.userRepo.save(owner);
 
@@ -896,5 +904,111 @@ export class BusinessService {
 
   getBookingPoliciesConfiguration(): BookingPoliciesData[] {
     return getBookingPoliciesConfiguration();
+  }
+
+  async hasBusiness(userId: string): Promise<{ hasBusiness: boolean }> {
+    // Check if user is a business owner
+    const business = await this.businessRepo.findOne({
+      where: { owner: { id: userId } },
+    });
+
+    if (business) {
+      return { hasBusiness: true };
+    }
+
+    // Check if user is a staff member
+    const staff = await this.staffRepo.findOne({
+      where: { id: userId },
+    });
+
+    if (staff) {
+      return { hasBusiness: true };
+    }
+
+    // User has neither business nor staff role
+    return { hasBusiness: false };
+  }
+
+  // An endpoint to get business owner details
+  async getBusinessOwnerDetails(userId: string) {
+    const user = await this.userRepo.findOne({
+      where: { id: userId },
+      select: ['id', 'firstName', 'surname', 'email', 'phoneNumber', 'gender', 'avatarUrl', 'createdAt']
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    return {
+      id: user.id,
+      firstName: user.firstName,
+      surname: user.surname,
+      email: user.email,
+      phoneNumber: user.phoneNumber,
+      gender: user.gender,
+      avatarUrl: user.avatarUrl,
+      createdAt: user.createdAt,
+      verified: user.isVerified 
+    };
+  }
+
+  // An endpoint to get business details
+  async getBusinessDetails(userId: string) {
+    // Check if user is a business owner
+    const business = await this.businessRepo.findOne({
+      where: { owner: { id: userId } },
+      relations: ['owner']
+    });
+
+    if (business) {
+      return {
+        id: business.id,
+        businessName: business.businessName,
+        businessDescription: business.description,
+        businessAddress: business.businessAddress,
+        businessImage: business.businessImage,
+        category: business.category,
+        companySize: business.companySize,
+        status: business.status,
+        createdAt: business.createdAt,
+        updatedAt: business.updatedAt,
+        owner: {
+          firstName: business.owner.firstName,
+          surname: business.owner.surname,
+          email: business.owner.email,
+          phoneNumber: business.owner.phoneNumber
+        },
+      };
+    }
+
+    // Check if user is a staff member
+    const staff = await this.staffRepo.findOne({
+      where: { id: userId },
+      relations: ['business', 'business.owner']
+    });
+
+    if (staff && staff.business) {
+      return {
+        id: staff.business.id,
+        businessName: staff.business.businessName,
+        businessDescription: staff.business.description,
+        businessAddress: staff.business.businessAddress,
+        businessImage: staff.business.businessImage,
+        category: staff.business.category,
+        companySize: staff.business.companySize,
+        status: staff.business.status,
+        createdAt: staff.business.createdAt,
+        updatedAt: staff.business.updatedAt,
+        owner: {
+          firstName: staff.business.owner.firstName,
+          surname: staff.business.owner.surname,
+          email: staff.business.owner.email,
+          phoneNumber: staff.business.owner.phoneNumber
+        },
+      };
+    }
+
+    throw new NotFoundException('No business found for this user');
   }
 }

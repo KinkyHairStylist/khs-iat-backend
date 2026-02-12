@@ -248,8 +248,10 @@ export class BusinessController {
 
   }
 
-  @Public()
   @Post('create')
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.Client, Role.Business)
   @HttpCode(HttpStatus.CREATED)
   async create(
     @Body() createBusinessDto: CreateBusinessDto,
@@ -283,11 +285,36 @@ export class BusinessController {
     return this.businessService.getBookingPoliciesConfiguration();
   }
 
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.Client, Role.Business, Role.SuperAdmin, Role.Staff)
+  @Get('has-business')
+  async hasBusiness(@Req() req: RequestWithUser) {
+    const user = req.user;
+    return this.businessService.hasBusiness(user.id);
+  }
+
   @Get('/ping')
   ping() {
     console.log('yo');
     return 'server is live';
   }
 
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.Business, Role.SuperAdmin, Role.Staff)
+  @Get('owner-details')
+  async getBusinessOwnerDetails(@Req() req: RequestWithUser) {
+    const user = req.user;
+    return this.businessService.getBusinessOwnerDetails(user.id);
+  }
 
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.Business, Role.SuperAdmin, Role.Staff)
+  @Get('business-details')
+  async getBusinessDetails(@Req() req: RequestWithUser) {
+    const user = req.user;
+    return this.businessService.getBusinessDetails(user.id);
+  }
 }
