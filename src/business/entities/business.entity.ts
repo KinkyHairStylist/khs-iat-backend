@@ -80,9 +80,9 @@ export class Business {
   })
   serviceList: Service[];
 
-  @Column({ nullable: true })
-  category?: string;
-
+  @Column({ type: 'jsonb', nullable: true })
+  category?: string[];
+  
   @Column({ nullable: true })
   businessAddress: string;
 

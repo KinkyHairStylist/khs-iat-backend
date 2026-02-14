@@ -75,7 +75,7 @@ export class BookingService {
         amount: service.price,
         status: AppointmentStatus.PENDING,
         paymentStatus: PaymentStatus.UNPAID,
-        staff: service.assignedStaff ? [service.assignedStaff] : [],
+        staff: service.assignedStaff || [],
       });
 
       appointments.push(appointment);
