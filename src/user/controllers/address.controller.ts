@@ -6,13 +6,12 @@ import { CreateAddressDto, UpdateAddressDto } from '../dtos/address.dto';
 import { User } from '../../all_user_entities/user.entity';
 import { Roles } from '../../middleware/roles.decorator';
 import { Role } from '../../middleware/role.enum';
-import { RolesGuard } from '../../middleware/roles.guard';
 import { GetUser } from '../../middleware/get-user.decorator';
 import { JwtAuthGuard } from '../../middleware/jwt-auth.guard';
 
 @ApiTags('User Addresses')
 @ApiBearerAuth('access-token')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard)
 @Roles(Role.Client)
 @Controller('user/addresses')
 export class AddressController {

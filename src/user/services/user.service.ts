@@ -244,7 +244,7 @@ export class UserService {
     const { accessToken, refreshToken } = await getTokens(
       this.jwtService,
       user.id,
-      user.email,
+      user.email
     );
 
     return {
@@ -285,7 +285,7 @@ export class UserService {
     const { accessToken, refreshToken } = await getTokens(
       this.jwtService,
       user.id,
-      user.email,
+      user.email
     );
 
     return {
@@ -409,7 +409,7 @@ export class UserService {
       const { accessToken, refreshToken: newRefreshToken } = await getTokens(
         this.jwtService,
         user.id,
-        user.email,
+        user.email
       );
 
       return {

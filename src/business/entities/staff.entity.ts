@@ -11,7 +11,7 @@ import { Service } from './service.entity';
 import { Address } from './address.entity';
 import { EmergencyContact } from './emergency-contact.entity';
 
-@Entity()
+@Entity('staff')
 export class Staff {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -22,7 +22,7 @@ export class Staff {
   @Column({ nullable: true })
   lastName: string;
 
-  @Column({ nullable: true })
+  @Column({ nullable: true, unique: true  })
   email: string;
 
   @Column({ nullable: true })

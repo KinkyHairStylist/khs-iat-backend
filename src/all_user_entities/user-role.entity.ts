@@ -27,8 +27,6 @@ export class UserRole {
   @Column({ default: false })
   isBusinessAdmin: boolean;
 
-
-
   @OneToOne(() => User, (user) => user.role)
   user: User;
 }

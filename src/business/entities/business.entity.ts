@@ -47,7 +47,6 @@ export class Business {
 
   @ManyToOne(() => User, (user) => user.businesses, {
     onDelete: 'CASCADE',
-    eager: true,
   })
   @JoinColumn({ name: 'owner_id' })
   owner: User;
@@ -80,8 +79,8 @@ export class Business {
   })
   serviceList: Service[];
 
-  @Column({ nullable: true })
-  category?: string;
+  @Column({ type: 'jsonb', nullable: true })
+  category?: string[];
 
   @Column({ nullable: true })
   businessAddress: string;

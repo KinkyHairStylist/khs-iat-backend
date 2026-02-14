@@ -8,13 +8,12 @@ import { AdminChatService } from '../services/admin-chat.service';
 import { AdminChatGateway } from '../admin-chat.gateway';
 import { CloudinaryService } from '../../helpers/cloudinary-massage-image-helper';
 import { User } from '../../all_user_entities/user.entity';
-import { RolesGuard } from '../../middleware/roles.guard';
 import { SendAdminMessageDto, AdminChatMessageResponseDto, AdminDto } from '../dtos/send-admin-message.dto';
 import { GetUser } from '../../middleware/get-user.decorator';
 
 @ApiTags('User Admin Chat')
 @ApiBearerAuth('access-token')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard)
 @Roles(Role.Client)
 @Controller('user/admin-chat')
 export class AdminChatController {

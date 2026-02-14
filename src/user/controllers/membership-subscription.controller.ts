@@ -6,6 +6,7 @@ import { MembershipService } from '../services/membership-subscription.service';
 
 @ApiTags('Membership')
 @Controller('membership')
+@UseGuards(JwtAuthGuard)
 @ApiBearerAuth('access-token')
 export class MembershipSubscriptionController {
   constructor(

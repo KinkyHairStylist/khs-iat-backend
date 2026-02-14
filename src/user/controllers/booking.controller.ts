@@ -2,7 +2,6 @@ import { Controller, Post, Body, Get, Param, Patch, UseGuards } from '@nestjs/co
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { Role } from 'src/middleware/role.enum';
-import { RolesGuard } from 'src/middleware/roles.guard';
 import { Roles } from 'src/middleware/roles.decorator';
 import { BookingService } from '../services/booking.service';
 import { CreateBookingDto } from '../dtos/create-booking.dto';
@@ -15,7 +14,7 @@ import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
 
 @ApiTags('Bookings')
 @ApiBearerAuth('access-token')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard)
 @Roles(Role.Client)
 @Controller('/bookings')
 export class BookingController {

@@ -24,6 +24,7 @@ import { VerifyPhoneOtpDto } from '../dtos/requests/VerifyPhoneOtpDto';
 import {Staff} from "../entities/staff.entity";
 import { Business } from '../entities/business.entity';
 import { BusinessService } from './business.service';
+import { getTokens } from '../../helpers/token.helper';
 import { CompanySize } from '../types/constants';
 
 export interface TokenPair {
@@ -92,7 +93,7 @@ export class AuthService {
 
     const user = await this.createUser(processedDto);
 
-    return this.getTokens(user.id, user.email);
+    return getTokens(this.jwtService, user.id, user.email);
   }
 
   async refreshTokens(
@@ -133,7 +134,8 @@ export class AuthService {
     }
 
     await this.refreshTokenRepo.delete(storedToken.id);
-    return this.getTokens(user.id, user.email);
+
+    return getTokens(this.jwtService, user.id, user.email);
   }
 
   async login(
@@ -144,7 +146,7 @@ export class AuthService {
     const user = await this.userRepo.findOne({
       where: { email: email.toLowerCase() },
       select: ['id', 'email', 'password', 'isVerified'],
-      relations:['role'],
+      relations: ['role'],
     });
 
     if (!user) {
@@ -175,16 +177,38 @@ export class AuthService {
 
     // Check if business user has a business account
     let message: string | undefined;
-    if (user.role?.isBusiness) {
-      const existingBusiness = await this.businessRepo.findOne({
-        where: { owner: { id: user.id } },
+    
+    // If role is not loaded, try to load it explicitly
+    if (!user.role) {
+      const userWithRole = await this.userRepo.findOne({
+        where: { id: user.id },
+        relations: ['role'],
       });
-      if (!existingBusiness) {
-        message = 'User does not own a business yet. Please create a business.';
+      if (userWithRole && userWithRole.role) {
+        user.role = userWithRole.role;
       }
     }
 
-    const tokens = await this.getTokens(user.id, user.email);
+    console.log('User role during login:', user.role);
+    
+    if (user.role && user.role.isBusiness) {
+      try {
+        // Use ownerId instead of owner relationship to avoid eager loading issues
+        const existingBusiness = await this.businessRepo.findOne({
+          where: { ownerId: user.id },
+        });
+        if (!existingBusiness) {
+          message = 'User does not own a business yet. Please create a business.';
+        }
+      } catch (error) {
+        console.error('Error checking business ownership:', error);
+        // Don't fail login if business check fails, just log the error
+      }
+    } else if (user.role && (user.role.isAdmin || user.role.isClient || user.role.isSuperAdmin)) {
+      message = 'This is not a business account. Kindly create a new business account.';
+    }
+
+    const tokens = await getTokens(this.jwtService, user.id, user.email);
     return { ...tokens, message };
   }
 
@@ -206,9 +230,8 @@ export class AuthService {
     const userRole = this.userRoleRepo.create({
       isBusiness: true,
       isClient: false, // Business users are not regular clients
+      user: savedUser, // Properly link the user to the role
     });
-    // @ts-ignore
-    userRole.user = savedUser;
 
     await this.userRoleRepo.save(userRole);
 
@@ -239,34 +262,6 @@ export class AuthService {
     await this.userRepo.update(userId, { isVerified: true });
   }
 
-  async getTokens(
-    userId: string,
-    email: string,
-  ): Promise<{ accessToken: string; refreshToken: string }> {
-    const payload = { sub: userId, email };
-
-    const [accessToken, refreshToken] = await Promise.all([
-      this.jwtService.signAsync(payload, {
-        secret: process.env.JWT_ACCESS_SECRET,
-        expiresIn: '2d',
-      }),
-      this.jwtService.signAsync(payload, {
-        secret: process.env.JWT_ACCESS_SECRET,
-        expiresIn: '7d',
-      }),
-    ]);
-
-    const tokenHash = await this.passwordUtil.hashPassword(refreshToken);
-    await this.refreshTokenRepo.delete({ user: { id: userId } });
-
-    const newRefreshToken = this.refreshTokenRepo.create({
-      user: { id: userId },
-      tokenHash,
-    });
-    await this.refreshTokenRepo.save(newRefreshToken);
-
-    return { accessToken, refreshToken };
-  }
 
   async requestPasswordReset(
     forgotPasswordDto: ForgotPasswordDto,
@@ -409,47 +404,6 @@ export class AuthService {
       where: { email: email.toLowerCase() },
       select: ['id', 'email', 'password', 'isVerified', 'phoneNumber'],
     });
-  }
-
-  async getTokensAndRoles(
-      userId: string,
-      email: string,
-      role: UserRole,
-  ) {
-    const payload = { sub: userId, email };
-
-    const [accessToken, refreshToken] = await Promise.all([
-      this.jwtService.signAsync(payload, {
-        secret: process.env.JWT_ACCESS_SECRET,
-        expiresIn: '2d',
-      }),
-      this.jwtService.signAsync(payload, {
-        secret: process.env.JWT_ACCESS_SECRET,
-        expiresIn: '7d',
-      }),
-    ]);
-
-    const tokenHash = await this.passwordUtil.hashPassword(refreshToken);
-    await this.refreshTokenRepo.delete({ user: { id: userId } });
-
-    const newRefreshToken = this.refreshTokenRepo.create({
-      user: { id: userId },
-      tokenHash,
-    });
-    await this.refreshTokenRepo.save(newRefreshToken);
-
-
-    const staff = await this.staffRepo.findOne({
-      where: { email: email.toLowerCase() },
-    });
-
-    if(!staff && !role.isBusiness){throw new BadRequestException('Invalid user');}
-
-    if(role.isBusiness) return {accessToken,refreshToken,role:role}
-
-    if(!staff?.settings){throw new BadRequestException('Invalid user');}
-
-    return { accessToken, refreshToken, role:role, settings:staff.settings };
   }
 
 }

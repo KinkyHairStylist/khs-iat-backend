@@ -5,6 +5,7 @@ import { ReferralService } from '../services/referral.service';
 
 @ApiTags('Referrals')
 @ApiBearerAuth('access-token')// Shows lock icon & enables JWT input in Swagger
+@UseGuards(JwtAuthGuard)
 @Controller('referrals')
 export class ReferralController {
   constructor(private readonly referralService: ReferralService) {}

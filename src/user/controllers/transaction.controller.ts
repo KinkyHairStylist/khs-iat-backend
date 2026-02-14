@@ -5,13 +5,12 @@ import { GetUser } from 'src/middleware/get-user.decorator';
 import { User } from 'src/all_user_entities/user.entity';
 import { TransactionService } from '../services/transaction.service';
 import { Role } from 'src/middleware/role.enum';
-import { RolesGuard } from 'src/middleware/roles.guard';
 import { Roles } from 'src/middleware/roles.decorator';
 import { GetTransactionSummaryDto, RequestRefundDto } from '../dtos/transaction.dto';
 
 @ApiTags('User Transactions')
 @ApiBearerAuth('access-token')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard)
 @Roles(Role.Client)
 @Controller('users/transactions')
 export class TransactionController {

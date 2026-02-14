@@ -29,7 +29,6 @@ import {
   UpdateClientAddressDto,
   UpdateClientSettingsDto,
 } from '../dtos/requests/ClientDto';
-import { JwtAuthGuard } from '../middlewares/guards/jwt-auth.guard';
 import { ClientFormData } from '../types/client.types';
 import { ClientType } from '../entities/client.entity';
 import {
@@ -37,7 +36,7 @@ import {
 } from '../entities/client-settings.entity';
 import { ClientSettingsService } from '../services/client-settings.service';
 import { Roles } from 'src/middleware/roles.decorator';
-import { RolesGuard } from 'src/middleware/roles.guard';
+import { JwtAuthGuard } from '../../middleware/jwt-auth.guard';
 import { Role } from 'src/middleware/role.enum';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 

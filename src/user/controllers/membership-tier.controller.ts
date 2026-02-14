@@ -1,11 +1,13 @@
-import { Controller, Get, Param  } from '@nestjs/common';
+import { Controller, Get, Param, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { ApiBearerAuth } from '@nestjs/swagger';
 
 import { MembershipTierService } from '../services/membership-tier.service';
+import { JwtAuthGuard } from 'src/business/middlewares/guards/jwt-auth.guard';
 
 @ApiTags('Membership')
 @Controller('membership')
+@UseGuards(JwtAuthGuard)
 @ApiBearerAuth('access-token')
 export class MembershipTierController {
   constructor(private readonly membershipTierService: MembershipTierService) {}

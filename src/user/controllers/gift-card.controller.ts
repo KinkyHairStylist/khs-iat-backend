@@ -7,11 +7,10 @@ import { GiftCardService } from '../services/gift-card.service';
 import { PurchaseBusinessGiftCardDto, ValidateGiftCardDto, RedeemGiftCardDto } from '../dtos/create-gift-card.dto';
 import { Roles } from 'src/middleware/roles.decorator';
 import { Role } from 'src/middleware/role.enum';
-import { RolesGuard } from 'src/middleware/roles.guard';
 
 @ApiTags('Customer Card and Gift Cards')
 @ApiBearerAuth('access-token')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard)
 @Roles(Role.Client)
 @Controller('users/gift-cards')
 export class GiftCardController {

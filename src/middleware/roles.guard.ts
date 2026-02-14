@@ -18,6 +18,7 @@ export class RolesGuard implements CanActivate {
 
     if (!user || !user.role) return false;
 
+    console.log('User Role:', user.role);
 
     const roleObj = user.role;
 

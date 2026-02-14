@@ -356,7 +356,11 @@ export class BusinessSettingsService {
     }
 
     if (updateDto.category !== undefined) {
-      business.category = updateDto.category.trim();
+      // Handle category as array - split by comma and trim each value
+      const categoryArray = Array.isArray(updateDto.category) 
+        ? updateDto.category 
+        : updateDto.category.split(',').map(cat => cat.trim());
+      business.category = categoryArray;
     }
 
     if (updateDto.primaryAudience !== undefined) {
