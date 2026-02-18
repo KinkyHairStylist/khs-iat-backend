@@ -4,6 +4,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../middleware/jwt-auth.guard';
 import { Roles } from '../../middleware/roles.decorator';
 import { Role } from '../../middleware/role.enum';
+import { RolesGuard } from 'src/middleware/roles.guard';
 import { AdminChatService } from '../services/admin-chat.service';
 import { AdminChatGateway } from '../admin-chat.gateway';
 import { CloudinaryService } from '../../helpers/cloudinary-massage-image-helper';
@@ -13,7 +14,7 @@ import { GetUser } from '../../middleware/get-user.decorator';
 
 @ApiTags('User Admin Chat')
 @ApiBearerAuth('access-token')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(Role.Client)
 @Controller('user/admin-chat')
 export class AdminChatController {

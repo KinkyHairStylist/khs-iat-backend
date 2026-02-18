@@ -1,5 +1,7 @@
 import { Controller, Post, Body, Get, UseGuards, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+
+import { RolesGuard } from 'src/middleware/roles.guard';
 import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
 import { GetUser } from 'src/middleware/get-user.decorator';
 import { User } from 'src/all_user_entities/user.entity';
@@ -10,7 +12,7 @@ import { Role } from 'src/middleware/role.enum';
 
 @ApiTags('Customer Card and Gift Cards')
 @ApiBearerAuth('access-token')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(Role.Client)
 @Controller('users/gift-cards')
 export class GiftCardController {

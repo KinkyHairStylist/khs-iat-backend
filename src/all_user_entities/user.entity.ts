@@ -6,7 +6,6 @@ import {
   OneToMany,
   OneToOne,
   UpdateDateColumn,
-  JoinColumn,
 } from 'typeorm';
 
 import { Card } from './card.entity';
@@ -19,7 +18,6 @@ import { Gender } from 'src/business/types/constants';
 import { Transaction } from 'src/business/entities/transaction.entity';
 import { UserPreferences } from 'src/user/user_entities/preferences.entity';
 import { UserNotificationSettings } from 'src/user/user_entities/user_notification_settings.entity';
-import { UserRole } from './user-role.entity';
 
 @Entity({ name: 'user' })
 export class User {
@@ -66,16 +64,34 @@ export class User {
   @Column({ default: false })
   isVerified: boolean;
 
+  // Relationships to CASCADE delete when user is deleted:
   @OneToMany(() => Appointment, (appointment) => appointment.client, {
     nullable: true,
+    cascade: true,
   })
   clientAppointments: Appointment[];
 
-  @OneToMany(() => RefreshToken, (token) => token.user)
+  @OneToMany(() => RefreshToken, (token) => token.user, {
+    cascade: true,
+  })
   refreshTokens: RefreshToken[];
 
-  @OneToMany(() => Business, (business) => business.owner)
+  @OneToMany(() => Business, (business) => business.owner, {
+    cascade: true,
+  })
   businesses: Business[];
+
+  // Referrals - cascade delete when referrer is deleted
+  @OneToMany(() => Referral, (referral) => referral.referrer, {
+    cascade: true,
+  })
+  referrals: Referral[];
+
+  // Cards - cascade delete when user is deleted
+  @OneToMany(() => Card, (card) => card.user, {
+    cascade: true,
+  })
+  cards: Card[];
 
   @Column({ type: 'varchar', nullable: true })
   verificationCode: string | null;
@@ -110,10 +126,6 @@ export class User {
   @Column({ default: 'just now' })
   activity: string;
 
-  //  Relationship — one user can refer many others
-  @OneToMany(() => Referral, (referral) => referral.referrer)
-  referrals: Referral[];
-
   //  NEW: Earnings tracking
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
   totalEarnings: number;
@@ -124,36 +136,59 @@ export class User {
   @Column({ type: 'varchar', unique: true, nullable: true })
   referralCode: string;
 
-  @OneToMany(() => Card, (card) => card.user)
-  cards: Card[];
-
+  // GiftCards - sender will be set to "Deleted User" on delete (handled in service)
   @OneToMany(() => GiftCard, (giftCard) => giftCard.sender)
   giftCards: GiftCard[];
 
+  // Transactions - sender/recipient will be set to "Deleted User" on delete (handled in service)
   @OneToMany(() => Transaction, (t) => t.sender)
   sentTransactions: Transaction[];
 
   @OneToMany(() => Transaction, (t) => t.recipient)
   receivedTransactions: Transaction[];
 
+  // Preferences - cascade delete when user is deleted
   @OneToOne(() => UserPreferences, (preferences) => preferences.user, {
     cascade: true,
     eager: true,
   })
   preferences: UserPreferences;
 
+  // NotificationSettings - will be set to "Deleted User" on delete (handled in service)
   @OneToOne(() => UserNotificationSettings, (settings) => settings.user)
   notificationSettings: UserNotificationSettings;
 
-  @OneToOne(() => UserRole, (role) => role.user, {
-    cascade: true,
-    eager: true,
-  })
-  @JoinColumn()
-  role: UserRole;
-}
+  // ============================================
+  // ROLE FIELDS - Merged from UserRole entity
+  // ============================================
+  @Column({ default: false })
+  isSuperAdmin: boolean;
 
-//TODO: send user and user role schema for reference
-//TODO: create user and set role
-//TODO: modify all endpoints to check business via staff and ownerMail
-//TODO: let access
+  @Column({ default: false })
+  isAdmin: boolean;
+
+  @Column({ default: false })
+  isBusiness: boolean;
+
+  @Column({ default: true })
+  isClient: boolean;
+
+  @Column({ default: false })
+  isStaff: boolean;
+
+  @Column({ default: false })
+  isManager: boolean;
+
+  @Column({ default: false })
+  isBusinessAdmin: boolean;
+
+  // Helper method to check if user has any admin role
+  hasAdminRole(): boolean {
+    return this.isSuperAdmin || this.isAdmin || this.isBusinessAdmin;
+  }
+
+  // Helper method to check if user has business access
+  hasBusinessAccess(): boolean {
+    return this.isBusiness || this.isStaff || this.isManager || this.isBusinessAdmin;
+  }
+}

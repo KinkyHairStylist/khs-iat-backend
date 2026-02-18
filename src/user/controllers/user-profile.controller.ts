@@ -15,6 +15,8 @@ import {
   ApiTags,
   ApiBody
 } from '@nestjs/swagger';
+
+import { RolesGuard } from 'src/middleware/roles.guard';
 import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
 import { GetUser } from 'src/middleware/get-user.decorator';
 import { User } from 'src/all_user_entities/user.entity';
@@ -25,7 +27,7 @@ import { fileUploadOptions } from 'src/middleware/file-upload.middleware';
 
 @ApiTags('Customer Profile')
 @ApiBearerAuth('access-token')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('users/profile')
 export class UserProfileController {
   constructor(private readonly userProfileService: UserProfileService) {}

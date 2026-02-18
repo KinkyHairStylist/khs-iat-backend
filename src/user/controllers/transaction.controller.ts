@@ -1,5 +1,7 @@
 import { Controller, Get, Post, Body, Query, UseGuards, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+
+import { RolesGuard } from 'src/middleware/roles.guard';
 import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
 import { GetUser } from 'src/middleware/get-user.decorator';
 import { User } from 'src/all_user_entities/user.entity';
@@ -10,7 +12,7 @@ import { GetTransactionSummaryDto, RequestRefundDto } from '../dtos/transaction.
 
 @ApiTags('User Transactions')
 @ApiBearerAuth('access-token')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(Role.Client)
 @Controller('users/transactions')
 export class TransactionController {

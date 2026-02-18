@@ -53,7 +53,6 @@ export class Service {
   @ManyToMany(() => Staff, (staff) => staff.services, {
     onDelete: 'SET NULL',
     nullable: true,
-    eager: true,
   })
   assignedStaff: Staff[];
 

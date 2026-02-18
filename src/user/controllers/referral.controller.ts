@@ -1,11 +1,14 @@
 import { Controller, Get, UseGuards, Req } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
+
+import { RolesGuard } from 'src/middleware/roles.guard';
 import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
 import { ReferralService } from '../services/referral.service';
+import { Role } from 'src/middleware/role.enum';
 
 @ApiTags('Referrals')
 @ApiBearerAuth('access-token')// Shows lock icon & enables JWT input in Swagger
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('referrals')
 export class ReferralController {
   constructor(private readonly referralService: ReferralService) {}

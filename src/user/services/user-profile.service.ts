@@ -155,16 +155,45 @@ export class UserProfileService {
     return { message: 'Password changed successfully' };
   }
   
-    async permanentlyDeleteAccount(user: User) {
-      const fullUser = await this.userRepo.findOne({
-        where: { id: user.id },
-      });
-      if (!fullUser) {
-        throw new NotFoundException('User not found');
-      }
-      await this.sendAccountDeletedEmail(fullUser.email);
-      await this.userRepo.remove(fullUser);
-      return { message: 'Account permanently removed' };
+  /**
+   * Permanently deletes a user account.
+   * 
+   * CASCADE DELETE (automatically removed with user):
+   * - clientAppointments (appointments where user is client)
+   * - refreshTokens
+   * - businesses (owned by user)
+   * - referrals (where user is referrer)
+   * - cards
+   * - preferences
+   * - role
+   * 
+   * SET NULL (automatically handled by database):
+   * - sentTransactions (senderId set to null)
+   * - receivedTransactions (recipientId set to null)
+   * - giftCards (sender set to null)
+   * - notificationSettings (handled by cascade)
+   */
+  async permanentlyDeleteAccount(user: User) {
+    const fullUser = await this.userRepo.findOne({
+      where: { id: user.id },
+    });
+    if (!fullUser) {
+      throw new NotFoundException('User not found');
     }
+
+    // Store email before deletion for sending confirmation
+    const userEmail = fullUser.email;
+
+    // Send deletion email
+    await this.sendAccountDeletedEmail(userEmail);
+
+    // Remove the user - cascade will handle all related entities:
+    // - appointments, refreshTokens, businesses, referrals, cards: CASCADE DELETE
+    // - preferences, role: CASCADE DELETE
+    // - transactions (sender/recipient), giftCards: SET NULL (handled by DB)
+    await this.userRepo.remove(fullUser);
+
+    return { message: 'Account permanently removed' };
+  }
   
 }

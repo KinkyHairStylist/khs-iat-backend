@@ -10,10 +10,9 @@ import { AdminChatController } from '../controllers/admin-chat.controller';
 import { Appointment } from '../../business/entities/appointment.entity';
 import { Business } from '../../business/entities/business.entity';
 import { User } from '../../all_user_entities/user.entity';
-import { UserRole } from '../../all_user_entities/user-role.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([ChatMessage, UserStatus, Appointment, Business, User, UserRole])],
+  imports: [TypeOrmModule.forFeature([ChatMessage, UserStatus, Appointment, Business, User])],
   providers: [AdminChatService, AdminChatGateway, CloudinaryService],
   controllers: [AdminChatController],
 })

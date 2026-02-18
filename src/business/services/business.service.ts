@@ -39,7 +39,6 @@ import { BusinessWalletService } from './wallet.service';
 import { MailchimpService } from 'src/integration/services/mailchimp.service';
 import { BusinessOwnerSettingsService } from './business-owner-settings.service';
 import { ZohoBooksService } from 'src/integration/services/zohobooks.service';
-import {UserRole} from "../../all_user_entities/user-role.entity";
 import {PasswordUtil} from "../utils/password.util";
 import { promises } from 'dns';
 
@@ -97,16 +96,14 @@ export class BusinessService {
       owner,
     });
 
-    if (!owner.role) {
-      owner.role = new UserRole();
-    }
-    owner.role.isBusiness = true;
+    // Set role fields directly on user (merged from UserRole entity)
+    owner.isBusiness = true;
+    owner.isClient = false;
     await this.userRepo.save(owner);
 
     business.ownerName = owner?.firstName + ' ' + owner?.surname || '';
     business.ownerEmail = owner?.email || '';
     business.ownerPhone = owner?.phoneNumber || '';
-    business.owner.role.isBusiness = owner?.role.isBusiness || false;
 
     await this.businessRepo.save(business);
 
@@ -401,7 +398,6 @@ export class BusinessService {
 
     let user = await this.userRepo.findOne({
       where: { email: staffEmail },
-      relations: ['role'],
     });
 
     let tempPassword: string | undefined;
@@ -424,15 +420,10 @@ export class BusinessService {
         gender: gender?.toUpperCase() as any,
         isVerified: true,
         avatarUrl: avatar,
+        // Set role fields directly on user (merged from UserRole entity)
+        isStaff: true,
+        isClient: false,
       });
-
-      const userRole = new UserRole();
-      userRole.isSuperAdmin = false;
-      userRole.isAdmin = false;
-      userRole.isBusiness = false;
-      userRole.isClient = false;
-      userRole.isStaff = true;
-      newUser.role = userRole;
 
       await this.userRepo.save(newUser);
 
@@ -449,8 +440,8 @@ export class BusinessService {
       }
     } else {
       // Existing user → ensure they're marked as staff
-      if (!user.role) user.role = new UserRole();
-      user.role.isStaff = true;
+      user.isStaff = true;
+      user.isClient = false;
       await this.userRepo.save(user);
     }
 
@@ -1087,7 +1078,6 @@ export class BusinessService {
   async getBusinessOwnerDetails(userId: string) {
     const user = await this.userRepo.findOne({
       where: { id: userId },
-      select: ['id', 'firstName', 'surname', 'email', 'phoneNumber', 'gender', 'avatarUrl', 'createdAt']
     });
 
     if (!user) {
@@ -1102,7 +1092,14 @@ export class BusinessService {
       phoneNumber: user.phoneNumber,
       gender: user.gender,
       avatarUrl: user.avatarUrl,
-      role: user.role,
+      // Return role fields directly from user (merged from UserRole entity)
+      isSuperAdmin: user.isSuperAdmin,
+      isAdmin: user.isAdmin,
+      isBusiness: user.isBusiness,
+      isClient: user.isClient,
+      isStaff: user.isStaff,
+      isManager: user.isManager,
+      isBusinessAdmin: user.isBusinessAdmin,
       createdAt: user.createdAt,
       verified: user.isVerified 
     };

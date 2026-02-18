@@ -10,6 +10,7 @@ import {
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 
 import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
+import { RolesGuard } from 'src/middleware/roles.guard';
 import { Role } from 'src/middleware/role.enum';
 import { Roles } from 'src/middleware/roles.decorator';
 import { SalonService } from '../services/salon.service';
@@ -18,7 +19,7 @@ import { CacheInterceptor } from '../../cache/cache.interceptor';
 @ApiTags('Salons')
 @Controller('salons')
 @ApiBearerAuth('access-token')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(Role.Client)
 @UseInterceptors(ClassSerializerInterceptor)
 export class SalonController {

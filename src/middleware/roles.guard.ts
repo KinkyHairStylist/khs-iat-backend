@@ -16,28 +16,25 @@ export class RolesGuard implements CanActivate {
 
     const { user } = context.switchToHttp().getRequest();
 
-    if (!user || !user.role) return false;
+    if (!user) return false;
 
-    console.log('User Role:', user.role);
-
-    const roleObj = user.role;
-
+    // Use role fields directly from user entity (merged from UserRole)
     return requiredRoles.some((role) => {
       switch (role) {
         case Role.SuperAdmin:
-          return roleObj.isSuperAdmin;
+          return user.isSuperAdmin;
         case Role.Admin:
-          return roleObj.isAdmin;
+          return user.isAdmin;
         case Role.Business:
-          return roleObj.isBusiness;
+          return user.isBusiness;
         case Role.Staff:
-          return roleObj.isStaff;
+          return user.isStaff;
         case Role.Client:
-          return roleObj.isClient;
+          return user.isClient;
         case Role.Manager:
-          return roleObj.isManager;
+          return user.isManager;
         case Role.BusinessAdmin:
-          return roleObj.isBusinessAdmin;
+          return user.isBusinessAdmin;
         default:
           return false;
       }

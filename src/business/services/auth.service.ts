@@ -9,7 +9,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { User } from '../../all_user_entities/user.entity';
-import { UserRole } from '../../all_user_entities/user-role.entity';
 import { RefreshToken } from '../entities/refresh.token.entity';
 import { CreateUserDto } from '../dtos/requests/CreateUserDto';
 import { LoginDto } from '../dtos/requests/LoginDto';
@@ -39,9 +38,6 @@ export class AuthService {
     private readonly userRepo: Repository<User>,
     @InjectRepository(Staff)
     private staffRepo: Repository<Staff>,
-
-    @InjectRepository(UserRole)
-    private readonly userRoleRepo: Repository<UserRole>,
 
     @InjectRepository(RefreshToken)
     private readonly refreshTokenRepo: Repository<RefreshToken>,
@@ -145,9 +141,9 @@ export class AuthService {
 
     const user = await this.userRepo.findOne({
       where: { email: email.toLowerCase() },
-      select: ['id', 'email', 'password', 'isVerified'],
-      relations: ['role'],
     });
+
+    console.log('User found in login:', user);
 
     if (!user) {
       throw new UnauthorizedException('No user');
@@ -167,45 +163,31 @@ export class AuthService {
       throw new UnauthorizedException('user has been suspended');
     }
 
+    let message: string | undefined;
+
+    // Check isBusiness field directly on user (merged from UserRole)
+    if (!user.isBusiness) {
+      message = 'This is not a business account. Kindly create a new business account.';
+      throw new UnauthorizedException(message);
+    }
+
+    console.log('User Role in AuthService:', user);
+
+    const userBusiness = await this.businessRepo.findOne({
+      where: { ownerId: user.id },
+    });
+
+    if (!userBusiness) {
+      message = 'User does not own a business yet. Please create a business.';
+      throw new UnauthorizedException(message);
+    }
+
     const passwordMatch = await this.passwordUtil.comparePassword(
       password,
       user.password,
     );
     if (!passwordMatch) {
       throw new UnauthorizedException('Invalid credentials.');
-    }
-
-    // Check if business user has a business account
-    let message: string | undefined;
-    
-    // If role is not loaded, try to load it explicitly
-    if (!user.role) {
-      const userWithRole = await this.userRepo.findOne({
-        where: { id: user.id },
-        relations: ['role'],
-      });
-      if (userWithRole && userWithRole.role) {
-        user.role = userWithRole.role;
-      }
-    }
-
-    console.log('User role during login:', user.role);
-    
-    if (user.role && user.role.isBusiness) {
-      try {
-        // Use ownerId instead of owner relationship to avoid eager loading issues
-        const existingBusiness = await this.businessRepo.findOne({
-          where: { ownerId: user.id },
-        });
-        if (!existingBusiness) {
-          message = 'User does not own a business yet. Please create a business.';
-        }
-      } catch (error) {
-        console.error('Error checking business ownership:', error);
-        // Don't fail login if business check fails, just log the error
-      }
-    } else if (user.role && (user.role.isAdmin || user.role.isClient || user.role.isSuperAdmin)) {
-      message = 'This is not a business account. Kindly create a new business account.';
     }
 
     const tokens = await getTokens(this.jwtService, user.id, user.email);
@@ -216,26 +198,27 @@ export class AuthService {
     const { password, verificationToken, ...rest } = createUserDto;
     const hashedPassword = await this.passwordUtil.hashPassword(password);
 
-    const newUser = this.userRepo.create({
-      ...(rest as Partial<User>),
-      password: hashedPassword,
-      isVerified: true,
-      suspensionHistory: '.',
-      isSuspended: false,
-    });
+    try {
 
-    const savedUser = await this.userRepo.save(newUser);
+      const newUser = this.userRepo.create({
+        ...(rest as Partial<User>),
+        password: hashedPassword,
+        isVerified: true,
+        suspensionHistory: '.',
+        isSuspended: false,
+        // Set role fields directly on user (merged from UserRole entity)
+        isBusiness: true,
+        isClient: false, // Business users are not regular clients
+      });
 
-    // Create business user role automatically
-    const userRole = this.userRoleRepo.create({
-      isBusiness: true,
-      isClient: false, // Business users are not regular clients
-      user: savedUser, // Properly link the user to the role
-    });
+      const savedUser = await this.userRepo.save(newUser);
 
-    await this.userRoleRepo.save(userRole);
-
-    return savedUser;
+      return savedUser;
+      
+    } catch (error) {
+      console.error('Error creating user:', error);
+      throw new BadRequestException('Failed to create user. Please try again.');
+    }
   }
 
   private async checkExistingUser(

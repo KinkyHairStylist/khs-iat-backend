@@ -75,7 +75,6 @@ export class Business {
 
   @OneToMany(() => Service, (service) => service.business, {
     cascade: true,
-    eager: true,
   })
   serviceList: Service[];
 
@@ -96,7 +95,6 @@ export class Business {
 
   @OneToOne(() => BookingPolicies, (policies) => policies.business, {
     cascade: true,
-    eager: true,
   })
   bookingPolicies: BookingPolicies;
 
@@ -105,7 +103,6 @@ export class Business {
 
   @OneToMany(() => BookingDay, (day) => day.business, {
     cascade: true,
-    eager: true,
   })
   bookingHours: BookingDay[];
 
