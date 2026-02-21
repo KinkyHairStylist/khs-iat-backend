@@ -117,6 +117,15 @@ export class User {
   @Column({ nullable: true, default: 0 })
   latitude: number;
 
+  @Column({ nullable: true })
+  city: string;
+
+  @Column({ nullable: true })
+  state: string;
+
+  @Column({ nullable: true })
+  country: string;
+
   @CreateDateColumn()
   createdAt: Date;
 

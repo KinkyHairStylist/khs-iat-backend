@@ -2,12 +2,16 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import session from 'express-session';
+import express from 'express';
 import { AuthMiddleware } from './middleware/anth.middleware';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { InputSanitizationMiddleware } from './middleware/input-sanitization.middleware';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  app.use(express.json({ limit: '2mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
   // Global Prefix
   app.setGlobalPrefix('api');

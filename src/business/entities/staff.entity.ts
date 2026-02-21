@@ -5,6 +5,7 @@ import {
   ManyToOne,
   JoinColumn,
   OneToMany,
+  ManyToMany,
 } from 'typeorm';
 import { Business } from './business.entity';
 import { Service } from './service.entity';
@@ -79,7 +80,7 @@ export class Staff {
   @Column('simple-array', { nullable: true })
   servicesAssigned: string[];
 
-  @OneToMany(() => Service, (service) => service.assignedStaff)
+  @ManyToMany(() => Service, (service) => service.assignedStaff)
   services: Service[];
 
   @OneToMany(() => Address, (address) => address.staff, {

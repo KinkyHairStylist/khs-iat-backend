@@ -89,6 +89,10 @@ export class AdminController {
         return this.adminService.suspendBusiness(body.id)
     }
 
+    @Post('unsuspendBusiness')
+    async unsuspendBusiness(@Body() body:{ id: string }) {
+        return this.adminService.unsuspendBusiness(body.id)
+    }
 
     @Post('rejectApplication')
     async rejectApplication(@Body() body:{ id: string }) {

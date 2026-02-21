@@ -15,8 +15,9 @@ import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
 
 @ApiTags('Bookings')
 @ApiBearerAuth('access-token')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.Client)
+//  @UseGuards(JwtAuthGuard, RolesGuard)
+ @UseGuards(JwtAuthGuard)
+// @Roles(Role.Client)
 @Controller('/bookings')
 export class BookingController {
   constructor(private bookingService: BookingService) {}

@@ -18,7 +18,7 @@ export class EmergencyContact {
   @Column()
   email: string;
 
-  @Column()
+  @Column({ nullable: true })
   phoneNumber: string;
 
   @ManyToOne(() => Staff, (staff) => staff.emergencyContacts, { onDelete: 'CASCADE' })
