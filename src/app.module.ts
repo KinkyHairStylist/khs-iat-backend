@@ -13,6 +13,8 @@ import { WithdrawalModule } from './admin/withdrawal/withdrawal.module';
 import { WalletModule } from './admin/wallet/wallet.module';
 import { SalonModule } from './user/modules/salon.module';
 import { BookingModule } from './user/modules/booking.module';
+import { BusinessServicesModule } from './user/modules/business-services.module';
+import { FavoriteServiceModule } from './user/modules/favorite-service.module';
 
 import { AppService } from './app.service';
 import { AppController } from './app.controller';
@@ -83,6 +85,8 @@ import { ZohoBooksModule } from './integration/zohobooks.module';
     UserModule,
     SalonModule,
     BookingModule,
+    BusinessServicesModule,
+    FavoriteServiceModule,
     ReferralModule,
     MembershipModule,
     CardModule,

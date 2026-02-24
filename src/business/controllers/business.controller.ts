@@ -2,17 +2,19 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
   Param,
   Post,
+  Put,
   Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
 import { Request } from 'express';
-import { JwtAuthGuard } from '../middlewares/guards/jwt-auth.guard';
+import { JwtAuthGuard } from '../../middleware/jwt-auth.guard';
 import { User } from 'src/all_user_entities/user.entity';
 import { BusinessService } from '../services/business.service';
 import { CreateBusinessDto } from '../dtos/requests/CreateBusinessDto';
@@ -22,11 +24,17 @@ import { CreateBlockedTimeDto } from '../dtos/requests/CreateBlockedTimeDto';
 import { CreateServiceDto } from '../dtos/requests/CreateServiceDto';
 import { CreateStaffDto } from '../dtos/requests/AddStaffDto';
 import { EditStaffDto } from '../dtos/requests/EditStaffDto';
+import { UpdateBusinessCategoryDto } from '../dtos/update-business-category.dto';
+import { RemoveBusinessCategoriesDto } from '../dtos/remove-business-categories.dto';
+import { UpdateServiceDto } from '../dtos/update-service.dto';
+import { DeleteServiceDto } from '../dtos/delete-service.dto';
+import { AssignStaffToServiceDto } from '../dtos/assign-staff-to-service.dto';
 import { RolesGuard } from 'src/middleware/roles.guard';
 import { Role } from 'src/middleware/role.enum';
 import { Roles } from 'src/middleware/roles.decorator';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {EmailService} from "../../email/email.service";
+import { BusinessCategory, BUSINESS_CATEGORIES } from '../types/category.enum';
 
 interface RequestWithUser extends Request {
   user: User;
@@ -248,8 +256,10 @@ export class BusinessController {
 
   }
 
-  @Public()
   @Post('create')
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.Client, Role.Business)
   @HttpCode(HttpStatus.CREATED)
   async create(
     @Body() createBusinessDto: CreateBusinessDto,
@@ -283,11 +293,104 @@ export class BusinessController {
     return this.businessService.getBookingPoliciesConfiguration();
   }
 
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.Client, Role.Business, Role.SuperAdmin, Role.Staff)
+  @Get('has-business')
+  async hasBusiness(@Req() req: RequestWithUser) {
+    const user = req.user;
+    return this.businessService.hasBusiness(user.id);
+  }
+
   @Get('/ping')
   ping() {
     console.log('yo');
     return 'server is live';
   }
 
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.Business, Role.SuperAdmin, Role.Staff)
+  @Get('owner-details')
+  async getBusinessOwnerDetails(@Req() req: RequestWithUser) {
+    const user = req.user;
+    return this.businessService.getBusinessOwnerDetails(user.id);
+  }
 
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.Business, Role.SuperAdmin, Role.Staff)
+  @Get('business-details')
+  async getBusinessDetails(@Req() req: RequestWithUser) {
+    const user = req.user;
+    return this.businessService.getBusinessDetails(user.id);
+  }
+
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.Business, Role.SuperAdmin, Role.Staff)
+  @Get('categories')
+  @HttpCode(HttpStatus.OK)
+  getCategories() {
+    return BUSINESS_CATEGORIES;
+  }
+
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.Business, Role.SuperAdmin, Role.Staff)
+  @Post('update-category')
+  async updateBusinessCategory(
+    @Req() req: RequestWithUser,
+    @Body() body: UpdateBusinessCategoryDto
+  ) {
+    const user = req.user;
+    return this.businessService.updateBusinessCategory(user.id, body.categories);
+  }
+
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.Business, Role.SuperAdmin, Role.Staff)
+  @Post('remove-categories')
+  async removeBusinessCategories(
+    @Req() req: RequestWithUser,
+    @Body() body: RemoveBusinessCategoriesDto
+  ) {
+    const user = req.user;
+    return this.businessService.removeBusinessCategories(user.id, body.categoriesToRemove);
+  }
+
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.Business, Role.SuperAdmin, Role.Staff)
+  @Put('update-service/:serviceId')
+  async updateService(
+    @Param('serviceId') serviceId: string,
+    @Req() req: RequestWithUser,
+    @Body() body: UpdateServiceDto
+  ) {
+    return this.businessService.updateService(serviceId, body);
+  }
+
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.Business, Role.SuperAdmin, Role.Staff)
+  @Delete('delete-service/:serviceId')
+  async deleteService(
+    @Param('serviceId') serviceId: string,
+    @Req() req: RequestWithUser,
+    @Body() body: DeleteServiceDto
+  ) {
+    return this.businessService.deleteService(body);
+  }
+
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.Business, Role.SuperAdmin, Role.Staff)
+  @Post('assign-staff-to-service')
+  async assignStaffToService(
+    @Req() req: RequestWithUser,
+    @Body() body: AssignStaffToServiceDto
+  ) {
+    return this.businessService.assignStaffToService(body);
+  }
 }

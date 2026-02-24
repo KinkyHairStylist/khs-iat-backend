@@ -2,12 +2,12 @@ import { Controller, Post, Body, Get, UseGuards, Patch, Param, Delete } from '@n
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 
 import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
+import { RolesGuard } from 'src/middleware/roles.guard';
 import { GetUser } from 'src/middleware/get-user.decorator';
 import { User } from 'src/all_user_entities/user.entity';
 import { CardService } from '../services/card.service';
 import { CreateCardDto } from '../dtos/create-card.dto';
 import { Role } from 'src/middleware/role.enum';
-import { RolesGuard } from 'src/middleware/roles.guard';
 import { Roles } from 'src/middleware/roles.decorator';
 
 

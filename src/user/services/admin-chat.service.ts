@@ -5,7 +5,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { ChatMessage } from 'src/all_user_entities/chat-message.entity';
 import { UserStatus } from 'src/all_user_entities/user-status.entity';
 import { User } from 'src/all_user_entities/user.entity';
-import { UserRole } from 'src/all_user_entities/user-role.entity';
 import { AdminChatMessageResponseDto, ChatUserInfoDto, AdminDto } from '../dtos/send-admin-message.dto';
 import { Appointment } from 'src/business/entities/appointment.entity';
 import { Business } from 'src/business/entities/business.entity';
@@ -14,16 +13,13 @@ import { Business } from 'src/business/entities/business.entity';
 export class AdminChatService {
   constructor(
     @InjectRepository(ChatMessage)
-    private chatRepo: Repository<ChatMessage>,
+    private chatRepo: Repository< ChatMessage>,
 
     @InjectRepository(UserStatus)
     private statusRepo: Repository<UserStatus>,
 
     @InjectRepository(User)
     private userRepo: Repository<User>,
-
-    @InjectRepository(UserRole)
-    private userRoleRepo: Repository<UserRole>,
 
     @InjectRepository(Appointment)
     private appointmentRepo: Repository<Appointment>,
@@ -95,14 +91,13 @@ export class AdminChatService {
 
   // Get all admins
   async getAllAdmins(): Promise<AdminDto[]> {
-    const users = await this.userRepo
-      .createQueryBuilder('user')
-      .leftJoinAndSelect('user.role', 'role')
-      .where('role.isAdmin = :isAdmin OR role.isSuperAdmin = :isSuperAdmin', {
-        isAdmin: true,
-        isSuperAdmin: true
-      })
-      .getMany();
+    // Use role fields directly from user entity (merged from UserRole)
+    const users = await this.userRepo.find({
+      where: [
+        { isAdmin: true } as any,
+        { isSuperAdmin: true } as any,
+      ],
+    });
 
     const adminDtos: AdminDto[] = [];
 
@@ -160,11 +155,10 @@ export class AdminChatService {
     adminId: string
   ): Promise<AdminChatMessageResponseDto[]> {
 
-    // Verify admin exists and is actually an admin
+    // Verify admin exists and is actually an admin - use role fields directly from user
     const adminUser = await this.userRepo
       .createQueryBuilder('user')
-      .leftJoinAndSelect('user.role', 'role')
-      .where('user.id = :adminId AND (role.isAdmin = :isAdmin OR role.isSuperAdmin = :isSuperAdmin)', {
+      .where('user.id = :adminId AND (user.isAdmin = :isAdmin OR user.isSuperAdmin = :isSuperAdmin)', {
         adminId,
         isAdmin: true,
         isSuperAdmin: true

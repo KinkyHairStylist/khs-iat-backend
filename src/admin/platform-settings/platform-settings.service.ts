@@ -17,10 +17,75 @@ export class PlatformSettingsService {
     private readonly repo: Repository<PlatformSettingsEntity>,
   ) {}
 
-  /** Fetch settings or throw if none found */
+  /** Default settings configuration */
+  private getDefaultSettings(): PlatformSettingsEntity {
+    const settings = new PlatformSettingsEntity();
+    settings.general = {
+      platformName: 'Kinky Hair Stylist',
+      platformUrl: 'https://kinkyhairstylist.com',
+      platformDescription: 'Hair styling platform',
+      supportEmail: 'support@kinkyhairstylist.com',
+      contactPhone: '',
+      userRegistration: true,
+      businessRegistration: true,
+      maintenanceMode: false,
+    };
+    settings.notifications = {
+      email: {
+        newUserRegistration: true,
+        businessApplications: true,
+        paymentFailures: true,
+        systemAlerts: true,
+      },
+      push: {
+        supportTickets: true,
+        contentReports: true,
+      },
+    };
+    settings.payments = {
+      platformFee: 5, // Default 5% platform fee
+      minWithdrawal: 10,
+      methods: {
+        creditCard: true,
+        paypal: false,
+        bankTransfers: true,
+      },
+      payoutSchedule: 'Weekly',
+    };
+    settings.features = {
+      user: {
+        reviewsAndRatings: true,
+        giftCards: true,
+        loyaltyProgram: false,
+        referralSystem: true,
+      },
+      business: {
+        onlineBooking: true,
+        staffManagement: true,
+        inventoryManagement: false,
+      },
+    };
+    settings.integrations = {
+      paymentGateways: {
+        stripe: { enabled: false, key: '', description: '' },
+        paypal: { enabled: false, key: '', description: '' },
+      },
+      communication: {
+        twilio: { enabled: false, key: '', description: '' },
+        sendgrid: { enabled: false, key: '', description: '' },
+      },
+    };
+    return settings;
+  }
+
+  /** Fetch settings or create default if none found */
   private async getSettings() {
-    const settings = await this.repo.findOne({ where: {} }); // ✅ correct for TypeORM 0.3+
-    if (!settings) throw new NotFoundException('Platform settings not found');
+    let settings = await this.repo.findOne({ where: {} });
+    if (!settings) {
+      // Create default settings if none exist
+      settings = this.getDefaultSettings();
+      settings = await this.repo.save(settings);
+    }
     return settings;
   }
 

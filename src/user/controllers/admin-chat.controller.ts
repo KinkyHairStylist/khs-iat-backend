@@ -4,11 +4,11 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../middleware/jwt-auth.guard';
 import { Roles } from '../../middleware/roles.decorator';
 import { Role } from '../../middleware/role.enum';
+import { RolesGuard } from 'src/middleware/roles.guard';
 import { AdminChatService } from '../services/admin-chat.service';
 import { AdminChatGateway } from '../admin-chat.gateway';
 import { CloudinaryService } from '../../helpers/cloudinary-massage-image-helper';
 import { User } from '../../all_user_entities/user.entity';
-import { RolesGuard } from '../../middleware/roles.guard';
 import { SendAdminMessageDto, AdminChatMessageResponseDto, AdminDto } from '../dtos/send-admin-message.dto';
 import { GetUser } from '../../middleware/get-user.decorator';
 

@@ -6,6 +6,8 @@ import {
   UseGuards,
   Request,
 } from '@nestjs/common';
+
+import { RolesGuard } from 'src/middleware/roles.guard';
 import { UserPreferencesService } from '../services/preferences.service';
 import { UpdateUserPreferencesDto } from '../dtos/update-user-preferences.dto';
 import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
@@ -15,18 +17,17 @@ import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 
 @ApiTags('User Preferences')
 @ApiBearerAuth("access-token")
+  @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('user/preferences')
 export class UserPreferencesController {
   constructor(private readonly preferencesService: UserPreferencesService) {}
 
   @Get()
-  @UseGuards(JwtAuthGuard)
   async getUserPreferences(@GetUser() user: User) {
     return this.preferencesService.getUserPreferences(user);
   }
 
   @Put()
-  @UseGuards(JwtAuthGuard)
   async updateUserPreferences(
     @GetUser() user: User,
     @Body() dto: UpdateUserPreferencesDto,

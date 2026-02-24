@@ -1,5 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, OneToOne } from 'typeorm';
-import { User } from './user.entity';
+import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
 
 @Entity({ name: 'user_role' })
 export class UserRole {
@@ -26,9 +25,4 @@ export class UserRole {
 
   @Column({ default: false })
   isBusinessAdmin: boolean;
-
-
-
-  @OneToOne(() => User, (user) => user.role)
-  user: User;
 }

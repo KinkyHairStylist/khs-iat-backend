@@ -32,6 +32,9 @@ export class AdvertisementPlan {
   @Column({ nullable: true })
   boost: string;
 
+  @Column({ nullable: true })
+  durationDays: number;
+
   @CreateDateColumn()
   createdAt: Date;
 

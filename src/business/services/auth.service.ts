@@ -9,7 +9,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { User } from '../../all_user_entities/user.entity';
-import { UserRole } from '../../all_user_entities/user-role.entity';
 import { RefreshToken } from '../entities/refresh.token.entity';
 import { CreateUserDto } from '../dtos/requests/CreateUserDto';
 import { LoginDto } from '../dtos/requests/LoginDto';
@@ -22,9 +21,9 @@ import { Gender } from '../types/constants';
 import { RequestPhoneOtpDto } from '../dtos/requests/RequestPhoneOtpDto';
 import { VerifyPhoneOtpDto } from '../dtos/requests/VerifyPhoneOtpDto';
 import {Staff} from "../entities/staff.entity";
-import {UserRole} from "../../all_user_entities/user-role.entity";
 import { Business } from '../entities/business.entity';
 import { BusinessService } from './business.service';
+import { getTokens } from '../../helpers/token.helper';
 import { CompanySize } from '../types/constants';
 
 export interface TokenPair {
@@ -39,9 +38,6 @@ export class AuthService {
     private readonly userRepo: Repository<User>,
     @InjectRepository(Staff)
     private staffRepo: Repository<Staff>,
-
-    @InjectRepository(UserRole)
-    private readonly userRoleRepo: Repository<UserRole>,
 
     @InjectRepository(RefreshToken)
     private readonly refreshTokenRepo: Repository<RefreshToken>,
@@ -93,7 +89,7 @@ export class AuthService {
 
     const user = await this.createUser(processedDto);
 
-    return this.getTokens(user.id, user.email);
+    return getTokens(this.jwtService, user.id, user.email);
   }
 
   async refreshTokens(
@@ -134,19 +130,20 @@ export class AuthService {
     }
 
     await this.refreshTokenRepo.delete(storedToken.id);
-    return this.getTokens(user.id, user.email);
+
+    return getTokens(this.jwtService, user.id, user.email);
   }
 
   async login(
     loginDto: LoginDto,
-  ): Promise<{ accessToken: string; refreshToken: string; message?: string }> {
+  ): Promise<{ accessToken: string; refreshToken: string; message?: string; role?: any; settings?: any }> {
     const { email, password } = loginDto;
 
     const user = await this.userRepo.findOne({
       where: { email: email.toLowerCase() },
-      select: ['id', 'email', 'password', 'isVerified'],
-      relations:['role'],
     });
+
+    console.log('User found in login:', user);
 
     if (!user) {
       throw new UnauthorizedException('No user');
@@ -166,6 +163,23 @@ export class AuthService {
       throw new UnauthorizedException('user has been suspended');
     }
 
+    let message: string | undefined;
+
+    // Check isBusiness field directly on user (merged from UserRole)
+    if (!user.isBusiness) {
+      message = 'This is not a business account. Kindly create a new business account.';
+      throw new UnauthorizedException(message);
+    }
+
+    const userBusiness = await this.businessRepo.findOne({
+      where: { ownerId: user.id },
+    });
+
+    if (!userBusiness) {
+      message = 'User does not own a business yet. Please create a business.';
+      throw new UnauthorizedException(message);
+    }
+
     const passwordMatch = await this.passwordUtil.comparePassword(
       password,
       user.password,
@@ -174,46 +188,51 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials.');
     }
 
-    // Check if business user has a business account
-    let message: string | undefined;
-    if (user.role?.isBusiness) {
-      const existingBusiness = await this.businessRepo.findOne({
-        where: { owner: { id: user.id } },
-      });
-      if (!existingBusiness) {
-        message = 'User does not own a business yet. Please create a business.';
-      }
-    }
-
-    const tokens = await this.getTokens(user.id, user.email);
-    return { ...tokens, message };
+    const tokens = await getTokens(this.jwtService, user.id, user.email);
+    
+    // Return role information for frontend - create role object from user fields
+    const role = {
+      isSuperAdmin: user.isSuperAdmin,
+      isAdmin: user.isAdmin,
+      isBusiness: user.isBusiness,
+      isClient: user.isClient,
+      isStaff: user.isStaff,
+      isManager: user.isManager,
+      isBusinessAdmin: user.isBusinessAdmin,
+    };
+    
+    return { 
+      ...tokens, 
+      message,
+      role
+    };
   }
 
   private async createUser(createUserDto: CreateUserDto): Promise<User> {
     const { password, verificationToken, ...rest } = createUserDto;
     const hashedPassword = await this.passwordUtil.hashPassword(password);
 
-    const newUser = this.userRepo.create({
-      ...(rest as Partial<User>),
-      password: hashedPassword,
-      isVerified: true,
-      suspensionHistory: '.',
-      isSuspended: false,
-    });
+    try {
 
-    const savedUser = await this.userRepo.save(newUser);
+      const newUser = this.userRepo.create({
+        ...(rest as Partial<User>),
+        password: hashedPassword,
+        isVerified: true,
+        suspensionHistory: '.',
+        isSuspended: false,
+        // Set role fields directly on user (merged from UserRole entity)
+        isBusiness: true,
+        isClient: false, // Business users are not regular clients
+      });
 
-    // Create business user role automatically
-    const userRole = this.userRoleRepo.create({
-      isBusiness: true,
-      isClient: false, // Business users are not regular clients
-    });
-    // @ts-ignore
-    userRole.user = savedUser;
+      const savedUser = await this.userRepo.save(newUser);
 
-    await this.userRoleRepo.save(userRole);
-
-    return savedUser;
+      return savedUser;
+      
+    } catch (error) {
+      console.error('Error creating user:', error);
+      throw new BadRequestException('Failed to create user. Please try again.');
+    }
   }
 
   private async checkExistingUser(
@@ -240,34 +259,6 @@ export class AuthService {
     await this.userRepo.update(userId, { isVerified: true });
   }
 
-  async getTokens(
-    userId: string,
-    email: string,
-  ): Promise<{ accessToken: string; refreshToken: string }> {
-    const payload = { sub: userId, email };
-
-    const [accessToken, refreshToken] = await Promise.all([
-      this.jwtService.signAsync(payload, {
-        secret: process.env.JWT_ACCESS_SECRET,
-        expiresIn: '2d',
-      }),
-      this.jwtService.signAsync(payload, {
-        secret: process.env.JWT_ACCESS_SECRET,
-        expiresIn: '7d',
-      }),
-    ]);
-
-    const tokenHash = await this.passwordUtil.hashPassword(refreshToken);
-    await this.refreshTokenRepo.delete({ user: { id: userId } });
-
-    const newRefreshToken = this.refreshTokenRepo.create({
-      user: { id: userId },
-      tokenHash,
-    });
-    await this.refreshTokenRepo.save(newRefreshToken);
-
-    return { accessToken, refreshToken };
-  }
 
   async requestPasswordReset(
     forgotPasswordDto: ForgotPasswordDto,
@@ -410,47 +401,6 @@ export class AuthService {
       where: { email: email.toLowerCase() },
       select: ['id', 'email', 'password', 'isVerified', 'phoneNumber'],
     });
-  }
-
-  async getTokensAndRoles(
-      userId: string,
-      email: string,
-      role: UserRole,
-  ) {
-    const payload = { sub: userId, email };
-
-    const [accessToken, refreshToken] = await Promise.all([
-      this.jwtService.signAsync(payload, {
-        secret: process.env.JWT_ACCESS_SECRET,
-        expiresIn: '2d',
-      }),
-      this.jwtService.signAsync(payload, {
-        secret: process.env.JWT_ACCESS_SECRET,
-        expiresIn: '7d',
-      }),
-    ]);
-
-    const tokenHash = await this.passwordUtil.hashPassword(refreshToken);
-    await this.refreshTokenRepo.delete({ user: { id: userId } });
-
-    const newRefreshToken = this.refreshTokenRepo.create({
-      user: { id: userId },
-      tokenHash,
-    });
-    await this.refreshTokenRepo.save(newRefreshToken);
-
-
-    const staff = await this.staffRepo.findOne({
-      where: { email: email.toLowerCase() },
-    });
-
-    if(!staff && !role.isBusiness){throw new BadRequestException('Invalid user');}
-
-    if(role.isBusiness) return {accessToken,refreshToken,role:role}
-
-    if(!staff?.settings){throw new BadRequestException('Invalid user');}
-
-    return { accessToken, refreshToken, role:role, settings:staff.settings };
   }
 
 }

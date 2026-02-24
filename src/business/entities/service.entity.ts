@@ -7,12 +7,15 @@ import {
   UpdateDateColumn,
   JoinColumn,
   OneToMany,
+  ManyToMany
 } from 'typeorm';
 
 import { Business } from './business.entity';
 import { Staff } from './staff.entity';
 import { AdvertisementPlan } from './advertisement-plan.entity';
 import { Appointment } from './appointment.entity'
+import { BusinessCategory } from '../types/category.enum';
+import { ServiceType } from '../types/service-type.enum';
 
 @Entity('Service')
 export class Service {
@@ -22,8 +25,11 @@ export class Service {
   @Column({ nullable: true })
   name: string;
 
-  @Column({ nullable: true })
-  category: string;
+  @Column({ type: 'enum', enum: BusinessCategory, nullable: true })
+  category: BusinessCategory;
+
+  @Column({ type: 'enum', enum: ServiceType, nullable: true })
+  serviceType: ServiceType;
 
   @Column({ nullable: true })
   description: string;
@@ -44,12 +50,11 @@ export class Service {
   @ManyToOne(() => Business, (business) => business.serviceList, { nullable: true })
   business: Business;
 
-  @ManyToOne(() => Staff, (staff) => staff.services, {
+  @ManyToMany(() => Staff, (staff) => staff.services, {
     onDelete: 'SET NULL',
     nullable: true,
-    eager: true,
   })
-  assignedStaff: Staff;
+  assignedStaff: Staff[];
 
   @CreateDateColumn()
   createdAt: Date;

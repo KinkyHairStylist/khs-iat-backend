@@ -9,21 +9,20 @@ import { User } from '../../all_user_entities/user.entity';
 import { Referral } from '../user_entities/referrals.entity';
 import { Article } from 'src/all_user_entities/article.entity';
 import { Refund } from '../user_entities/refund.entity';
-// import { SupportTicket } from 'src/all_user_entities/support-ticket.entity';
-// import { LiveChatMessage } from 'src/all_user_entities/user_status.entity';
+import { UserAddress } from '../user_entities/address.entity';
 
 import { UserController } from '../controllers/user.controller';
 import { GiftCardController } from '../controllers/gift-card.controller';
 import { ArticleController } from '../controllers/article.controller';
 import { TransactionController } from '../controllers/transaction.controller';
-// import { TicketController } from '../controllers/ticket.controller';
+import { AddressController } from '../controllers/address.controller';
 import { UserProfileController } from '../controllers/user-profile.controller';
 
 import { UserService } from '../services/user.service';
 import { GiftCardService } from '../services/gift-card.service';
 import { ArticleService } from '../services/article.service';
 import { TransactionService } from '../services/transaction.service';
-// import { TicketService } from '../services/ticket.service';
+import { AddressService } from '../services/address.service';
 import { UserProfileService } from '../services/user-profile.service';
 
 import { EmailValidationMiddleware } from '../../middleware/email-validation.middleware';
@@ -35,10 +34,9 @@ import { CloudinaryModule } from './cloudinary.module';
 import { PreferencesModule } from './preferences.module';
 import { PasswordUtil } from 'src/business/utils/password.util';
 import { PaystackService } from 'src/payment/paystack.service';
-import { BusinessModule } from 'src/business/business.module'; // <-- import BusinessModule
-import { BusinessWalletModule } from 'src/business/wallet.module'; // <-- import BusinessWalletModule directly
+import { BusinessModule } from 'src/business/business.module';
+import { BusinessWalletModule } from 'src/business/wallet.module';
 import { PlatformSettingsModule } from '../../admin/platform-settings/platform-settings.module';
-import { UserRole } from '../../all_user_entities/user-role.entity';
 import { AdminChatModule } from './admin-chat.module';
 
 @Module({
@@ -49,11 +47,9 @@ import { AdminChatModule } from './admin-chat.module';
       BusinessGiftCard,
       Card,
       Article,
-      // SupportTicket,
-      // LiveChatMessage,
       Transaction,
       Refund,
-      UserRole,
+      UserAddress,
     ]),
     forwardRef(() => BusinessModule),
     BusinessWalletModule,
@@ -71,6 +67,7 @@ import { AdminChatModule } from './admin-chat.module';
     GiftCardController,
     ArticleController,
     TransactionController,
+    AddressController,
     // TicketController,
     UserProfileController,
   ],
@@ -80,6 +77,7 @@ import { AdminChatModule } from './admin-chat.module';
     GiftCardService,
     ArticleService,
     TransactionService,
+    AddressService,
     // TicketService,
     UserProfileService,
     PasswordUtil,
