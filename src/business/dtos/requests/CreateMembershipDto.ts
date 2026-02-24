@@ -2,10 +2,11 @@ import {
     IsString,
     IsNotEmpty,
     IsNumber,
-    IsOptional,
+    Min,
     IsBoolean,
     IsArray,
     IsEnum,
+    IsInt,
 } from 'class-validator';
 import { BillingCycle } from '../../entities/membership.entity';
 
@@ -19,25 +20,34 @@ export class CreateMembershipPlanDto {
     tier: string;
 
     @IsNumber()
+    @Min(0)
     price: number;
 
     @IsString()
-    @IsOptional()
-    description?: string;
+    @IsNotEmpty()
+    description: string;
+
+    @IsNumber()
+    @Min(0)
+    saving: number;
+
+    @IsInt()
+    @Min(0)
+    sessions: number;
+
+    @IsInt()
+    @Min(0)
+    activeSubscribers: number;
 
     @IsArray()
-    @IsOptional()
-    features?: string[];
+    features: string[];
 
     @IsBoolean()
-    @IsOptional()
-    autoRenewalEnabled?: boolean;
+    autoRenewalEnabled: boolean;
 
     @IsBoolean()
-    @IsOptional()
-    visibleToPublic?: boolean;
+    visibleToPublic: boolean;
 
     @IsEnum(BillingCycle)
-    @IsOptional()
-    billingCycle?: BillingCycle;
+    billingCycle: BillingCycle;
 }

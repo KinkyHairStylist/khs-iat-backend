@@ -3,24 +3,16 @@ import {
   Get,
   Param,
   Query,
-  UseGuards,
   UseInterceptors,
   ClassSerializerInterceptor,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 
-import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
-import { RolesGuard } from 'src/middleware/roles.guard';
-import { Role } from 'src/middleware/role.enum';
-import { Roles } from 'src/middleware/roles.decorator';
 import { SalonService } from '../services/salon.service';
 import { CacheInterceptor } from '../../cache/cache.interceptor';
 
 @ApiTags('Salons')
 @Controller('salons')
-@ApiBearerAuth('access-token')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.Client)
 @UseInterceptors(ClassSerializerInterceptor)
 export class SalonController {
   constructor(private readonly salonService: SalonService) {}
@@ -89,6 +81,13 @@ export class SalonController {
     return this.salonService.getServices(category);
   }
 
+  @Get('services/:businessId')
+  @ApiOperation({ summary: 'Get all services for a business by business ID' })
+  @ApiResponse({ status: 200, description: 'Return list of services' })
+  async getServicesByBusinessId(@Param('businessId') businessId: string) {
+    return this.salonService.getServicesByBusinessId(businessId);
+  }
+  
   @Get(':id')
   @ApiOperation({ summary: 'Get business by ID with services & available times' })
   @ApiResponse({ status: 200, description: 'Return business details' })
@@ -99,10 +98,5 @@ export class SalonController {
     return this.salonService.getBusinessById(id);
   }
 
-  @Get('services/:businessId')
-  @ApiOperation({ summary: 'Get all services for a business by business ID' })
-  @ApiResponse({ status: 200, description: 'Return list of services' })
-  async getServicesByBusinessId(@Param('businessId') businessId: string) {
-    return this.salonService.getServicesByBusinessId(businessId);
-  }
+
 }

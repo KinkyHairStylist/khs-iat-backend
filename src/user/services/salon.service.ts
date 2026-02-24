@@ -108,6 +108,13 @@ export class SalonService {
   const offset = (page - 1) * limit;
   const [data, total] = await query.skip(offset).take(limit).getManyAndCount();
 
+  // Load services separately to avoid join issues with pagination
+  for (const business of data) {
+    business.serviceList = await this.serviceRepo.find({
+      where: { business: { id: business.id } },
+    });
+  }
+
   return { data, total, page, limit };
 }
 

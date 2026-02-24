@@ -5,6 +5,7 @@ import {
   Matches,
   IsOptional,
   IsEnum,
+  IsNumber
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { Role } from '../../middleware/role.enum';
@@ -126,6 +127,25 @@ export class SignUpDto {
   @IsString()
   @IsOptional()
   referralCode?: string;
+
+  // 📍 Location fields
+  @ApiProperty({
+    example: 6.5244,
+    description: 'User latitude (optional)',
+    required: false,
+  })
+  @IsNumber()
+  @IsOptional()
+  latitude?: number;
+
+  @ApiProperty({
+    example: 3.3792,
+    description: 'User longitude (optional)',
+    required: false,
+  })
+  @IsNumber()
+  @IsOptional()
+  longitude?: number;
 }
 /**
  * @description DTO for user login.

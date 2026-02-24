@@ -8,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import sgMail from '@sendgrid/mail';
+import axios from 'axios';
 
 import { User } from '../../all_user_entities/user.entity';
 import {
@@ -68,6 +69,40 @@ export class UserService {
   private generateCode(): string {
     return Math.floor(10000 + Math.random() * 90000).toString();
   }
+
+  private async updateUserLocation(userId: string, lng: number, lat: number) {
+    try {
+      const response = await axios.get('https://nominatim.openstreetmap.org/reverse', {
+        params: {
+          format: 'jsonv2',
+          lat,
+          lon: lng,
+        },
+        timeout: 5000,
+        headers: {
+          'User-Agent': 'KHS-App/1.0 (support@khs.com)',
+        },
+      });
+
+      const address = response.data?.address ?? {};
+      const city = address.city || address.town || address.village || null;
+      const state = address.state || null;
+      const country = address.country || null;
+
+      await this.userRepository.update(userId, {
+        city,
+        state,
+        country,
+        latitude: lat,
+        longitude: lng,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('Location lookup failed:', message);
+    }
+  }
+
+
 
   private async sendVerificationEmail(
     email: string,
@@ -204,6 +239,8 @@ export class UserService {
       phoneNumber,
       gender,
       referralCode,
+      longitude,
+      latitude,
     } = dto;
 
     const user = await this.userRepository.findOne({ where: { email } });
@@ -222,6 +259,14 @@ export class UserService {
     user.surname = surname;
     user.phoneNumber = phoneNumber;
     user.gender = gender as Gender;
+    if (typeof longitude === 'number') {
+      user.longitude = longitude;
+    }
+
+    if (typeof latitude === 'number') {
+      user.latitude = latitude;
+    }
+
 
     // Generate referral code for the new user
     user.referralCode = await this.referralService.ensureReferralCode(user.id);
@@ -229,6 +274,19 @@ export class UserService {
     // isClient defaults to true, so no need to set it explicitly
 
     await this.userRepository.save(user);
+
+
+    if (
+      typeof longitude === 'number' &&
+      typeof latitude === 'number' &&
+      latitude !== 0 &&
+      longitude !== 0
+    ) {
+      await this.updateUserLocation(user.id, user.longitude, user.latitude);
+    }
+
+
+
 
     // If a referral code was used, complete the referral and reward the referrer
     if (referralCode) {
@@ -275,6 +333,9 @@ export class UserService {
     if (!isMatch) {
       throw new UnauthorizedException('Invalid email or password');
     }
+
+    user.activity = new Date().toISOString();
+    await this.userRepository.save(user);
 
     const { accessToken, refreshToken } = await getTokens(
       this.jwtService,

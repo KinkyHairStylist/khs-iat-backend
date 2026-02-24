@@ -15,7 +15,7 @@ export class EmergencyContactSchema {
     @PrimaryGeneratedColumn('uuid')
     id: string;
 
-    @Column({ name: 'client_id' })
+    @Column({ name: 'client_id', nullable: true })
     clientId: string;
 
     @ManyToOne(() => ClientSchema, { onDelete: 'CASCADE' })

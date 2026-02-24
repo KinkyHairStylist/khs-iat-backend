@@ -36,12 +36,32 @@ export class ModerationService {
 
   // Get all flagged content
   async getFlaggedContent() {
-    // Fetch existing records
     const records = await this.flaggedRepo.find({
+      relations: ['reporter', 'reported'],
       order: { createdAt: 'DESC' },
     });
 
-    return records;
+    return records.map((record) => ({
+      id: record.id,
+      ref: record.ref,
+      type: record.type,
+      preview: record.preview,
+      reporter:
+        record.reporter
+          ? `${record.reporter.firstName ?? ''} ${record.reporter.surname ?? ''}`.trim() ||
+            record.reporter.email
+          : null,
+      reported:
+        record.reported
+          ? `${record.reported.firstName ?? ''} ${record.reported.surname ?? ''}`.trim() ||
+            record.reported.email
+          : 'No Name',
+      reporterType: record.reporterType,
+      reason: record.reason,
+      severity: record.severity,
+      status: record.status,
+      createdAt: record.createdAt,
+    }));
   }
 
 
