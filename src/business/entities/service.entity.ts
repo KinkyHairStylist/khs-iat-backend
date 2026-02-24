@@ -7,8 +7,7 @@ import {
   UpdateDateColumn,
   JoinColumn,
   OneToMany,
-  ManyToMany,
-  JoinTable,
+  ManyToMany
 } from 'typeorm';
 
 import { Business } from './business.entity';
@@ -55,7 +54,6 @@ export class Service {
     onDelete: 'SET NULL',
     nullable: true,
   })
-  @JoinTable()
   assignedStaff: Staff[];
 
   @CreateDateColumn()
@@ -65,6 +63,5 @@ export class Service {
   updatedAt: Date;
 
   @OneToMany(() => Appointment, (appointment) => appointment.service,{nullable: true})
-  @JoinColumn({ name: 'service_id' })
   appointments: Appointment[];
 }

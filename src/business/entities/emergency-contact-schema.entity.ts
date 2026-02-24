@@ -10,7 +10,7 @@ import {
 import { ClientSchema } from './client.entity';
 import { Staff } from './staff.entity';
 
-@Entity('emergency_contacts')
+@Entity('emergency_contacts_schema')
 export class EmergencyContactSchema {
     @PrimaryGeneratedColumn('uuid')
     id: string;

@@ -163,6 +163,7 @@ export class GiftCardService {
 
     if (!verification || verification.status !== 'success') {
       const meta = verification.metadata;
+      console.log('Payment verification failed for reference:', reference, 'Meta:', meta);
       const giftCardId = meta.giftCardId;
       await this.giftCardRepo.update(
         { id: giftCardId },
@@ -246,9 +247,9 @@ export class GiftCardService {
         businessId: result.giftCard.businessId,
         recipientId: result.giftCard.ownerId!,
         senderId: meta.purchaserId,
-        amount: result.giftCardAmount,
+        amount: result.giftCardAmount, // Convert to minor units
         type: TransactionType.EARNING,
-        description: `Gift card purchase via Paystack`,
+        description: `Business Gift card purchase via Paystack`,
         referenceId: reference,
       });
     } catch (walletError) {

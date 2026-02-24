@@ -12,10 +12,10 @@ export class EmergencyContact {
   @Column({ nullable: true })
   lastName: string;
 
-  @Column()
+  @Column({ nullable: true })
   relationship: string;
 
-  @Column()
+  @Column({ nullable: true })
   email: string;
 
   @Column({ nullable: true })

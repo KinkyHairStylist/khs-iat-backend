@@ -100,4 +100,10 @@ export class Card {
 
   @Column({ default: false })
   isDefault: boolean;
+
+  @Column({ nullable: true })
+  paystackAuthorizationCode?: string; // For Paystack recurring charges
+
+  @Column({ nullable: true })
+  paystackEmail?: string; // Email used for Paystack payment
 }
