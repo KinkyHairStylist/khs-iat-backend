@@ -35,7 +35,6 @@ export class Appointment {
 
   // Client (User)
   @ManyToOne(() => User, (user) => user.clientAppointments, {
-    eager: true,
     onDelete: 'CASCADE',
   })
   @JoinColumn({ name: 'client_id' })
@@ -131,5 +130,5 @@ export class Appointment {
     onDelete: 'SET NULL',
   })
   @JoinColumn({ name: 'service_id' })
-  service?: Service;
+  service: Service;
 }

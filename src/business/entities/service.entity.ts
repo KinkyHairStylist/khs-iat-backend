@@ -7,7 +7,7 @@ import {
   UpdateDateColumn,
   JoinColumn,
   OneToMany,
-  ManyToMany,
+  ManyToMany
 } from 'typeorm';
 
 import { Business } from './business.entity';

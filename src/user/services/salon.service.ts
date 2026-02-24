@@ -125,11 +125,7 @@ export class SalonService {
     const business = await this.businessRepository.findOne({
       where: { id, status: BusinessStatus.APPROVED },
       relations: [
-        'serviceList',
-        'serviceList.assignedStaff',
-        'serviceList.appointments',
-        'bookingHours',
-        'staff',
+        'serviceList'
       ],
     });
 
@@ -143,7 +139,7 @@ export class SalonService {
   async getServicesByBusinessId(businessId: string) {
     return this.serviceRepo.find({
       where: { business: { id: businessId } },
-      relations: ['business', 'assignedStaff', 'advertisementPlan'],
+      relations: ['business'],
     });
   }
 

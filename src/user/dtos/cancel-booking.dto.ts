@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsBoolean } from 'class-validator';
+import { IsOptional, IsString, IsBoolean, IsArray, IsUUID } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CancelBookingDto {
@@ -17,4 +17,15 @@ export class CancelBookingDto {
   })
   @IsBoolean()
   acceptedTerms: boolean;
+
+  @ApiProperty({
+    description: 'List of service IDs to cancel. If not provided, all services in the booking will be cancelled.',
+    example: ['uuid-service-1', 'uuid-service-2'],
+    required: false,
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsUUID('all', { each: true })
+  serviceIds?: string[];
 }

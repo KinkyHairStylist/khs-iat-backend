@@ -136,7 +136,7 @@ export class AuthService {
 
   async login(
     loginDto: LoginDto,
-  ): Promise<{ accessToken: string; refreshToken: string; message?: string }> {
+  ): Promise<{ accessToken: string; refreshToken: string; message?: string; role?: any; settings?: any }> {
     const { email, password } = loginDto;
 
     const user = await this.userRepo.findOne({
@@ -171,8 +171,6 @@ export class AuthService {
       throw new UnauthorizedException(message);
     }
 
-    console.log('User Role in AuthService:', user);
-
     const userBusiness = await this.businessRepo.findOne({
       where: { ownerId: user.id },
     });
@@ -191,7 +189,23 @@ export class AuthService {
     }
 
     const tokens = await getTokens(this.jwtService, user.id, user.email);
-    return { ...tokens, message };
+    
+    // Return role information for frontend - create role object from user fields
+    const role = {
+      isSuperAdmin: user.isSuperAdmin,
+      isAdmin: user.isAdmin,
+      isBusiness: user.isBusiness,
+      isClient: user.isClient,
+      isStaff: user.isStaff,
+      isManager: user.isManager,
+      isBusinessAdmin: user.isBusinessAdmin,
+    };
+    
+    return { 
+      ...tokens, 
+      message,
+      role
+    };
   }
 
   private async createUser(createUserDto: CreateUserDto): Promise<User> {

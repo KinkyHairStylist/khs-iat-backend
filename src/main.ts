@@ -95,15 +95,24 @@ async function bootstrap() {
     '/api/webhook/paypal',
     '/api/payments/verify',
     '/api/business/create',
+    '/api/business/services'
     // Add other public routes here
+  ];
+
+  // Define public route patterns (regex) for parameterized routes
+  const publicRoutePatterns = [
+    /^\/api\/business\/[^/]+\/services$/, // Matches /api/business/:businessId/services
   ];
 
   // Ensure AuthMiddleware protects routes globally, except for public ones
   app.use((req, res, next) => {
     // Check if the request path starts with any of the public routes
     const isPublic = publicRoutes.some((route) => req.path.startsWith(route));
+    
+    // Check if the request path matches any of the public route patterns
+    const matchesPattern = publicRoutePatterns.some((pattern) => pattern.test(req.path));
 
-    if (isPublic) {
+    if (isPublic || matchesPattern) {
       // Skip authentication for public routes
       return next();
     }

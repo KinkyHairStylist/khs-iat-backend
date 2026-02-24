@@ -47,6 +47,7 @@ export class Business {
 
   @ManyToOne(() => User, (user) => user.businesses, {
     onDelete: 'CASCADE',
+    eager: true,
   })
   @JoinColumn({ name: 'owner_id' })
   owner: User;
@@ -95,6 +96,7 @@ export class Business {
 
   @OneToOne(() => BookingPolicies, (policies) => policies.business, {
     cascade: true,
+    eager: true
   })
   bookingPolicies: BookingPolicies;
 
@@ -103,6 +105,7 @@ export class Business {
 
   @OneToMany(() => BookingDay, (day) => day.business, {
     cascade: true,
+    eager: true
   })
   bookingHours: BookingDay[];
 
@@ -141,7 +144,7 @@ export class Business {
     avgResponseMins: number;
   };
 
-  @OneToMany(() => BlockedTimeSlot, (slot) => slot.business, { cascade: true })
+  @OneToMany(() => BlockedTimeSlot, (slot) => slot.business, { cascade: true, eager: true })
   blockedSlots: BlockedTimeSlot[];
 
   @OneToOne(() => Wallet, (wallet) => wallet.business, { cascade: true })
@@ -152,6 +155,7 @@ export class Business {
     (ownerSettings) => ownerSettings.business,
     {
       cascade: true,
+      eager: true
     },
   )
   ownerSettings: BusinessOwnerSettings;

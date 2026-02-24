@@ -38,12 +38,36 @@ export class BookingController {
     return this.bookingService.confirmBooking(confirmBookingDto, user);
   }
 
+  // Complete booking payment (after Paystack callback)
+  @Post('complete')
+  @ApiOperation({ summary: 'Complete booking payment after Paystack callback' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        reference: { type: 'string', example: 'BKG-1739812345678-123456' },
+      },
+    },
+  })
+  @ApiResponse({ status: 200, description: 'Booking completed successfully' })
+  async completeBooking(@Body('reference') reference: string) {
+    return this.bookingService.completeBooking(reference);
+  }
+
   // Get bookings for the authenticated user
   @Get('me')
   @ApiOperation({ summary: 'Get all bookings for the authenticated user' })
   @ApiResponse({ status: 200, description: 'Bookings retrieved successfully' })
   async getMyBookings(@GetUser() user: User) {
     return this.bookingService.getUserBookings(user.id);
+  }
+
+  // Get booking fees
+  @Get('fees')
+  @ApiOperation({ summary: 'Get platform booking fees' })
+  @ApiResponse({ status: 200, description: 'Booking fees retrieved successfully' })
+  async getBookingFees() {
+    return this.bookingService.getBookingFees();
   }
 
   // Get user bookings (admin use - secured by roles)
@@ -62,11 +86,16 @@ export class BookingController {
 
   // Cancel booking
   @Patch(':orderId/cancel')
-  @ApiOperation({ summary: 'Cancel a booking with optional note' })
+  @ApiOperation({ summary: 'Cancel a booking or specific services within a booking' })
   @ApiBody({ type: CancelBookingDto })
   @ApiResponse({ status: 200, description: 'Booking cancelled successfully' })
   async cancelBooking(@Param('orderId') orderId: string, @Body() cancelBookingDto: CancelBookingDto) {
-    return this.bookingService.cancelBooking(orderId, cancelBookingDto.cancellationsNote, cancelBookingDto.acceptedTerms);
+    return this.bookingService.cancelBooking(
+      orderId,
+      cancelBookingDto.cancellationsNote,
+      cancelBookingDto.acceptedTerms,
+      cancelBookingDto.serviceIds,
+    );
   }
 
   // Restore cancelled booking

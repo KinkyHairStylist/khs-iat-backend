@@ -267,12 +267,14 @@ export class BusinessWalletService {
         throw new BadRequestException('Wallet is not active');
       }
 
+      console.log('Amount:', addTransactionDto.amount);
+
       // Create transaction
       const transaction: Transaction = this.transactionRepository.create({
         walletId: wallet.id,
         amount:
           addTransactionDto.type === TransactionType.EARNING
-            ? addTransactionDto.amount / 100
+            ? addTransactionDto.amount
             : addTransactionDto.amount,
         senderId: addTransactionDto.senderId,
         method: addTransactionDto.method,
@@ -301,9 +303,9 @@ export class BusinessWalletService {
       // Update wallet balance
       if (addTransactionDto.type === TransactionType.EARNING) {
         wallet.balance =
-          Number(wallet.balance) + Number(addTransactionDto.amount / 100);
+          Number(wallet.balance) + Number(addTransactionDto.amount);
         wallet.totalIncome =
-          Number(wallet.totalIncome) + Number(addTransactionDto.amount / 100);
+          Number(wallet.totalIncome) + Number(addTransactionDto.amount);
 
         // console.log(`WALLET CREDITED ${addTransactionDto.amount / 100}`);
       } else {

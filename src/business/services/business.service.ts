@@ -396,13 +396,66 @@ export class BusinessService {
 
     const staffEmail = email.toLowerCase().trim();
 
+    // Check if the email belongs to the authenticated user (business owner)
+    if (staffEmail === ownerMail.toLowerCase()) {
+      throw new BadRequestException('You cannot add yourself as staff');
+    }
+
+    // Check if user with this email already exists
     let user = await this.userRepo.findOne({
       where: { email: staffEmail },
     });
 
+    // If user already exists, check if they're already staff at this business
+    if (user) {
+      const existingStaff = await this.staffRepo.findOne({
+        where: { 
+          email: staffEmail,
+          business: { id: business.id }
+        },
+      });
+
+      if (existingStaff) {
+        throw new BadRequestException('This user is already a staff member at your business');
+      }
+    }
+
     let tempPassword: string | undefined;
 
-    if (!user) {
+    // Extract role from settings if provided
+    const staffRole = settings?.role || 'staff';
+    
+    // Map role to user fields:
+    // admin -> isBusinessAdmin
+    // manager -> isManager
+    // staff -> isStaff
+    const roleFields = {
+      isStaff: staffRole === 'staff',
+      isManager: staffRole === 'manager',
+      isBusinessAdmin: staffRole === 'admin',
+    };
+
+    if (user) {
+      // Email exists - update existing user to be staff
+      // Update user details
+      user.firstName = firstName;
+      user.surname = lastName;
+      user.phoneNumber = phoneNumber;
+      if (gender) user.gender = gender.toUpperCase() as any;
+      if (avatar) user.avatarUrl = avatar;
+      
+      // Set role based on settings
+      user.isClient = false;
+      user.isBusiness = false;
+      user.isSuperAdmin = false;
+      user.isAdmin = false;
+      user.isStaff = roleFields.isStaff;
+      user.isManager = roleFields.isManager;
+      user.isBusinessAdmin = roleFields.isBusinessAdmin;
+      
+      await this.userRepo.save(user);
+    } else {
+      // Email does not exist - create new user with password
       // Generate strong random password
       tempPassword =
           Math.random().toString(36).slice(-10) +
@@ -420,9 +473,12 @@ export class BusinessService {
         gender: gender?.toUpperCase() as any,
         isVerified: true,
         avatarUrl: avatar,
-        // Set role fields directly on user (merged from UserRole entity)
-        isStaff: true,
+        // Set role fields directly on user based on settings.role
         isClient: false,
+        isBusiness: false,
+        isSuperAdmin: false,
+        isAdmin: false,
+        ...roleFields,
       });
 
       await this.userRepo.save(newUser);
@@ -438,11 +494,6 @@ export class BusinessService {
         console.error('Failed to send welcome email:', emailError);
         // Don't fail staff creation if email fails
       }
-    } else {
-      // Existing user → ensure they're marked as staff
-      user.isStaff = true;
-      user.isClient = false;
-      await this.userRepo.save(user);
     }
 
     // Create staff profile
@@ -486,11 +537,28 @@ export class BusinessService {
 
     const staff = await this.staffRepo.findOne({
       where: { id: staffId },
-      relations: ['addresses', 'emergencyContacts', 'services'],
+      relations: ['addresses', 'emergencyContacts'],
     });
 
     if (!staff) {
       throw new Error('Staff not found');
+    }
+
+    // If settings contain a role, update the user's role fields
+    if (editStaffDto.settings?.role) {
+      const staffRole = editStaffDto.settings.role;
+      
+      // Find the user by email and update their role
+      const user = await this.userRepo.findOne({
+        where: { email: staff.email },
+      });
+      
+      if (user) {
+        user.isStaff = staffRole === 'staff';
+        user.isManager = staffRole === 'manager';
+        user.isBusinessAdmin = staffRole === 'admin';
+        await this.userRepo.save(user);
+      }
     }
 
     Object.assign(staff, editStaffDto);
