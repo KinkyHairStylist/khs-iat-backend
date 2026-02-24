@@ -368,7 +368,7 @@ export class BookingService {
       paystackInit = await this.paystack.initializePayment({
         email: user.email,
         amount: Math.round(remainingToPay * 100), // Convert to kobo
-        callback_url: `${process.env.NEXT_PUBLIC_BASE_URL}customer/salonListing/${appointments[0].business.id}/payment?${orderId}&reference=${reference}`,
+        callback_url: `${process.env.NEXT_PUBLIC_BASE_URL}customer/salonListing/${appointments[0].business.id}/payment?orderId=${orderId}`,
         metadata: {
           orderId,
           userId: user.id,
