@@ -11,6 +11,7 @@ import { CreateBusinessDto } from '../dtos/requests/CreateBusinessDto';
 import { getBusinessServices } from '../data/business.services';
 import { BookingPoliciesData, BusinessServiceData } from '../types/constants';
 import { getBookingPoliciesConfiguration } from '../data/booking-policies';
+import { BusinessCategory } from '../types/category.enum';
 import {
   Appointment,
   AppointmentStatus,
@@ -23,6 +24,9 @@ import { BookingDay } from '../entities/booking-day.entity';
 import { BlockedTimeSlot } from '../entities/blocked-time-slot.entity';
 import { CreateBlockedTimeDto } from '../dtos/requests/CreateBlockedTimeDto';
 import { CreateServiceDto } from '../dtos/requests/CreateServiceDto';
+import { UpdateServiceDto } from '../dtos/update-service.dto';
+import { DeleteServiceDto } from '../dtos/delete-service.dto';
+import { AssignStaffToServiceDto } from '../dtos/assign-staff-to-service.dto';
 import { Service } from '../entities/service.entity';
 import { AdvertisementPlan } from '../entities/advertisement-plan.entity';
 import { CreateStaffDto } from '../dtos/requests/AddStaffDto';
@@ -35,7 +39,6 @@ import { BusinessWalletService } from './wallet.service';
 import { MailchimpService } from 'src/integration/services/mailchimp.service';
 import { BusinessOwnerSettingsService } from './business-owner-settings.service';
 import { ZohoBooksService } from 'src/integration/services/zohobooks.service';
-import {UserRole} from "../../all_user_entities/user-role.entity";
 import {PasswordUtil} from "../utils/password.util";
 import { promises } from 'dns';
 
@@ -93,16 +96,14 @@ export class BusinessService {
       owner,
     });
 
-    if (!owner.role) {
-      owner.role = new UserRole();
-    }
-    owner.role.isBusiness = true;
+    // Set role fields directly on user (merged from UserRole entity)
+    owner.isBusiness = true;
+    owner.isClient = false;
     await this.userRepo.save(owner);
 
     business.ownerName = owner?.firstName + ' ' + owner?.surname || '';
     business.ownerEmail = owner?.email || '';
     business.ownerPhone = owner?.phoneNumber || '';
-    business.owner.role.isBusiness = owner?.role.isBusiness || false;
 
     await this.businessRepo.save(business);
 
@@ -397,7 +398,6 @@ export class BusinessService {
 
     let user = await this.userRepo.findOne({
       where: { email: staffEmail },
-      relations: ['role'],
     });
 
     let tempPassword: string | undefined;
@@ -420,15 +420,10 @@ export class BusinessService {
         gender: gender?.toUpperCase() as any,
         isVerified: true,
         avatarUrl: avatar,
+        // Set role fields directly on user (merged from UserRole entity)
+        isStaff: true,
+        isClient: false,
       });
-
-      const userRole = new UserRole();
-      userRole.isSuperAdmin = false;
-      userRole.isAdmin = false;
-      userRole.isBusiness = false;
-      userRole.isClient = false;
-      userRole.isStaff = true;
-      newUser.role = userRole;
 
       await this.userRepo.save(newUser);
 
@@ -445,8 +440,8 @@ export class BusinessService {
       }
     } else {
       // Existing user → ensure they're marked as staff
-      if (!user.role) user.role = new UserRole();
-      user.role.isStaff = true;
+      user.isStaff = true;
+      user.isClient = false;
       await this.userRepo.save(user);
     }
 
@@ -478,7 +473,7 @@ export class BusinessService {
       staff.addresses = await this.addressRepo.save(cleanAddresses);
     }
 
-    // Handle assigned services
+    // Handle assigned services 
     if (selectedServices?.length) {
       staff.services = await this.serviceRepo.findByIds(selectedServices);
       await this.staffRepo.save(staff);
@@ -780,13 +775,69 @@ export class BusinessService {
   }
 
   async getAdvertisementPlans() {
-    return this.advertisementPlanRepo.find();
+    const plans = await this.advertisementPlanRepo.find();
+    
+    // If no advertisement plans exist, seed with default plans
+    if (plans.length === 0) {
+      const defaultPlans = [
+        {
+          planName: 'Basic',
+          price: 69.99,
+          durationDays: 30,
+          description: 'Basic service promotion',
+          features: [
+            'Featured in search results',
+            'Basic analytics'
+          ],
+          payable: 'Basic',
+          isRecommended: false,
+          boost: '1.2x'
+        },
+        {
+          planName: 'Premium',
+          price: 99.99,
+          durationDays: 60,
+          description: 'Enhanced service promotion',
+          features: [
+            'Top placement in search',
+            'Detailed analytics',
+            'Social media boost',
+            'Priority support'
+          ],
+          payable: 'Premium',
+          isRecommended: true,
+          boost: '2x'
+        },
+        {
+          planName: 'Elite',
+          price: 149.99,
+          durationDays: 90,
+          description: 'Maximum service exposure',
+          features: [
+            'Premium placement',
+            'Advanced analytics',
+            'Marketing consultation',
+            'Cross-platform promotion',
+            'Dedicated support'
+          ],
+          payable: 'Elite',
+          isRecommended: false,
+          boost: '3.5x'
+        }
+      ];
+
+      const savedPlans = await this.advertisementPlanRepo.save(defaultPlans);
+      return savedPlans;
+    }
+
+    return plans;
   }
 
   async createService(createServiceDto: CreateServiceDto) {
     const {
       userMail,
       category,
+      serviceType,
       images,
       advertisementPlanId,
       assignedStaffId,
@@ -812,13 +863,13 @@ export class BusinessService {
       advertisementPlan = foundPlan;
     }
 
-    let staff: Staff | undefined;
+    let staff: Staff[] = [];
     if (assignedStaffId) {
       const foundStaff = await this.staffRepo.findOne({
         where: { id: assignedStaffId },
       });
       if (!foundStaff) throw new Error('Staff not found');
-      staff = foundStaff;
+      staff = [foundStaff];
     }
 
     const service = this.serviceRepo.create({
@@ -828,12 +879,106 @@ export class BusinessService {
       duration,
       business,
       category,
+      serviceType,
       images,
       advertisementPlan,
       assignedStaff: staff,
     });
 
     return this.serviceRepo.save(service);
+  }
+
+  async updateService(serviceId: string, updateServiceDto: UpdateServiceDto) {
+    const service = await this.serviceRepo.findOne({
+      where: { id: serviceId },
+      relations: ['business']
+    });
+
+    if (!service) {
+      throw new NotFoundException('Service not found');
+    }
+
+    // Check if user has permission to update this service (business owner or staff)
+    // This would typically be handled by the controller with user context
+
+    Object.assign(service, updateServiceDto);
+
+    // Handle advertisement plan
+    if (updateServiceDto.advertisementPlanId) {
+      const advertisementPlan = await this.advertisementPlanRepo.findOne({
+        where: { id: updateServiceDto.advertisementPlanId },
+      });
+      if (!advertisementPlan) throw new Error('Advertisement plan not found');
+      service.advertisementPlan = advertisementPlan;
+    }
+
+    // Handle assigned staff
+    if (updateServiceDto.assignedStaffId) {
+      const staff = await this.staffRepo.findOne({
+        where: { id: updateServiceDto.assignedStaffId },
+      });
+      if (!staff) throw new Error('Staff not found');
+      service.assignedStaff = [staff];
+    }
+
+    return this.serviceRepo.save(service);
+  }
+
+  async deleteService(deleteServiceDto: DeleteServiceDto) {
+    const { serviceId } = deleteServiceDto;
+
+    const service = await this.serviceRepo.findOne({
+      where: { id: serviceId }
+    });
+
+    if (!service) {
+      throw new NotFoundException('Service not found');
+    }
+
+    // Check if service has any appointments
+    const appointmentCount = await this.appointmentRepo.count({
+      where: { service: { id: serviceId } }
+    });
+
+    if (appointmentCount > 0) {
+      throw new BadRequestException('Cannot delete service that has appointments');
+    }
+
+    await this.serviceRepo.remove(service);
+    return { message: 'Service deleted successfully' };
+  }
+
+  async assignStaffToService(assignStaffDto: AssignStaffToServiceDto) {
+    const { serviceId, staffIds } = assignStaffDto;
+
+    // Find the service
+    const service = await this.serviceRepo.findOne({
+      where: { id: serviceId },
+      relations: ['business']
+    });
+
+    if (!service) {
+      throw new NotFoundException('Service not found');
+    }
+
+    // Find all staff members
+    const staffMembers = await this.staffRepo.find({
+      where: { id: In(staffIds), business: { id: service.business.id } }
+    });
+
+    if (staffMembers.length !== staffIds.length) {
+      throw new NotFoundException('One or more staff members not found or do not belong to this business');
+    }
+
+    // Assign staff to service
+    service.assignedStaff = staffMembers;
+    await this.serviceRepo.save(service);
+
+    return {
+      message: 'Staff assigned to service successfully',
+      serviceId: service.id,
+      assignedStaffCount: staffMembers.length
+    };
   }
 
   async deactivateStaff(id: string) {
@@ -933,7 +1078,6 @@ export class BusinessService {
   async getBusinessOwnerDetails(userId: string) {
     const user = await this.userRepo.findOne({
       where: { id: userId },
-      select: ['id', 'firstName', 'surname', 'email', 'phoneNumber', 'gender', 'avatarUrl', 'createdAt']
     });
 
     if (!user) {
@@ -948,6 +1092,14 @@ export class BusinessService {
       phoneNumber: user.phoneNumber,
       gender: user.gender,
       avatarUrl: user.avatarUrl,
+      // Return role fields directly from user (merged from UserRole entity)
+      isSuperAdmin: user.isSuperAdmin,
+      isAdmin: user.isAdmin,
+      isBusiness: user.isBusiness,
+      isClient: user.isClient,
+      isStaff: user.isStaff,
+      isManager: user.isManager,
+      isBusinessAdmin: user.isBusinessAdmin,
       createdAt: user.createdAt,
       verified: user.isVerified 
     };
@@ -962,6 +1114,16 @@ export class BusinessService {
     });
 
     if (business) {
+      // If category is empty, set default categories
+      if (!business.category || business.category.length === 0) {
+        business.category = [
+          BusinessCategory.HAIR_SERVICES,
+          BusinessCategory.NAIL_SERVICES,
+          BusinessCategory.MAKEUP_SERVICES,
+        ];
+        await this.businessRepo.save(business);
+      }
+      
       return {
         id: business.id,
         businessName: business.businessName,
@@ -982,6 +1144,8 @@ export class BusinessService {
       };
     }
 
+    // TODO: check if staff has manager access to update categories
+
     // Check if user is a staff member
     const staff = await this.staffRepo.findOne({
       where: { id: userId },
@@ -989,6 +1153,16 @@ export class BusinessService {
     });
 
     if (staff && staff.business) {
+      // If category is empty, set default categories
+      if (!staff.business.category || staff.business.category.length === 0) {
+        staff.business.category = [
+          BusinessCategory.HAIR_SERVICES,
+          BusinessCategory.NAIL_SERVICES,
+          BusinessCategory.MAKEUP_SERVICES,
+        ];
+        await this.businessRepo.save(staff.business);
+      }
+      
       return {
         id: staff.business.id,
         businessName: staff.business.businessName,
@@ -1006,6 +1180,98 @@ export class BusinessService {
           email: staff.business.owner.email,
           phoneNumber: staff.business.owner.phoneNumber
         },
+      };
+    }
+
+    throw new NotFoundException('No business found for this user');
+  }
+
+  async updateBusinessCategory(userId: string, categories: BusinessCategory[]) {
+    // Check if user is a business owner
+    const business = await this.businessRepo.findOne({
+      where: { owner: { id: userId } },
+    });
+
+    if (business) {
+      business.category = categories;
+      await this.businessRepo.save(business);
+      return {
+        message: 'Business categories updated successfully',
+        businessId: business.id,
+        category: business.category,
+      };
+    }
+
+    // TODO: check if staff has manager access to update categories
+
+    // Check if user is a staff member
+    const staff = await this.staffRepo.findOne({
+      where: { id: userId },
+      relations: ['business']
+    });
+
+    if (staff && staff.business) {
+      staff.business.category = categories;
+      await this.businessRepo.save(staff.business);
+      return {
+        message: 'Business categories updated successfully',
+        businessId: staff.business.id,
+        category: staff.business.category,
+      };
+    }
+
+    throw new NotFoundException('No business found for this user');
+  }
+
+  async removeBusinessCategories(userId: string, categoriesToRemove: BusinessCategory[]) {
+    // Check if user is a business owner
+    const business = await this.businessRepo.findOne({
+      where: { owner: { id: userId } },
+    });
+
+    if (business) {
+      // Ensure category array exists
+      if (!business.category) {
+        business.category = [];
+      }
+      
+      // Filter out the categories to remove
+      business.category = business.category.filter(
+        category => !categoriesToRemove.includes(category as BusinessCategory)
+      );
+      
+      await this.businessRepo.save(business);
+      return {
+        message: 'Business categories removed successfully',
+        businessId: business.id,
+        remainingCategories: business.category,
+      };
+    }
+
+    // TODO: check if staff has manager access to remove categories
+
+    // Check if user is a staff member
+    const staff = await this.staffRepo.findOne({
+      where: { id: userId },
+      relations: ['business']
+    });
+
+    if (staff && staff.business) {
+      // Ensure category array exists
+      if (!staff.business.category) {
+        staff.business.category = [];
+      }
+      
+      // Filter out the categories to remove
+      staff.business.category = staff.business.category.filter(
+        category => !categoriesToRemove.includes(category as BusinessCategory)
+      );
+      
+      await this.businessRepo.save(staff.business);
+      return {
+        message: 'Business categories removed successfully',
+        businessId: staff.business.id,
+        remainingCategories: staff.business.category,
       };
     }
 

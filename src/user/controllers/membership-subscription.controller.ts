@@ -1,11 +1,14 @@
 import { Controller, Post, Body, UseGuards, Req, Get, BadRequestException } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags, ApiBody } from '@nestjs/swagger';
+
+import { RolesGuard } from 'src/middleware/roles.guard';
 import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
 import { SubscribeMembershipDto } from '../dtos/subscribe-membership.dto';
 import { MembershipService } from '../services/membership-subscription.service';
 
 @ApiTags('Membership')
 @Controller('membership')
+@UseGuards(JwtAuthGuard, RolesGuard)
 @ApiBearerAuth('access-token')
 export class MembershipSubscriptionController {
   constructor(

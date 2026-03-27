@@ -11,7 +11,6 @@ import { CustomMessageService } from '../services/custom-message.service';
 import { SendCustomMessageDto } from '../dtos/requests/CustomMesssageDto';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
-import { RolesGuard } from 'src/middleware/roles.guard';
 import { Role } from 'src/middleware/role.enum';
 import { Roles } from 'src/middleware/roles.decorator';
 

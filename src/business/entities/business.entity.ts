@@ -47,7 +47,6 @@ export class Business {
 
   @ManyToOne(() => User, (user) => user.businesses, {
     onDelete: 'CASCADE',
-    eager: true,
   })
   @JoinColumn({ name: 'owner_id' })
   owner: User;
@@ -76,12 +75,11 @@ export class Business {
 
   @OneToMany(() => Service, (service) => service.business, {
     cascade: true,
-    eager: true,
   })
   serviceList: Service[];
 
-  @Column({ nullable: true })
-  category?: string;
+  @Column({ type: 'jsonb', nullable: true })
+  category?: string[];
 
   @Column({ nullable: true })
   businessAddress: string;
@@ -97,7 +95,6 @@ export class Business {
 
   @OneToOne(() => BookingPolicies, (policies) => policies.business, {
     cascade: true,
-    eager: true,
   })
   bookingPolicies: BookingPolicies;
 
@@ -106,7 +103,6 @@ export class Business {
 
   @OneToMany(() => BookingDay, (day) => day.business, {
     cascade: true,
-    eager: true,
   })
   bookingHours: BookingDay[];
 

@@ -10,8 +10,8 @@ import {
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 
 import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
-import { Role } from 'src/middleware/role.enum';
 import { RolesGuard } from 'src/middleware/roles.guard';
+import { Role } from 'src/middleware/role.enum';
 import { Roles } from 'src/middleware/roles.decorator';
 import { SalonService } from '../services/salon.service';
 import { CacheInterceptor } from '../../cache/cache.interceptor';

@@ -29,8 +29,7 @@ import {
   UpdateBusinessNameDto,
   UpdateBusinessProfileDto,
 } from '../dtos/requests/BusinessSettingsDto';
-import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
-import { RolesGuard } from 'src/middleware/roles.guard';
+import { JwtAuthGuard } from '../../middleware/jwt-auth.guard';
 import { Role } from 'src/middleware/role.enum';
 import { Roles } from 'src/middleware/roles.decorator';
 

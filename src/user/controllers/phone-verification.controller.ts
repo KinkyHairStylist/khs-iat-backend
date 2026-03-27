@@ -1,9 +1,11 @@
-import { Controller, Post, Param, Body } from '@nestjs/common';
+import { Controller, Post, Param, Body, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { PhoneVerificationService } from '../services/phone-verification.service';
+import { JwtAuthGuard } from 'src/business/middlewares/guards/jwt-auth.guard';
 
 @ApiTags('Phone Verification')
 @ApiBearerAuth('access-token')
+@UseGuards(JwtAuthGuard)
 @Controller('/users/phone-verification')
 export class PhoneVerificationController {
   constructor(private readonly phoneVerificationService: PhoneVerificationService) {}

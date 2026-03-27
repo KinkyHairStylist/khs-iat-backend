@@ -27,7 +27,6 @@ import { GoogleCalendarModule } from 'src/integration/google-calendar.module';
 import { MailchimpModule } from 'src/integration/mail-chimp.module';
 import { BusinessOwnerSettingsModule } from './business-owner-settings.module';
 import { ZohoBooksModule } from 'src/integration/zohobooks.module';
-import { UserRole } from 'src/all_user_entities/user-role.entity';
 
 @Module({
   imports: [
@@ -44,7 +43,6 @@ import { UserRole } from 'src/all_user_entities/user-role.entity';
       BookingDay,
       Service,
       EmergencyContact,
-      UserRole,
     ]),
     JwtModule.register({}),
     EmailModule,

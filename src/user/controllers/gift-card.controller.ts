@@ -1,5 +1,7 @@
 import { Controller, Post, Body, Get, UseGuards, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+
+import { RolesGuard } from 'src/middleware/roles.guard';
 import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
 import { GetUser } from 'src/middleware/get-user.decorator';
 import { User } from 'src/all_user_entities/user.entity';
@@ -7,7 +9,6 @@ import { GiftCardService } from '../services/gift-card.service';
 import { PurchaseBusinessGiftCardDto, ValidateGiftCardDto, RedeemGiftCardDto } from '../dtos/create-gift-card.dto';
 import { Roles } from 'src/middleware/roles.decorator';
 import { Role } from 'src/middleware/role.enum';
-import { RolesGuard } from 'src/middleware/roles.guard';
 
 @ApiTags('Customer Card and Gift Cards')
 @ApiBearerAuth('access-token')

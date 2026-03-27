@@ -9,7 +9,6 @@ import { Repository } from 'typeorm';
 import sgMail from '@sendgrid/mail';
 import { randomBytes } from 'crypto';
 
-import { UserRole } from 'src/all_user_entities/user-role.entity';
 import { User } from 'src/all_user_entities/user.entity';
 import { AdminInvite } from '../admin_entities/admin-invite.entity';
 import { ConfigService } from '@nestjs/config';
@@ -62,14 +61,14 @@ export class AdminAuthService {
   async Admin_login(email: string, password: string) {    
     const user = await this.usersRepo.findOne({ 
       where: { email },
-      relations: ['role'], // ensure roles are loaded
     });
 
     if (!user) {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    if (!user.role || (!user.role.isAdmin && !user.role.isSuperAdmin)) {
+    // Check role fields directly on user (merged from UserRole entity)
+    if (!user.isAdmin && !user.isSuperAdmin) {
       throw new UnauthorizedException('You are not authorized as admin');
     }
 
@@ -164,6 +163,7 @@ export class AdminAuthService {
 
     const hash = await PasswordHashingHelper.hashPassword(dto.password);
 
+    // Set role fields directly on user (merged from UserRole entity)
     const user = this.usersRepo.create({
       email: invite.email,
       password: hash,
@@ -172,16 +172,14 @@ export class AdminAuthService {
       phoneNumber: dto.phoneNumber,
       gender: dto.gender,
       isVerified: true,
+      isSuperAdmin: decoded.role === 'SUPER_ADMIN',
+      isAdmin: decoded.role === 'ADMIN',
+      isBusiness: false,
+      isClient: false,
+      isManager: false,
+      isBusinessAdmin: false,
+      isStaff: false,
     });
-
-    const role = new UserRole();
-    role.isSuperAdmin = decoded.role === 'SUPER_ADMIN';
-    role.isAdmin = decoded.role === 'ADMIN';
-    role.isBusiness = false;
-    role.isClient = true;
-    role.isStaff = false;
-
-    user.role = role;
 
     await this.usersRepo.save(user);
     await this.inviteRepo.delete(invite.id);
@@ -202,14 +200,14 @@ export class AdminAuthService {
   async forgotPassword(email: string) {
     const user = await this.usersRepo.findOne({ 
       where: { email },
-      relations: ['role'], // ensure roles are loaded
     });
 
     if (!user) {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    if (!user.role || (!user.role.isAdmin && !user.role.isSuperAdmin)) {
+    // Check role fields directly on user (merged from UserRole entity)
+    if (!user.isAdmin && !user.isSuperAdmin) {
       throw new UnauthorizedException('You are not authorized as admin');
     }
 

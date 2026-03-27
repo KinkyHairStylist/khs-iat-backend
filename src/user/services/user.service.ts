@@ -10,7 +10,6 @@ import { JwtService } from '@nestjs/jwt';
 import sgMail from '@sendgrid/mail';
 
 import { User } from '../../all_user_entities/user.entity';
-import { UserRole } from '../../all_user_entities/user-role.entity';
 import {
   GetStartedDto,
   VerifyCodeDto,
@@ -36,6 +35,8 @@ type SanitizedUser = Omit<
   | 'verificationExpires'
   | 'resetCode'
   | 'resetCodeExpires'
+  | 'hasAdminRole'
+  | 'hasBusinessAccess'
 >;
 
 @Injectable()
@@ -45,9 +46,6 @@ export class UserService {
   constructor(
     @InjectRepository(User)
     private userRepository: Repository<User>,
-
-    @InjectRepository(UserRole)
-    private userRoleRepository: Repository<UserRole>,
 
     @InjectRepository(Referral)
     private referralRepository: Repository<Referral>,
@@ -228,13 +226,9 @@ export class UserService {
     // Generate referral code for the new user
     user.referralCode = await this.referralService.ensureReferralCode(user.id);
 
-    const userRole = this.userRoleRepository.create({
-      isClient: true, 
-      user: user,
-    });
+    // isClient defaults to true, so no need to set it explicitly
 
     await this.userRepository.save(user);
-    await this.userRoleRepository.save(userRole);
 
     // If a referral code was used, complete the referral and reward the referrer
     if (referralCode) {
@@ -244,7 +238,7 @@ export class UserService {
     const { accessToken, refreshToken } = await getTokens(
       this.jwtService,
       user.id,
-      user.email,
+      user.email
     );
 
     return {
@@ -285,7 +279,7 @@ export class UserService {
     const { accessToken, refreshToken } = await getTokens(
       this.jwtService,
       user.id,
-      user.email,
+      user.email
     );
 
     return {
@@ -378,7 +372,7 @@ export class UserService {
   }
 
   async findById(id: string): Promise<User | null> {
-    return this.userRepository.findOne({ where: { id }, relations: ['role'] });
+    return this.userRepository.findOne({ where: { id } });
   }
 
   public sanitizeUser(user: User): SanitizedUser {
@@ -409,7 +403,7 @@ export class UserService {
       const { accessToken, refreshToken: newRefreshToken } = await getTokens(
         this.jwtService,
         user.id,
-        user.email,
+        user.email
       );
 
       return {
