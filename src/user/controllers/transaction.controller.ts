@@ -8,7 +8,7 @@ import { User } from 'src/all_user_entities/user.entity';
 import { TransactionService } from '../services/transaction.service';
 import { Role } from 'src/middleware/role.enum';
 import { Roles } from 'src/middleware/roles.decorator';
-import { GetTransactionSummaryDto, RequestRefundDto } from '../dtos/transaction.dto';
+import { GetTransactionSummaryDto, RequestRefundDto, TransactionPaginationDto } from '../dtos/transaction.dto';
 
 @ApiTags('User Transactions')
 @ApiBearerAuth('access-token')
@@ -19,12 +19,19 @@ export class TransactionController {
   constructor(private readonly transactionService: TransactionService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Get customer all transactions' })
+  @ApiOperation({ summary: 'Get customer all transactions with cursor-based pagination' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Number of transactions per page (default: 50)' })
+  @ApiQuery({ name: 'cursor', required: false, type: String, description: 'Cursor for pagination (use endCursor from previous response)' })
   @ApiResponse({ status: HttpStatus.OK, description: 'Transactions retrieved successfully' })
-  async getUserTransactions(@GetUser() user: User) {
+  async getUserTransactions(
+    @GetUser() user: User,
+    @Query() query: TransactionPaginationDto,
+  ) {
+    const result = await this.transactionService.getUserTransactions(user, query);
     return {
       success: true,
-      data: await this.transactionService.getUserTransactions(user),
+      data: result.transactions,
+      meta: result.meta,
     };
   }
 

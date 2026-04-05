@@ -4,12 +4,24 @@ import { Repository } from 'typeorm';
 import { Transaction, TransactionStatus, TransactionType } from 'src/business/entities/transaction.entity';
 import { User } from 'src/all_user_entities/user.entity';
 import { Refund, RefundStatus } from '../user_entities/refund.entity';
+import { TransactionPaginationDto } from '../dtos/transaction.dto';
 
 export interface TransactionSummary {
   totalSpent: number;
   successfulPaymentsCount: number;
   totalRefundAmount: number;
   currentYear: number
+}
+
+export interface PaginatedTransactionResult {
+  transactions: Transaction[];
+  meta: {
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
+    startCursor: string | null;
+    endCursor: string | null;
+    limit: number;
+  };
 }
 
 @Injectable()
@@ -21,16 +33,99 @@ export class TransactionService {
     private readonly refundRepository: Repository<Refund>,
   ) {}
 
-  async getUserTransactions(user: User): Promise<Transaction[]> {
-    // Get transactions where user is either sender or recipient
-    return this.transactionRepository.find({
-      where: [
-        { senderId: user.id },
-        { recipientId: user.id },
-      ],
-      order: { createdAt: 'DESC' },
-      relations: ['sender', 'recipient'],
-    });
+  /**
+   * Decode cursor from Base64 string
+   */
+  private decodeCursor(cursor: string): { createdAt: Date; id: string } | null {
+    try {
+      const decoded = Buffer.from(cursor, 'base64').toString('utf-8');
+      const [createdAt, id] = decoded.split('|');
+      return { createdAt: new Date(createdAt), id };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Encode cursor to Base64 string
+   */
+  private encodeCursor(createdAt: Date, id: string): string {
+    return Buffer.from(`${createdAt.toISOString()}|${id}`).toString('base64');
+  }
+
+  /**
+   * Get user transactions with cursor-based pagination (efficient for large datasets)
+   * Uses keyset pagination to avoid OFFSET performance issues
+   */
+  async getUserTransactions(
+    user: User,
+    pagination: TransactionPaginationDto = {},
+  ): Promise<PaginatedTransactionResult> {
+    const { limit = 50, cursor } = pagination;
+
+    // Fetch one extra record to determine if there's a next page
+    const queryBuilder = this.transactionRepository.createQueryBuilder('transaction');
+
+    // Filter by user as sender or recipient
+    queryBuilder.andWhere(
+      '(transaction.senderId = :userId OR transaction.recipientId = :userId)',
+      { userId: user.id },
+    );
+
+    // Load relations
+    queryBuilder.leftJoinAndSelect('transaction.sender', 'sender');
+    queryBuilder.leftJoinAndSelect('transaction.recipient', 'recipient');
+
+    // Cursor-based pagination: fetch records created before the cursor
+    if (cursor) {
+      const cursorData = this.decodeCursor(cursor);
+      if (cursorData) {
+        // Use compound condition for accurate cursor positioning
+        queryBuilder.andWhere(
+          '(transaction.createdAt < :cursorCreatedAt) OR (transaction.createdAt = :cursorCreatedAt AND transaction.id < :cursorId)',
+          { cursorCreatedAt: cursorData.createdAt, cursorId: cursorData.id },
+        );
+      }
+    }
+
+    // Sort by createdAt DESC, then id DESC for consistent ordering
+    queryBuilder.orderBy('transaction.createdAt', 'DESC');
+    queryBuilder.addOrderBy('transaction.id', 'DESC');
+
+    // Take limit + 1 to check for next page
+    queryBuilder.take(limit + 1);
+
+    // Execute query (no OFFSET needed - this is the key optimization)
+    const transactions = await queryBuilder.getMany();
+
+    // Determine if there's a next page
+    const hasNextPage = transactions.length > limit;
+    
+    // Remove the extra record if present
+    const paginatedTransactions = hasNextPage ? transactions.slice(0, limit) : transactions;
+
+    // Generate cursors
+    const startCursor = paginatedTransactions.length > 0
+      ? this.encodeCursor(paginatedTransactions[0].createdAt, paginatedTransactions[0].id)
+      : null;
+    
+    const endCursor = paginatedTransactions.length > 0
+      ? this.encodeCursor(
+          paginatedTransactions[paginatedTransactions.length - 1].createdAt,
+          paginatedTransactions[paginatedTransactions.length - 1].id,
+        )
+      : null;
+
+    return {
+      transactions: paginatedTransactions,
+      meta: {
+        hasNextPage,
+        hasPreviousPage: !!cursor, // If there's a cursor, we can assume there's a previous page
+        startCursor,
+        endCursor,
+        limit,
+      },
+    };
   }
 
   async getUserTransactionSummary(user: User, year?: number): Promise<TransactionSummary> {
