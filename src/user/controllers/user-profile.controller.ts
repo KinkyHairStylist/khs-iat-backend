@@ -35,13 +35,15 @@ export class UserProfileController {
   @Get()
   @ApiOperation({ summary: 'Get current user profile' })
   async getProfile(@GetUser() user: User) {
-    return this.userProfileService.getProfile(user);
+    const profile = await this.userProfileService.getProfile(user);
+    return { success: true, data: profile };
   }
 
   @Put('update')
   @ApiOperation({ summary: 'Update user profile' })
   async updateProfile(@GetUser() user: User, @Body() dto: UpdateUserProfileDto) {
-    return this.userProfileService.updateProfile(user, dto);
+    const updated = await this.userProfileService.updateProfile(user, dto);
+    return { success: true, data: updated };
   }
 
   @Put('avatar')

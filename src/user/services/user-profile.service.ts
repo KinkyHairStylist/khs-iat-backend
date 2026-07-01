@@ -55,10 +55,11 @@ export class UserProfileService {
     await sgMail.send(msg);
   }
 
-  async getProfile(user: User): Promise<User> {
+  async getProfile(user: User): Promise<Omit<User, 'password' | 'verificationCode' | 'verificationExpires' | 'resetCode' | 'resetCodeExpires'>> {
     const foundUser = await this.userRepo.findOne({ where: { id: user.id } });
     if (!foundUser) throw new NotFoundException('User not found');
-    return foundUser;
+    const { password, verificationCode, verificationExpires, resetCode, resetCodeExpires, ...safe } = foundUser;
+    return safe;
   }
 
   async updateProfile(user: User, dto: UpdateUserProfileDto): Promise<User> {
