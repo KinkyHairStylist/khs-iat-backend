@@ -56,13 +56,14 @@
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.3",
     "express-session": "^1.18.2",
-    "fast-xml-parser": "^5.3.5",
+    "fast-xml-parser": "^5.7.0",
     "formidable": "^3.5.4",
     "googleapis": "^166.0.0",
     "mongoose": "^8.18.3",
-    "multer": "^2.0.2",
+    "multer": "^2.2.0",
+    "nodemailer": "^9.0.3",
+    "uuid": "^11.0.0",
     "node-quickbooks": "^2.0.46",
-    "nodemailer": "^7.0.7",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "pg": "^8.16.3",
@@ -70,14 +71,21 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "socket.io": "^4.8.1",
-    "sqlite3": "^5.0.2",
     "streamifier": "^0.1.1",
     "stripe": "^19.1.0",
     "swagger-ui-express": "^5.0.1",
     "twilio": "^5.10.4",
     "typeorm": "^0.3.6",
-    "uuid": "^13.0.0",
     "xss": "^1.0.15"
+  },
+  "overrides": {
+    "uuid": "^11.0.0",
+    "multer": "^2.2.0",
+    "fast-xml-parser": "^5.7.0",
+    "node-quickbooks": {
+      "underscore": "^1.13.8",
+      "fast-xml-parser": "^5.7.0"
+    }
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
