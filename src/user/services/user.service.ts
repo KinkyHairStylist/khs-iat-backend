@@ -134,10 +134,7 @@ export class UserService {
 
     // user exists and is fully registered
     if (user && user.isVerified && user.password) {
-      return {
-        message: 'User already exists. Please log in instead.',
-        success: false,
-      };
+      return;
     }
 
     const verificationCode = this.generateCode();
