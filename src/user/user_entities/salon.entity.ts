@@ -7,7 +7,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { SalonImage } from './salon-image.entity';
-import { Booking } from './booking.entity';
+import { Appointment } from '../../business/entities/appointment.entity';
 
 @Entity()
 export class Salon {
@@ -25,8 +25,8 @@ export class Salon {
   @Column()
   address: string;
 
-  @OneToMany(() => Booking, (booking) => booking.salon)
-  bookings: Booking[];
+  @OneToMany(() => Appointment, (appointment) => appointment.business)
+  appointments: Appointment[];
 
   @Column('decimal', { precision: 10, scale: 8 })
   latitude: number;

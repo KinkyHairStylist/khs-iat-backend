@@ -11,7 +11,6 @@ import { TransactionFeeModule } from './admin/transaction-fee/transaction-fee.mo
 import { WithdrawalModule } from './admin/withdrawal/withdrawal.module';
 import { WalletModule } from './admin/wallet/wallet.module';
 import { SalonModule } from './user/modules/salon.module';
-import { BookingModule } from './user/modules/booking.module';
 // import { UserModule } from './user/user.module';
 
 
@@ -71,7 +70,6 @@ import { PlatformSettingsModule } from './admin/platform-settings/platform-setti
     // UserModule,
     SalonModule,
     SeedsModule,
-    BookingModule,
     ReferralModule,
     MembershipModule,
     ModerationModule,
