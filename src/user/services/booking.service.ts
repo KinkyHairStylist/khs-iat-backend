@@ -730,11 +730,11 @@ export class BookingService {
     appointment.status = AppointmentStatus.CONFIRMED; // Restore to confirmed status
     appointment.cancellationsNote = undefined; // Clear cancellation note on restore
     await this.bookingRepository.save(appointment);
-    return { message: 'Appointment restored successfully' };
+    return;
   }
 
   // Reschedule Booking
-  async rescheduleBooking(orderId: string, newDate: Date, newTime: string): Promise<{ message: string }> {
+  async rescheduleBooking(orderId: string, newDate: Date, newTime: string): Promise<void> {
     const appointment = await this.bookingRepository.findOne({
       where: { orderId },
     });
@@ -745,7 +745,7 @@ export class BookingService {
     appointment.time = newTime;
     appointment.status = AppointmentStatus.RESCHEDULED;
     await this.bookingRepository.save(appointment);
-    return { message: 'Appointment rescheduled successfully' };
+    return;
   }
 
   // Get Booking Fees

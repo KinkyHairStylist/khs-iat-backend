@@ -45,7 +45,8 @@ export class BusinessServicesController {
       page: parseInt(query.page) || 1,
       limit: parseInt(query.limit) || 20,
     };
-    return this.businessServicesService.getAllServices(options);
+    const result = await this.businessServicesService.getAllServices(options);
+    return { success: true, ...result };
   }
 
   /**

@@ -39,7 +39,8 @@ export class AdminAuthController {
 
   @Post('forgot-password')
   forgotPassword(@Body() dto: AdminForgotPasswordDto) {
-    return this.auth.forgotPassword(dto.email);
+    await this.auth.forgotPassword(dto.email);
+    return { success: true, message: 'If an account with this email exists, a password reset link has been sent.' };
   }
 
   @Post('reset-password')
@@ -48,6 +49,7 @@ export class AdminAuthController {
     @Query('email') email: string,
     @Body() dto: AdminResetPasswordDto,
   ) {
-    return this.auth.resetPassword(email, token, dto.password);
+    await this.auth.resetPassword(email, token, dto.password);
+    return { success: true, message: 'Password has been reset successfully.' };
   }
 }

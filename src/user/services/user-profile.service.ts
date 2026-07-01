@@ -110,7 +110,7 @@ export class UserProfileService {
       await this.userRepo.save(foundUser);
     }
 
-    return { message: 'Avatar deleted successfully' };
+    return;
   }
   async changePassword(user: User, dto: ChangePasswordDto) {
     const { currentPassword, newPassword } = dto;
@@ -152,7 +152,7 @@ export class UserProfileService {
     // Send email notification
     await this.sendPasswordChangedEmail(existingUser.email);
   
-    return { message: 'Password changed successfully' };
+    return;
   }
   
   /**
@@ -193,7 +193,7 @@ export class UserProfileService {
     // - transactions (sender/recipient), giftCards: SET NULL (handled by DB)
     await this.userRepo.remove(fullUser);
 
-    return { message: 'Account permanently removed' };
+    return;
   }
   
 }

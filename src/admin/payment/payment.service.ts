@@ -344,7 +344,7 @@ export class PaymentService {
     payment.reason = reason ?? 'No reason provided';
     await this.transactionRepo.save(payment);
 
-    return { message: 'Refund successful', payment };
+    return payment;
   }
 
   async getDisputes() {
@@ -352,8 +352,8 @@ export class PaymentService {
   }
 
   async deleteAllPayments() {
-    const result = await this.paymentRepo.clear();
-    return { message: 'All payments deleted.', result };
+    await this.paymentRepo.clear();
+    return;
   }
 
   async getPaymentMethodStats() {

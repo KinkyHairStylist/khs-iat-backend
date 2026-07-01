@@ -151,10 +151,7 @@ export class UserService {
       await this.userRepository.save(user);
       await this.sendVerificationEmail(user.email, verificationCode);
 
-      return {
-        message: 'Verification code resent to your email.',
-        success: true,
-      };
+      return;
     }
 
     // new user → create a new record
@@ -168,7 +165,7 @@ export class UserService {
     await this.userRepository.save(newUser);
     await this.sendVerificationEmail(newUser.email, verificationCode);
 
-    return { message: 'Verification code sent', success: true };
+    return;
   }
 
   async verifyCode(dto: VerifyCodeDto): Promise<AuthResponseDto> {
@@ -218,7 +215,7 @@ export class UserService {
     }
 
     if (user.isVerified) {
-      return { message: 'Already verified', success: true };
+      return;
     }
 
     user.verificationCode = this.generateCode();
@@ -227,7 +224,7 @@ export class UserService {
 
     await this.sendVerificationEmail(user.email, user.verificationCode);
 
-    return { message: 'New verification code sent', success: true };
+    return;
   }
 
   async signUp(dto: SignUpDto): Promise<AuthResponseDto> {
@@ -360,7 +357,7 @@ export class UserService {
     const user = await this.userRepository.findOne({ where: { email } });
 
     if (!user) {
-      return { message: 'If account exists, reset code sent', success: true };
+      return;
     }
 
     const resetCode = this.generateCode();
@@ -372,7 +369,7 @@ export class UserService {
 
     await this.sendResetCodeEmail(email, resetCode);
 
-    return { message: 'Password reset code sent', success: true };
+    return;
   }
 
   async verifyResetCode(dto: ResetPasswordVerifyDto): Promise<AuthResponseDto> {
@@ -429,7 +426,7 @@ export class UserService {
 
     await this.userRepository.save(user);
 
-    return { message: 'Password reset successful', success: true };
+    return;
   }
 
   async findById(id: string): Promise<User | null> {
@@ -484,10 +481,7 @@ export class UserService {
       const user = await this.userRepository.findOne({ where: { id: userId } });
 
       if (!user) {
-        return {
-          success: false,
-          message: 'User not found',
-        };
+        throw new NotFoundException('User not found');
       }
 
       // ✅ Convert dateOfBirth string → Date
@@ -504,18 +498,9 @@ export class UserService {
 
       await this.userRepository.save(user);
 
-      return {
-        success: true,
-        data: user,
-        message: 'User updated successfully',
-      };
+      return user;
     } catch (error) {
-      console.log('Update user error:', error);
-      return {
-        success: false,
-        message: 'Failed to update user',
-        error: error.message,
-      };
+      throw error;
     }
   }
 }

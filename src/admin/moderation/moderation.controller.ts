@@ -64,8 +64,9 @@ export class ModerationController {
 
   // 5️⃣ Remove inappropriate content
   @Delete('flagged/:id')
-  removeInappropriateContent(@Param('id') id: string) {
-    return this.moderationService.removeInappropriateContent(id);
+  async removeInappropriateContent(@Param('id') id: string) {
+    await this.moderationService.removeInappropriateContent(id);
+    return { success: true, message: 'Content removed successfully' };
   }
 
   // 6️⃣ Get moderation settings

@@ -53,8 +53,9 @@ export class UserController {
     type: AuthResponseDto,
   })
   @UsePipes(new ValidationPipe())
-  async getStarted(@Body() dto: GetStartedDto): Promise<AuthResponseDto> {
-    return this.userService.getStarted(dto);
+  async getStarted(@Body() dto: GetStartedDto) {
+    await this.userService.getStarted(dto);
+    return { success: true, message: 'Verification code sent' };
   }
 
   @Post('/auth/verify-code')
@@ -79,8 +80,9 @@ export class UserController {
     type: AuthResponseDto,
   })
   @UsePipes(new ValidationPipe())
-  async resendCode(@Body() dto: ResendCodeDto): Promise<AuthResponseDto> {
-    return this.userService.resendCode(dto);
+  async resendCode(@Body() dto: ResendCodeDto) {
+    await this.userService.resendCode(dto);
+    return { success: true, message: 'Verification code sent' };
   }
 
   @Post('/auth/signup')
@@ -171,10 +173,9 @@ export class UserController {
     type: AuthResponseDto,
   })
   @UsePipes(new ValidationPipe())
-  async startResetPassword(
-    @Body() dto: ResetPasswordStartDto,
-  ): Promise<AuthResponseDto> {
-    return this.userService.startResetPassword(dto);
+  async startResetPassword(@Body() dto: ResetPasswordStartDto) {
+    await this.userService.startResetPassword(dto);
+    return { success: true, message: 'If account exists, reset code sent' };
   }
 
   @Post('/auth/reset-password/verify')
@@ -201,10 +202,9 @@ export class UserController {
     type: AuthResponseDto,
   })
   @UsePipes(new ValidationPipe())
-  async finishResetPassword(
-    @Body() dto: ResetPasswordFinishDto,
-  ): Promise<AuthResponseDto> {
-    return this.userService.finishResetPassword(dto);
+  async finishResetPassword(@Body() dto: ResetPasswordFinishDto) {
+    await this.userService.finishResetPassword(dto);
+    return { success: true, message: 'Password reset successful' };
   }
 
   @Post('/auth/refresh-token')
@@ -221,7 +221,8 @@ export class UserController {
   }
 
   @Patch('/auth/updateUser/:id')
-  updateUser(@Param('id') id: string, @Body() dto: any) {
-    return this.userService.updateUser(id, dto);
+  async updateUser(@Param('id') id: string, @Body() dto: any) {
+    const user = await this.userService.updateUser(id, dto);
+    return { success: true, data: user, message: 'User updated successfully' };
   }
 }

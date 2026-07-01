@@ -185,7 +185,8 @@ export class BusinessController {
   @Roles(Role.Business, Role.SuperAdmin,Role.Staff)
   @Post('deleteBlockedSlot/:id')
   async deleteBlockedSlot(@Param('id') id: string) {
-    return this.businessService.deleteBlockedSlot(id);
+    await this.businessService.deleteBlockedSlot(id);
+    return { success: true, message: 'Blocked slot deleted successfully' };
   }
 
   @ApiBearerAuth('access-token')
@@ -380,7 +381,8 @@ export class BusinessController {
     @Req() req: RequestWithUser,
     @Body() body: DeleteServiceDto
   ) {
-    return this.businessService.deleteService(body);
+    await this.businessService.deleteService(body);
+    return { success: true, message: 'Service deleted successfully' };
   }
 
   @ApiBearerAuth('access-token')

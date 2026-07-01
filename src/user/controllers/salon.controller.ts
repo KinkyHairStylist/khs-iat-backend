@@ -67,7 +67,8 @@ export class SalonController {
       lng: query.lng ? parseFloat(query.lng) : undefined,
     };
 
-    return this.salonService.findAll(options);
+    const result = await this.salonService.findAll(options);
+    return { success: true, ...result };
   }
 
   @Get('search')

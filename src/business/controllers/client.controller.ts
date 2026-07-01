@@ -57,7 +57,8 @@ export class ClientController {
 
   @Delete('/clear')
   async deleteAllClients() {
-    await this.clientService.clearAllClients();
+    const deleted = await this.clientService.clearAllClients();
+    return { success: true, message: 'Clients cleared', deleted };
   }
 
   @Post()

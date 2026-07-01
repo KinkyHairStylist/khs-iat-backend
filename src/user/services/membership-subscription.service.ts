@@ -443,7 +443,7 @@ export class MembershipService {
 
     await this.subscriptionRepo.save(subscription);
 
-    return { message: 'Membership cancelled successfully.' };
+    return;
   }
 
   // Upgrade membership to next available tier
@@ -482,7 +482,7 @@ export class MembershipService {
 
     await this.subscriptionRepo.save(subscription);
 
-    return { message: `Successfully upgraded to ${nextTier.name} tier.` };
+    return;
   }
 
   // Downgrade membership to previous available tier
@@ -521,6 +521,6 @@ export class MembershipService {
 
     await this.subscriptionRepo.save(subscription);
 
-    return { message: `Successfully downgraded to ${previousTier.name} tier.` };
+    return;
   }
 }

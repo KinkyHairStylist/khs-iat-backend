@@ -220,7 +220,7 @@ export class AdminAuthService {
     const resetLink = `${this.frontendUrl}/invites/admin-reset-password?token=${resetToken}&email=${email}`;
     await this.sendPasswordResetEmail(email, resetLink);
 
-    return { message: 'If an account with this email exists, a password reset link has been sent.' };
+    return;
   }
 
   // -----------------------------------
@@ -248,6 +248,6 @@ export class AdminAuthService {
 
     await this.usersRepo.save(user);
 
-    return { message: 'Password has been reset successfully.' };
+    return;
   }
 }

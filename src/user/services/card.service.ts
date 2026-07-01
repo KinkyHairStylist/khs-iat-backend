@@ -108,7 +108,7 @@ export class CardService {
     // Delete the card
     await this.cardRepo.remove(card);
 
-    return { message: 'Card deleted successfully' };
+    return;
   }
 
   async getDefaultCard(user: User): Promise<Card | null> {

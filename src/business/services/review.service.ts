@@ -280,11 +280,11 @@ export class ReviewService {
     try {
       const count = await this.reviewRepo.count(); // total reviews before deletion
       if (count === 0) {
-        return { message: 'No reviews to delete', deleted: 0 };
+        return 0;
       }
 
-      await this.reviewRepo.clear(); // delete all rows
-      return { message: '✅ All reviews deleted successfully', deleted: count };
+      await this.reviewRepo.clear();
+      return count;
     } catch (err) {
       console.error('Failed to delete reviews:', err);
       throw new HttpException(

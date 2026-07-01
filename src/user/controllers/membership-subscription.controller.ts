@@ -103,7 +103,8 @@ export class MembershipSubscriptionController {
   @ApiResponse({ status: 200, description: 'Cancel the current user membership' })
   async cancelMembership(@Req() req) {
     const userId = req.user.id;
-    return this.MembershipService.cancelMembership(userId);
+    await this.MembershipService.cancelMembership(userId);
+    return { success: true, message: 'Membership cancelled successfully' };
   }
 
   // Upgrade Membership
@@ -113,7 +114,8 @@ export class MembershipSubscriptionController {
   @ApiResponse({ status: 200, description: 'Upgrade to next available membership tier' })
   async upgradeMembership(@Req() req) {
     const userId = req.user.id;
-    return this.MembershipService.upgradeMembership(userId);
+    await this.MembershipService.upgradeMembership(userId);
+    return { success: true, message: 'Membership upgraded successfully' };
   }
 
   // Downgrade Membership
@@ -123,6 +125,7 @@ export class MembershipSubscriptionController {
   @ApiResponse({ status: 200, description: 'Downgrade to previous available membership tier' })
   async downgradeMembership(@Req() req) {
     const userId = req.user.id;
-    return this.MembershipService.downgradeMembership(userId);
+    await this.MembershipService.downgradeMembership(userId);
+    return { success: true, message: 'Membership downgraded successfully' };
   }
 }

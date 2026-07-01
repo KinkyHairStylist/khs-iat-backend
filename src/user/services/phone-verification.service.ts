@@ -47,7 +47,7 @@ export class PhoneVerificationService {
       to: user.phoneNumber,
     });
 
-    return { message: 'Verification code sent successfully' };
+    return;
   }
 
   // Confirm verification code
@@ -71,6 +71,6 @@ export class PhoneVerificationService {
     user.verificationExpires = null;
     await this.userRepository.save(user);
 
-    return { message: 'Phone number verified successfully' };
+    return;
   }
 }

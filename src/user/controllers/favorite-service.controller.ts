@@ -81,7 +81,8 @@ export class FavoriteServiceController {
       page: parseInt(query.page) || 1,
       limit: parseInt(query.limit) || 20,
     };
-    return this.favoriteService.getUserFavorites(req.user.id, options);
+    const result = await this.favoriteService.getUserFavorites(req.user.id, options);
+    return { success: true, ...result };
   }
 
   /**
@@ -146,8 +147,9 @@ export class FavoriteServiceController {
   async removeFavoriteByServiceId(
     @Request() req: any,
     @Param('serviceId', ParseUUIDPipe) serviceId: string,
-  ): Promise<{ message: string }> {
-    return this.favoriteService.removeFavorite(req.user.id, serviceId);
+  ) {
+    await this.favoriteService.removeFavorite(req.user.id, serviceId);
+    return { success: true, message: 'Service removed from favorites successfully' };
   }
 
   /**
@@ -171,7 +173,8 @@ export class FavoriteServiceController {
   async removeFavoriteById(
     @Request() req: any,
     @Param('favoriteId', ParseUUIDPipe) favoriteId: string,
-  ): Promise<{ message: string }> {
-    return this.favoriteService.removeFavoriteById(req.user.id, favoriteId);
+  ) {
+    await this.favoriteService.removeFavoriteById(req.user.id, favoriteId);
+    return { success: true, message: 'Service removed from favorites successfully' };
   }
 }

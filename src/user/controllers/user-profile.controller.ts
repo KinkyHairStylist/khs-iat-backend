@@ -70,7 +70,8 @@ export class UserProfileController {
   @Delete('avatar')
   @ApiOperation({ summary: 'Delete user avatar from Cloudinary' })
   async deleteAvatar(@GetUser() user: User) {
-    return this.userProfileService.deleteAvatar(user);
+    await this.userProfileService.deleteAvatar(user);
+    return { success: true, message: 'Avatar deleted successfully' };
   }
 
   @Put('/change-password')
@@ -78,7 +79,8 @@ export class UserProfileController {
   @ApiBearerAuth('access-token')
   @ApiOperation({ summary: 'Change account password' })
   async changePassword(@GetUser() user: User, @Body() dto: ChangePasswordDto) {
-    return this.userProfileService.changePassword(user, dto);
+    await this.userProfileService.changePassword(user, dto);
+    return { success: true, message: 'Password changed successfully' };
   }
 
   @Delete('/delete-account-permanently')
@@ -86,6 +88,7 @@ export class UserProfileController {
   @ApiBearerAuth('access-token')
   @ApiOperation({ summary: 'Delete user account (permanently)' })
   async deleteAccountPermanently(@GetUser() user: User) {
-    return this.userProfileService.permanentlyDeleteAccount(user);
+    await this.userProfileService.permanentlyDeleteAccount(user);
+    return { success: true, message: 'Account permanently removed' };
   }
 }

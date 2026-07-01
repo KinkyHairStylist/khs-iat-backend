@@ -57,10 +57,7 @@ export class CardController {
   @ApiResponse({ status: 400, description: 'Cannot delete card with active gift cards' })
   @ApiResponse({ status: 404, description: 'Card not found' })
   async deleteCard(@Param('cardId') cardId: string, @GetUser() user: User) {
-    const result = await this.cardService.deleteCard(cardId, user);
-    return {
-      success: true,
-      message: result.message,
-    };
+    await this.cardService.deleteCard(cardId, user);
+    return { success: true, message: 'Card deleted successfully' };
   }
 }

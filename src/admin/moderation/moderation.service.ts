@@ -111,7 +111,7 @@ export class ModerationService {
     const content = await this.flaggedRepo.findOne({ where: { id } });
     if (!content) throw new NotFoundException('Flagged content not found');
     await this.flaggedRepo.remove(content);
-    return { message: 'Inappropriate content removed successfully' };
+    return;
   }
 
   // 6️⃣ Get moderation settings

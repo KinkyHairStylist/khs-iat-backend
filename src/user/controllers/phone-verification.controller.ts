@@ -14,13 +14,15 @@ export class PhoneVerificationController {
   @ApiOperation({ summary: 'Send verification code to user phone' })
   @ApiResponse({ status: 200, description: 'Verification code sent successfully' })
   async sendCode(@Param('userId') userId: string) {
-    return this.phoneVerificationService.sendVerificationCode(userId);
+    await this.phoneVerificationService.sendVerificationCode(userId);
+    return { success: true, message: 'Verification code sent successfully' };
   }
 
   @Post('verify/:userId')
   @ApiOperation({ summary: 'Verify phone number with code' })
   @ApiResponse({ status: 200, description: 'Phone number verified successfully' })
   async verifyCode(@Param('userId') userId: string, @Body('code') code: string) {
-    return this.phoneVerificationService.verifyCode(userId, code);
+    await this.phoneVerificationService.verifyCode(userId, code);
+    return { success: true, message: 'Phone number verified successfully' };
   }
 }

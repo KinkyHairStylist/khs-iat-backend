@@ -104,7 +104,8 @@ export class BookingController {
   @ApiOperation({ summary: 'Restore a cancelled booking' })
   @ApiResponse({ status: 200, description: 'Booking restored successfully' })
   async restoreBooking(@Param('orderId') orderId: string) {
-    return this.bookingService.restoreBooking(orderId);
+    await this.bookingService.restoreBooking(orderId);
+    return { success: true, message: 'Appointment restored successfully' };
   }
 
   // Rate booking business
@@ -133,7 +134,8 @@ export class BookingController {
     @Body('newDate') newDate: string,
     @Body('newTime') newTime: string,
   ) {
-    return this.bookingService.rescheduleBooking(orderId, new Date(newDate), newTime);
+    await this.bookingService.rescheduleBooking(orderId, new Date(newDate), newTime);
+    return { success: true, message: 'Appointment rescheduled successfully' };
   }
 
   // (Existing) Get salon time slots (static example)

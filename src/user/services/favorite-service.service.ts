@@ -91,7 +91,7 @@ export class FavoriteServiceService {
   /**
    * Remove a service from user's favorites
    */
-  async removeFavorite(userId: string, serviceId: string): Promise<{ message: string }> {
+  async removeFavorite(userId: string, serviceId: string): Promise<void> {
     const favorite = await this.favoriteRepo.findOne({
       where: { userId, serviceId },
     });
@@ -101,17 +101,12 @@ export class FavoriteServiceService {
     }
 
     await this.favoriteRepo.remove(favorite);
-
-    return { message: 'Service removed from favorites successfully' };
   }
 
   /**
    * Remove a favorite by its ID
    */
-  async removeFavoriteById(
-    userId: string,
-    favoriteId: string,
-  ): Promise<{ message: string }> {
+  async removeFavoriteById(userId: string, favoriteId: string): Promise<void> {
     const favorite = await this.favoriteRepo.findOne({
       where: { id: favoriteId, userId },
     });
@@ -121,8 +116,6 @@ export class FavoriteServiceService {
     }
 
     await this.favoriteRepo.remove(favorite);
-
-    return { message: 'Service removed from favorites successfully' };
   }
 
   /**

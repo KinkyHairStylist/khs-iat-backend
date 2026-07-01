@@ -93,8 +93,9 @@ export class PaymentController {
 
   @Post('refund')
   @HttpCode(HttpStatus.OK)
-  refund(@Body() dto: RefundPaymentDto) {
-    return this.paymentService.refund(dto);
+  async refund(@Body() dto: RefundPaymentDto) {
+    const payment = await this.paymentService.refund(dto);
+    return { success: true, data: payment, message: 'Refund successful' };
   }
 
   @Get('disputes/all')
@@ -104,6 +105,7 @@ export class PaymentController {
 
   @Delete('delete-all')
   async deleteAllPayments() {
-    return this.paymentService.deleteAllPayments();
+    await this.paymentService.deleteAllPayments();
+    return { success: true, message: 'All payments deleted' };
   }
 }

@@ -634,7 +634,7 @@ export class BusinessService {
 
   async deleteBlockedSlot(slotId: string) {
     await this.blockedSlotRepo.delete({ id: slotId });
-    return { message: 'Blocked time deleted successfully' };
+    return;
   }
 
   async getBlockedSlots(userMail: string) {
@@ -1013,7 +1013,7 @@ export class BusinessService {
     }
 
     await this.serviceRepo.remove(service);
-    return { message: 'Service deleted successfully' };
+    return;
   }
 
   async assignStaffToService(assignStaffDto: AssignStaffToServiceDto) {
