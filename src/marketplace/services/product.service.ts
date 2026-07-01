@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { SqlSafeHelper } from 'src/helpers/sql-safe.helper';
 import { Product } from '../entity/product.entity';
 import { CreateProductDto, ProductFiltersDto } from '../dto/marketplace.dto';
 import { SkuGeneratorService } from './sku-generator.service';
@@ -15,6 +16,19 @@ import {
   FileUpload,
 } from 'src/business/services/business-cloudinary.service';
 import { Business } from 'src/business/entities/business.entity';
+
+const PRODUCT_SORT_COLUMNS = [
+  'productName',
+  'sellingPrice',
+  'costPrice',
+  'stockQuantity',
+  'category',
+  'shippingStatus',
+  'shippingProgress',
+  'isActive',
+  'createdAt',
+  'updatedAt',
+] as const;
 
 @Injectable()
 export class ProductService {
@@ -189,8 +203,9 @@ export class ProductService {
       queryBuilder.orderBy('product.sellingPrice', 'DESC');
     } else {
       // Otherwise follow user-defined sortBy and sortOrder
+      const safeSort = SqlSafeHelper.validateSortColumn(sortBy, PRODUCT_SORT_COLUMNS, 'createdAt');
       queryBuilder.orderBy(
-        `product.${sortBy}`,
+        `product.${safeSort}`,
         sortOrder.toUpperCase() as 'ASC' | 'DESC',
       );
     }

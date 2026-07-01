@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Not, Repository } from 'typeorm';
+import { SqlSafeHelper } from 'src/helpers/sql-safe.helper';
 import { BusinessGiftCard } from '../entities/business-giftcard.entity';
 import {
   BusinessGiftCardFiltersDto,
@@ -19,6 +20,19 @@ import {
   BusinessSentStatus,
 } from '../enum/gift-card.enum';
 import { Business } from '../entities/business.entity';
+
+const GIFT_CARD_SORT_COLUMNS = [
+  'createdAt',
+  'updatedAt',
+  'amount',
+  'remainingAmount',
+  'expiresAt',
+  'redeemedAt',
+  'title',
+  'status',
+  'sentStatus',
+  'soldStatus',
+] as const;
 
 @Injectable()
 export class BusinessGiftCardsService {
@@ -193,8 +207,9 @@ export class BusinessGiftCardsService {
     /* --------- SORTING (APPLIED ONCE!) ---------- */
 
     // Otherwise follow user-defined sortBy and sortOrder
+    const safeSort = SqlSafeHelper.validateSortColumn(sortBy, GIFT_CARD_SORT_COLUMNS, 'createdAt');
     queryBuilder.orderBy(
-      `giftCard.${sortBy}`,
+      `giftCard.${safeSort}`,
       sortOrder.toUpperCase() as 'ASC' | 'DESC',
     );
 
