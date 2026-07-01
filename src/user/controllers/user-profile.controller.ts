@@ -77,8 +77,6 @@ export class UserProfileController {
   }
 
   @Put('/change-password')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth('access-token')
   @ApiOperation({ summary: 'Change account password' })
   async changePassword(@GetUser() user: User, @Body() dto: ChangePasswordDto) {
     await this.userProfileService.changePassword(user, dto);
@@ -86,8 +84,6 @@ export class UserProfileController {
   }
 
   @Delete('/delete-account-permanently')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth('access-token')
   @ApiOperation({ summary: 'Delete user account (permanently)' })
   async deleteAccountPermanently(@GetUser() user: User) {
     await this.userProfileService.permanentlyDeleteAccount(user);

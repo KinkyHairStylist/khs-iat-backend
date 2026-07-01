@@ -13,7 +13,6 @@ import { Role } from 'src/middleware/role.enum';
 export class ReferralController {
   constructor(private readonly referralService: ReferralService) {}
 
-  @UseGuards(JwtAuthGuard)
   @Get('/user/stats')
   @ApiOperation({
     summary: 'Get referral and booking statistics for the logged-in user',
@@ -47,7 +46,6 @@ export class ReferralController {
     return await this.referralService.getUserReferrals(userId);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Get('/link')
   @ApiOperation({
     summary: 'Get referral link for the authenticated user',

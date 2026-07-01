@@ -16,7 +16,6 @@ export class MembershipSubscriptionController {
   ) {}
 
   @Post('/user/subscription/subscribe')
-  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Subscribe to Membership API (Initialize Payment)' })
   @ApiResponse({
     status: 201,
@@ -40,7 +39,6 @@ export class MembershipSubscriptionController {
   }
 
   @Post('/user/subscription/complete')
-  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Complete Membership Subscription after Payment' })
   @ApiBody({
     description: 'Transaction reference for completing the subscription',
@@ -88,7 +86,6 @@ export class MembershipSubscriptionController {
 
 
   @Get('/user/subscription/my-subscription')
-  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Get User Subscription' })
   @ApiResponse({ status: 200, description: 'Fetch current user membership info' })
   async getUserSubscription(@Req() req) {
@@ -98,7 +95,6 @@ export class MembershipSubscriptionController {
 
   // Cancel Membership
   @Post('/user/subscription/cancel')
-  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Cancel Membership' })
   @ApiResponse({ status: 200, description: 'Cancel the current user membership' })
   async cancelMembership(@Req() req) {
@@ -109,7 +105,6 @@ export class MembershipSubscriptionController {
 
   // Upgrade Membership
   @Post('/user/subscription/upgrade')
-  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Upgrade Membership' })
   @ApiResponse({ status: 200, description: 'Upgrade to next available membership tier' })
   async upgradeMembership(@Req() req) {
@@ -120,7 +115,6 @@ export class MembershipSubscriptionController {
 
   // Downgrade Membership
   @Post('/user/subscription/downgrade')
-  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Downgrade Membership' })
   @ApiResponse({ status: 200, description: 'Downgrade to previous available membership tier' })
   async downgradeMembership(@Req() req) {
