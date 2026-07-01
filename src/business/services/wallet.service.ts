@@ -267,8 +267,6 @@ export class BusinessWalletService {
         throw new BadRequestException('Wallet is not active');
       }
 
-      console.log('Amount:', addTransactionDto.amount);
-
       // Create transaction
       const transaction: Transaction = this.transactionRepository.create({
         walletId: wallet.id,
