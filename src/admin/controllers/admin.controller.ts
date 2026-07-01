@@ -86,12 +86,14 @@ export class AdminController {
 
     @Post('suspendBusiness')
     async suspendBusiness(@Body() body:{ id: string }) {
-        return this.adminService.suspendBusiness(body.id)
+        await this.adminService.suspendBusiness(body.id);
+        return { success: true, message: 'Business has been suspended.' };
     }
 
     @Post('unsuspendBusiness')
     async unsuspendBusiness(@Body() body:{ id: string }) {
-        return this.adminService.unsuspendBusiness(body.id)
+        await this.adminService.unsuspendBusiness(body.id);
+        return { success: true, message: 'Business has been unsuspended.' };
     }
 
     @Post('rejectApplication')
@@ -111,12 +113,14 @@ export class AdminController {
 
     @Post('suspend')
     async suspend(@Body() body:{ id:string , reason: string}) {
-        return this.adminService.suspend(body.id,body.reason);
+        await this.adminService.suspend(body.id, body.reason);
+        return { success: true, message: 'User has been suspended.' };
     }
 
     @Post('unsuspend')
     async unsuspend(@Body() body:{ id:string }) {
-        return this.adminService.unsuspend(body.id);
+        await this.adminService.unsuspend(body.id);
+        return { success: true, message: 'User has been unsuspended.' };
     }
 
     @Post('findByPhoneNumber')

@@ -54,11 +54,13 @@ export class TransactionController {
   @ApiOperation({ summary: 'Request for a refund' })
   @ApiResponse({ status: HttpStatus.OK, description: 'Refund request submitted successfully' })
   @ApiResponse({ status: HttpStatus.BAD_REQUEST, description: 'Refund request failed' })
+  @ApiResponse({ status: HttpStatus.NOT_FOUND, description: 'Transaction not found' })
+  @ApiResponse({ status: HttpStatus.FORBIDDEN, description: 'Not your transaction' })
   async requestRefund(
     @GetUser() user: User,
     @Body() dto: RequestRefundDto,
   ) {
-    const result = await this.transactionService.requestRefund(
+    const refund = await this.transactionService.requestRefund(
       user,
       dto.transactionId,
       dto.reason,
@@ -72,12 +74,10 @@ export class TransactionController {
       },
     );
 
-    const statusCode = result.success ? HttpStatus.OK : HttpStatus.BAD_REQUEST;
-
     return {
-      success: result.success,
-      message: result.message,
-      statusCode,
+      success: true,
+      data: refund,
+      message: 'Refund request submitted successfully',
     };
   }
 }

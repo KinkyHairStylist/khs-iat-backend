@@ -374,7 +374,6 @@ export class AdminService {
         user.suspensionHistory += Date.now() + ": reason "+reason;
         await this.userRepo.save(user);
 
-        return { message: `User ${user.email} has been suspended.` };
     }
 
     async suspendBusiness(id: string) {
@@ -387,7 +386,6 @@ export class AdminService {
 
         await this.businessRepo.save(business);
 
-        return { message: `Business has been suspended.` };
     }
 
     async unsuspendBusiness(id: string) {
@@ -400,7 +398,6 @@ export class AdminService {
 
         await this.businessRepo.save(business);
 
-        return { message: `Business has been unsuspended.` };
     }
 
     async unsuspend(id: string) {
@@ -413,7 +410,6 @@ export class AdminService {
         user.isVerified = true;
         await this.userRepo.save(user);
 
-        return { message: `User ${user.email} has been unsuspended.` };
     }
 
 

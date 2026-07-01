@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Transaction, TransactionStatus, TransactionType } from 'src/business/entities/transaction.entity';
@@ -176,49 +176,41 @@ export class TransactionService {
     routingNumber?: string;
     bankAddress?: string;
     swiftCode?: string;
-  }): Promise<{ success: boolean; message: string }> {
-    // Find the transaction
+  }): Promise<Refund> {
     const transaction = await this.transactionRepository.findOne({
       where: { id: transactionId },
       relations: ['sender', 'recipient'],
     });
 
     if (!transaction) {
-      return { success: false, message: 'Transaction not found' };
+      throw new NotFoundException('Transaction not found');
     }
 
-    // Check if user is the sender (who made the payment)
     if (transaction.senderId !== user.id) {
-      return { success: false, message: 'You can only request refunds for transactions you initiated' };
+      throw new ForbiddenException('You can only request refunds for transactions you initiated');
     }
 
-    // Check if transaction is eligible for refund (completed and within refund period - e.g., 30 days)
     if (transaction.status !== TransactionStatus.COMPLETED) {
-      return { success: false, message: 'Only completed transactions can be refunded' };
+      throw new BadRequestException('Only completed transactions can be refunded');
     }
 
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
     if (transaction.createdAt < thirtyDaysAgo) {
-      return { success: false, message: 'Refund period has expired (30 days)' };
+      throw new BadRequestException('Refund period has expired (30 days)');
     }
 
-    // Check if refund already requested
     const existingRefund = await this.refundRepository.findOne({
-      where: {
-        transactionId: transactionId,
-        userId: user.id,
-      },
+      where: { transactionId, userId: user.id },
     });
 
     if (existingRefund && existingRefund.status !== RefundStatus.REJECTED) {
-      return { success: false, message: 'Refund already requested for this transaction' };
+      throw new BadRequestException('Refund already requested for this transaction');
     }
 
-    // Create refund record
     const refund = this.refundRepository.create({
-      transactionId: transactionId,
+      transactionId,
       userId: user.id,
       amount: parseFloat(transaction.amount.toString()),
       currency: transaction.currency,
@@ -232,8 +224,6 @@ export class TransactionService {
       swiftCode: accountDetails?.swiftCode,
     });
 
-    await this.refundRepository.save(refund);
-
-    return { success: true, message: 'Refund request submitted successfully' };
+    return this.refundRepository.save(refund);
   }
 }
