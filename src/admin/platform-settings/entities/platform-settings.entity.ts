@@ -37,7 +37,7 @@ export class PlatformSettingsEntity {
     minWithdrawal: number;
     methods: {
       creditCard: boolean;
-      paypal: boolean;
+      paystack: boolean;
       bankTransfers: boolean;
     };
     payoutSchedule: 'Weekly' | 'Bi-Weekly' | 'Monthly';
@@ -61,8 +61,7 @@ export class PlatformSettingsEntity {
   @Column('jsonb', { default: {} })
   integrations: {
     paymentGateways: {
-      stripe: { enabled: boolean; key: string; description: string };
-      paypal: { enabled: boolean; key: string; description: string };
+      paystack: { enabled: boolean; key: string; description: string };
     };
     communication: {
       twilio: { enabled: boolean; key: string; description: string };

@@ -29,7 +29,7 @@ export class UpdatePaymentSettingsDto {
   @IsOptional() @IsNumber() minWithdrawal?: number;
   @IsOptional() methods?: {
     creditCard?: boolean;
-    paypal?: boolean;
+    paystack?: boolean;
     bankTransfers?: boolean;
   };
   @IsOptional() payoutSchedule?: 'Weekly' | 'Bi-Weekly' | 'Monthly';
@@ -51,8 +51,7 @@ export class UpdateFeaturesSettingsDto {
 
 export class UpdateIntegrationsSettingsDto {
   @IsOptional() paymentGateways?: {
-    stripe?: { enabled?: boolean; key?: string; description?: string };
-    paypal?: { enabled?: boolean; key?: string; description?: string };
+    paystack?: { enabled?: boolean; key?: string; description?: string };
   };
   @IsOptional() communication?: {
     twilio?: { enabled?: boolean; key?: string; description?: string };

@@ -43,11 +43,11 @@ export class PlatformSettingsService {
       },
     };
     settings.payments = {
-      platformFee: 5, // Default 5% platform fee
+      platformFee: 5,
       minWithdrawal: 10,
       methods: {
         creditCard: true,
-        paypal: false,
+        paystack: true,
         bankTransfers: true,
       },
       payoutSchedule: 'Weekly',
@@ -67,8 +67,7 @@ export class PlatformSettingsService {
     };
     settings.integrations = {
       paymentGateways: {
-        stripe: { enabled: false, key: '', description: '' },
-        paypal: { enabled: false, key: '', description: '' },
+        paystack: { enabled: true, key: '', description: 'Paystack payment gateway' },
       },
       communication: {
         twilio: { enabled: false, key: '', description: '' },
@@ -158,15 +157,10 @@ export class PlatformSettingsService {
 
   s.integrations = {
     paymentGateways: {
-      stripe: {
-        enabled: dto.paymentGateways?.stripe?.enabled ?? s.integrations.paymentGateways.stripe.enabled,
-        key: dto.paymentGateways?.stripe?.key ?? s.integrations.paymentGateways.stripe.key,
-        description: dto.paymentGateways?.stripe?.description ?? s.integrations.paymentGateways.stripe.description,
-      },
-      paypal: {
-        enabled: dto.paymentGateways?.paypal?.enabled ?? s.integrations.paymentGateways.paypal.enabled,
-        key: dto.paymentGateways?.paypal?.key ?? s.integrations.paymentGateways.paypal.key,
-        description: dto.paymentGateways?.paypal?.description ?? s.integrations.paymentGateways.paypal.description,
+      paystack: {
+        enabled: dto.paymentGateways?.paystack?.enabled ?? s.integrations.paymentGateways.paystack.enabled,
+        key: dto.paymentGateways?.paystack?.key ?? s.integrations.paymentGateways.paystack.key,
+        description: dto.paymentGateways?.paystack?.description ?? s.integrations.paymentGateways.paystack.description,
       },
     },
     communication: {
