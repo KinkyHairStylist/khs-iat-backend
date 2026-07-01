@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { SqlSafeHelper } from 'src/helpers/sql-safe.helper';
 import { Wallet } from '../entities/wallet.entity';
 import {
   AddPaymentMethodDto,
@@ -29,6 +30,16 @@ import {
 import { WalletPaymentMethod } from '../entities/payment-method.entity';
 import { Withdrawal } from 'src/admin/withdrawal/entities/withdrawal.entity';
 import { Business } from '../entities/business.entity';
+
+const TRANSACTION_SORT_COLUMNS = [
+  'amount',
+  'type',
+  'description',
+  'status',
+  'method',
+  'createdAt',
+  'updatedAt',
+] as const;
 
 @Injectable()
 export class BusinessWalletService {
@@ -605,8 +616,9 @@ export class BusinessWalletService {
       /* --------- SORTING (APPLIED ONCE!) ---------- */
 
       // Otherwise follow user-defined sortBy and sortOrder
+      const safeSort = SqlSafeHelper.validateSortColumn(sortBy, TRANSACTION_SORT_COLUMNS, 'createdAt');
       queryBuilder.orderBy(
-        `transaction.${sortBy}`,
+        `transaction.${safeSort}`,
         sortOrder.toUpperCase() as 'ASC' | 'DESC',
       );
 

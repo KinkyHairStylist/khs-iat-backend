@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import { SqlSafeHelper } from 'src/helpers/sql-safe.helper';
 import {
   ClientFormData,
   ClientlistResponse,
@@ -27,6 +28,20 @@ import {
 import { PasswordHashingHelper } from 'src/helpers/password-hashing.helper';
 import { User } from 'src/all_user_entities/user.entity';
 import sgMail from '@sendgrid/mail';
+
+const CLIENT_SORT_COLUMNS = [
+  'firstName',
+  'lastName',
+  'email',
+  'phone',
+  'clientType',
+  'dateOfBirth',
+  'gender',
+  'clientSource',
+  'isActive',
+  'createdAt',
+  'updatedAt',
+] as const;
 
 @Injectable()
 export class ClientService {
@@ -506,10 +521,9 @@ export class ClientService {
       }
 
       // Sorting
-      const sortColumn =
-        sortBy === 'createdAt' ? 'client.createdAt' : `client.${sortBy}`;
+      const safeSort = SqlSafeHelper.validateSortColumn(sortBy, CLIENT_SORT_COLUMNS, 'createdAt');
       queryBuilder.orderBy(
-        sortColumn,
+        `client.${safeSort}`,
         sortOrder.toUpperCase() as 'ASC' | 'DESC',
       );
 

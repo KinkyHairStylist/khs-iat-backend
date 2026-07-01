@@ -1,6 +1,7 @@
 import {BadRequestException, Injectable, UnauthorizedException} from '@nestjs/common';
 import {InjectRepository} from '@nestjs/typeorm';
 import {Repository} from 'typeorm';
+import { SqlSafeHelper } from '../../helpers/sql-safe.helper';
 import {EmailService} from "../../email/email.service";
 import {User} from "../../all_user_entities/user.entity";
 import {Business, BusinessStatus} from "../../business/entities/business.entity";
@@ -39,19 +40,14 @@ export class AdminService {
 
         const radius = 15;
 
-        const businesses = await this.businessRepo
-            .createQueryBuilder('business')
-            .addSelect(`
-        (6371 * acos(
-          cos(radians(:userLat)) *
-          cos(radians(business.latitude)) *
-          cos(radians(business.longitude) - radians(:userLng)) +
-          sin(radians(:userLat)) *
-          sin(radians(business.latitude))
-        ))`, 'distance'
+        const businesses = await SqlSafeHelper
+            .haversineWhere(
+              this.businessRepo.createQueryBuilder('business'),
+              'business',
+              userLat,
+              userLng,
+              radius,
             )
-            .having('distance <= :radius', { radius })
-            .setParameters({ userLat, userLng })
             .orderBy('distance', 'ASC')
             .getRawMany();
 

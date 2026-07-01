@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { SqlSafeHelper } from 'src/helpers/sql-safe.helper';
 
 import { Service } from 'src/business/entities/service.entity';
 import { Business, BusinessStatus } from 'src/business/entities/business.entity';
@@ -87,11 +88,7 @@ export class SalonService {
 
     case 'distance':
       if (lat && lng) {
-        query = query
-          .addSelect(
-            `ROUND((6371 * ACOS(COS(RADIANS(${lat})) * COS(RADIANS(business.latitude)) * COS(RADIANS(business.longitude) - RADIANS(${lng})) + SIN(RADIANS(${lat})) * SIN(RADIANS(business.latitude))))::numeric, 2)`,
-            'distance',
-          )
+        query = SqlSafeHelper.haversineSelect(query, 'business', lat, lng)
           .orderBy('distance', 'ASC');
       }
       break;
