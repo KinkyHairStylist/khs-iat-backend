@@ -9,9 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Payment } from './entities/payment.entity';
 import {
-  CaptureResponse,
   CreatePaymentDto,
-  PaymentResponse,
   PayStackPaymentResponse,
 } from './dto/create-payment.dto';
 import { RefundPaymentDto } from './dto/refund-payment.dto';
@@ -26,21 +24,12 @@ import {
 } from 'src/business/entities/transaction.entity';
 import { WalletCurrency } from './enums/wallet.enum';
 
-interface PayPalAuthResponse {
-  access_token: string;
-  token_type: string;
-  expires_in: number;
-}
-
 @Injectable()
 export class PaymentService {
   private readonly logger = new Logger(PaymentService.name);
-  private readonly paypalBaseUrl: string;
   private readonly frontendUrl: string;
-  private readonly clientId: string;
-  private readonly clientSecret: string;
   private readonly paystackBaseUrl: string;
-  private readonly paystackAcessKey: string;
+  private readonly paystackAccessKey: string;
 
   constructor(
     @InjectRepository(Payment)
@@ -51,222 +40,19 @@ export class PaymentService {
     private readonly transactionRepo: Repository<Transaction>,
     private readonly businessWalletService: BusinessWalletService,
   ) {
-    const paypalBaseUrl = process.env.PAYPAL_SANDBOX_URL;
     const frontendUrl = process.env.FRONTEND_URL;
-    const clientId = process.env.PAYPAL_CLIENT_ID;
-    const clientSecret = process.env.PAYPAL_SECRET_KEY!;
+    const paystackAccessKey = process.env.PAYSTACK_SECRET_KEY;
+    const paystackBaseUrl = process.env.PAYSTACK_BASE_URL;
 
-    const paystackAcessKey = process.env.PAYSTACK_SECRET_KEY!;
-    const paystackBaseUrl = process.env.PAYSTACK_BASE_URL!;
-
-    if (!paypalBaseUrl || !clientId || !clientSecret || !frontendUrl) {
-      throw new Error('PAYMENT PAYPAL CREDENTIALS must be set');
+    if (!paystackAccessKey || !paystackBaseUrl || !frontendUrl) {
+      throw new Error('PAYSTACK credentials must be set');
     }
 
-    // if (!paystackAcessKey || !paystackBaseUrl) {
-    //   throw new Error('PAYMENT PAYSTACK CREDENTIALS must be set');
-    // }
-
-    // this.paypalBaseUrl = paypalBaseUrl;
     this.frontendUrl = frontendUrl;
-    // this.clientId = clientId;
-    this.clientSecret = clientSecret;
-
-    this.paystackAcessKey = paystackAcessKey;
+    this.paystackAccessKey = paystackAccessKey;
     this.paystackBaseUrl = paystackBaseUrl;
   }
 
-  /**
-   * Create PayPal Order (Step 1)
-   * This creates the payment and returns an approval URL
-   * User must visit this URL to approve the payment
-   */
-  async createPayPalPayment(dto: CreatePaymentDto): Promise<PaymentResponse> {
-    const { businessId, senderId, business, amount, method, senderEmail } = dto;
-
-    const businessExists = await this.businessRepo.findOne({
-      where: { id: businessId },
-    });
-
-    if (!businessExists) {
-      throw new BadRequestException('Business not found');
-    }
-
-    // Validation
-    if (!amount || amount <= 0) {
-      throw new BadRequestException('Invalid amount provided');
-    }
-
-    if (method !== 'paypal') {
-      throw new BadRequestException(`Unsupported payment method: ${method}`);
-    }
-
-    try {
-      // Get access token
-      const accessToken = await this.getAccessToken();
-
-      // Create PayPal Order using Orders API v2
-      this.logger.log(
-        `Creating PayPal order for business: ${businessExists.businessName}, amount: ${amount}`,
-      );
-
-      const orderResponse = await axios.post(
-        `${this.paypalBaseUrl}/v2/checkout/orders`,
-        {
-          intent: 'CAPTURE',
-          purchase_units: [
-            {
-              amount: {
-                currency_code: 'USD',
-                value: amount.toFixed(2),
-              },
-              description: `Payment from ${senderEmail} to ${business}`,
-              custom_id: businessId, // ✅ Critical: This will be sent in webhook
-              reference_id: businessId, // ✅ Backup reference
-              invoice_id: `INV-${Date.now()}`, // Optional: unique invoice ID
-            },
-          ],
-          application_context: {
-            return_url: `${this.frontendUrl}/clients/complete-payment`,
-            cancel_url: `${this.frontendUrl}/clients/complete-payment`,
-            brand_name: business,
-            landing_page: 'BILLING',
-            user_action: 'PAY_NOW',
-            shipping_preference: 'NO_SHIPPING',
-          },
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${accessToken}`,
-          },
-        },
-      );
-
-      const orderId = orderResponse.data.id;
-      const approvalUrl = orderResponse.data.links.find(
-        (link) => link.rel === 'approve',
-      )?.href;
-
-      if (!approvalUrl) {
-        throw new InternalServerErrorException(
-          'No approval URL received from PayPal',
-        );
-      }
-
-      // Calculate PayPal fee (3.4% + $0.30)
-      const fee = amount * 0.034 + 0.3;
-
-      // Save payment in database with pending status
-      const payment = this.paymentRepo.create({
-        business,
-        senderId,
-        businessId,
-        recipientId: businessExists.ownerId,
-        amount,
-        method,
-        status: 'pending', // ✅ Starts as pending
-        fee: Number(fee.toFixed(2)),
-        gatewayTransactionId: orderId,
-      } as Partial<Payment>);
-
-      const savedPayment = await this.paymentRepo.save(payment);
-
-      this.logger.log(`PayPal order created: ${orderId}`);
-
-      return {
-        payment: savedPayment,
-        approvalUrl, // Frontend redirects user here
-        orderId,
-      };
-    } catch (error) {
-      // this.logger.error(
-      //   'PayPal order creation failed:',
-      //   error.response?.data || error.message,
-      // );
-      throw new InternalServerErrorException(
-        `Payment failed: ${error.response?.data?.message || error.message}`,
-      );
-    }
-  }
-
-  /**
-   * Capture PayPal Payment (Step 2)
-   * Called after user approves the payment
-   * This triggers the webhook event
-   */
-  async capturePayment(orderId: string): Promise<CaptureResponse> {
-    try {
-      // Get access token
-      const accessToken = await this.getAccessToken();
-
-      this.logger.log(`Capturing PayPal order: ${orderId}`);
-
-      // Capture the order
-      const captureResponse = await axios.post(
-        `${this.paypalBaseUrl}/v2/checkout/orders/${orderId}/capture`,
-        {},
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${accessToken}`,
-          },
-        },
-      );
-
-      const captureData = captureResponse.data;
-      const purchaseUnit = captureData.purchase_units[0];
-      const capture = purchaseUnit.payments.captures[0];
-
-      // Extract data
-      const captureId = capture.id;
-      const status = capture.status; // COMPLETED, PENDING, etc.
-      const amount = parseFloat(capture.amount.value);
-      const businessId = purchaseUnit.custom_id || purchaseUnit.reference_id;
-
-      this.logger.log(`Payment captured: ${captureId}, Status: ${status}`);
-
-      // Update payment in database
-      await this.paymentRepo.update(
-        { gatewayTransactionId: orderId },
-        {
-          status: status.toLowerCase(),
-          gatewayTransactionId: captureId, // Update with capture ID
-        },
-      );
-
-      // ✅ After this, PayPal will send webhook event: PAYMENT.CAPTURE.COMPLETED
-      // Your webhook handler will update the wallet automatically
-
-      return {
-        captureId,
-        status,
-        amount,
-        businessId,
-      };
-    } catch (error) {
-      this.logger.error(
-        'PayPal capture failed:',
-        error.response?.data || error.message,
-      );
-
-      // Update payment status to failed
-      await this.paymentRepo.update(
-        { gatewayTransactionId: orderId },
-        { status: 'failed' },
-      );
-
-      throw new InternalServerErrorException(
-        `Capture failed: ${error.response?.data?.message || error.message}`,
-      );
-    }
-  }
-
-  /**
-   * Create Paystack Order (Step 1)
-   * This creates the payment and returns an approval URL
-   * User must visit this URL to approve the payment
-   */
   async createPaystackPayment(
     dto: CreatePaymentDto,
   ): Promise<PayStackPaymentResponse> {
@@ -280,7 +66,6 @@ export class PaymentService {
       method,
     } = dto;
 
-    // Validation
     if (!senderEmail) {
       throw new BadRequestException('Provide your email');
     }
@@ -293,7 +78,6 @@ export class PaymentService {
       throw new BadRequestException('Business not found');
     }
 
-    // Validation
     if (!amount || amount <= 0) {
       throw new BadRequestException('Invalid amount provided');
     }
@@ -303,20 +87,19 @@ export class PaymentService {
     }
 
     try {
-      // Create PayStack Order using Orders API v2
       this.logger.log(
-        `Creating PayStack order for business: ${businessExists.businessName}, amount: ${amount}`,
+        `Creating Paystack payment for business: ${businessExists.businessName}, amount: ${amount}`,
       );
 
       const response = await axios.post(
         `${this.paystackBaseUrl}/transaction/initialize`,
         {
           email: senderEmail,
-          amount: amount * 100, // NGN in kobo
+          amount: amount * 100, // kobo
           callback_url: `${this.frontendUrl}/clients/complete-payment`,
         },
         {
-          headers: { Authorization: `Bearer ${this.paystackAcessKey}` },
+          headers: { Authorization: `Bearer ${this.paystackAccessKey}` },
         },
       );
 
@@ -324,11 +107,10 @@ export class PaymentService {
 
       if (!authorization_url) {
         throw new InternalServerErrorException(
-          'No authorization URL received from PayStack',
+          'No authorization URL received from Paystack',
         );
       }
 
-      // Save payment in database with pending status
       const payment = this.paymentRepo.create({
         business,
         senderId,
@@ -336,7 +118,7 @@ export class PaymentService {
         recipientId: businessExists.ownerId,
         amount,
         method,
-        status: 'pending', // ✅ Starts as pending
+        status: 'pending',
         fee: 0,
         reason: description,
         gatewayTransactionId: reference,
@@ -344,11 +126,11 @@ export class PaymentService {
 
       const savedPayment = await this.paymentRepo.save(payment);
 
-      this.logger.log(`PayStack order created: ${reference}`);
+      this.logger.log(`Paystack payment initialized: ${reference}`);
 
       return {
         payment: savedPayment,
-        authorizationUrl: authorization_url, // Frontend redirects user here
+        authorizationUrl: authorization_url,
         reference,
       };
     } catch (error) {
@@ -358,11 +140,7 @@ export class PaymentService {
     }
   }
 
-  async verifyPaystackWebhookPayment(
-    reference: string,
-    retryCount = 0,
-    maxRetries = 6, // 6 retries → 60 seconds max
-  ): Promise<any> {
+  async verifyPaystackWebhookPayment(reference: string): Promise<any> {
     if (!reference) {
       throw new BadRequestException('Provide a valid transaction reference');
     }
@@ -379,7 +157,6 @@ export class PaymentService {
       where: { referenceId: existingPayment.gatewayTransactionId },
     });
 
-    // If payment already decided → return immediately
     if (existingPayment.status === 'successful' && transaction) {
       return {
         success: true,
@@ -388,32 +165,12 @@ export class PaymentService {
       };
     }
 
-    if (existingPayment.status === 'failed' && transaction) {
+    if (existingPayment.status === 'failed') {
       return {
         success: false,
         payment: existingPayment,
         message: 'Payment already failed',
       };
-    }
-
-    // If status is pending → retry logic
-    if (existingPayment.status === 'pending' && transaction) {
-      if (retryCount >= maxRetries) {
-        return {
-          success: false,
-          payment: existingPayment,
-          message: 'Payment could not be verified after multiple attempts',
-        };
-      }
-
-      // Wait 10 seconds before retry
-      await new Promise((res) => setTimeout(res, 10000));
-
-      return this.verifyPaystackWebhookPayment(
-        reference,
-        retryCount + 1,
-        maxRetries,
-      );
     }
 
     if (!transaction) {
@@ -432,10 +189,10 @@ export class PaymentService {
         senderId: existingPayment.senderId,
       });
 
-      this.logger.log(`Payment mark as Success: ${reference}`);
+      this.logger.log(`Payment marked as successful: ${reference}`);
 
       return {
-        success: false,
+        success: true,
         payment: existingPayment,
         message: 'Payment transaction recorded successfully',
       };
@@ -449,9 +206,8 @@ export class PaymentService {
   }
 
   async verifyPaystackPayment(reference: string): Promise<any> {
-    // Validation
     if (!reference) {
-      throw new BadRequestException('Provide a vaild transaction reference');
+      throw new BadRequestException('Provide a valid transaction reference');
     }
 
     const existingPayment = await this.paymentRepo.findOne({
@@ -459,7 +215,7 @@ export class PaymentService {
     });
 
     if (!existingPayment) {
-      throw new InternalServerErrorException('No existing payment record ');
+      throw new InternalServerErrorException('No existing payment record');
     }
 
     if (existingPayment.status === 'successful') {
@@ -472,29 +228,26 @@ export class PaymentService {
 
     if (existingPayment.status === 'failed') {
       return {
-        uccess: false,
+        success: false,
         payment: existingPayment,
         message: 'Payment already failed',
       };
     }
 
     try {
-      // Verify PayStack reference
       this.logger.log(
-        `Verifying PayStack transaction reference: ${reference}.`,
+        `Verifying Paystack transaction reference: ${reference}.`,
       );
 
       const verifyResponse = await axios.get(
         `${this.paystackBaseUrl}/transaction/verify/${reference}`,
         {
-          headers: { Authorization: `Bearer ${this.paystackAcessKey}` },
+          headers: { Authorization: `Bearer ${this.paystackAccessKey}` },
         },
       );
 
       if (verifyResponse.data.status) {
         const { amount, channel, currency } = verifyResponse.data.data;
-
-        // Mark payment as successful in your database
 
         existingPayment.status = 'successful';
         existingPayment.mode = channel;
@@ -517,21 +270,17 @@ export class PaymentService {
           senderId: existingPayment.senderId,
         });
 
-        this.logger.log(`Payment mark as Success: ${reference}`);
+        this.logger.log(`Payment marked as successful: ${reference}`);
       } else {
-        // Mark payment as successful in your database
-
         existingPayment.status = 'failed';
-
         await this.paymentRepo.save(existingPayment);
-
-        this.logger.log(`Payment mark as failed: ${reference}`);
+        this.logger.log(`Payment marked as failed: ${reference}`);
       }
 
       return {
         success: true,
         data: existingPayment,
-        message: 'Payment Completed',
+        message: 'Payment completed',
       };
     } catch (error) {
       if (error.response) {
@@ -557,7 +306,6 @@ export class PaymentService {
     }));
   }
 
-  // 🔍 Get one payment
   async getOne(id: string) {
     const payment = await this.paymentRepo.findOne({ where: { id } });
     if (!payment) throw new NotFoundException('Payment not found');
@@ -565,7 +313,7 @@ export class PaymentService {
   }
 
   async refund(dto: RefundPaymentDto) {
-    const { transactionId, amount, refundType, reason } = dto;
+    const { transactionId, amount, reason } = dto;
 
     const payment = await this.transactionRepo.findOne({
       where: { id: transactionId },
@@ -573,26 +321,27 @@ export class PaymentService {
 
     if (!payment) throw new NotFoundException('Payment not found');
 
-    // if (payment.method !== 'paypal') {
-    //   throw new BadRequestException(
-    //     'Refunds are only supported for PayPal payments.',
-    //   );
-    // }
-
-    // await axios.post(
-    //   `${process.env.PAYPAL_SANDBOX_URL}/v1/payments/sale/${payment.gatewayTransactionId}/refund`,
-    //   { amount: { total: amount.toFixed(2), currency: 'USD' } },
-    //   {
-    //     auth: {
-    //       username: process.env.PAYPAL_CLIENT_ID!,
-    //       password: process.env.PAYPAL_SECRET_KEY!,
-    //     },
-    //   },
-    // );
+    try {
+      await axios.post(
+        `${this.paystackBaseUrl}/refund`,
+        {
+          transaction: payment.referenceId,
+          amount: amount ? amount * 100 : undefined, // kobo; omit for full refund
+        },
+        {
+          headers: { Authorization: `Bearer ${this.paystackAccessKey}` },
+        },
+      );
+    } catch (error) {
+      this.logger.error('Paystack refund failed', error.response?.data || error.message);
+      throw new InternalServerErrorException(
+        `Refund failed: ${error.response?.data?.message || error.message}`,
+      );
+    }
 
     payment.type = TransactionType.REFUND;
-    payment.status = TransactionStatus.COMPLETED
-    payment.reason = reason ?? "No reason provided";
+    payment.status = TransactionStatus.COMPLETED;
+    payment.reason = reason ?? 'No reason provided';
     await this.transactionRepo.save(payment);
 
     return { message: 'Refund successful', payment };
@@ -602,56 +351,12 @@ export class PaymentService {
     return this.paymentRepo.find({ where: { status: 'disputed' } });
   }
 
-  // 🗑️ Delete all payments
   async deleteAllPayments() {
     const result = await this.paymentRepo.clear();
     return { message: 'All payments deleted.', result };
   }
 
-  /**
-   * Get PayPal access token for API calls
-   */
-  private async getAccessToken(): Promise<string> {
-    console.log('PayPal Config:', {
-      clientId: this.clientId,
-      clientSecret: this.clientSecret ? '***HIDDEN***' : 'MISSING',
-      baseUrl: this.paypalBaseUrl,
-    });
-
-    try {
-      const auth = Buffer.from(
-        `${this.clientId}:${this.clientSecret}`,
-      ).toString('base64');
-
-      const response = await axios.post<PayPalAuthResponse>(
-        `${this.paypalBaseUrl}/v1/oauth2/token`,
-        'grant_type=client_credentials',
-        {
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            Authorization: `Basic ${auth}`,
-          },
-        },
-      );
-
-      return response.data.access_token;
-    } catch (error) {
-      if (error.response) {
-        console.error('PayPal Error:', error.response.data);
-        this.logger.error(
-          'Failed to get PayPal access token',
-          error.response.data,
-        );
-        throw new InternalServerErrorException('PayPal authentication failed');
-      } else {
-        console.error('Request Error:', error.message);
-        throw new InternalServerErrorException('PayPal authentication failed');
-      }
-    }
-  }
-
   async getPaymentMethodStats() {
-    // Fetch all completed transactions grouped by method
     const raw = await this.transactionRepo
       .createQueryBuilder('t')
       .select('t.method', 'method')
@@ -661,14 +366,14 @@ export class PaymentService {
       .groupBy('t.method')
       .getRawMany();
 
-    // Build default response for all methods (including those with 0)
     const methods = Object.values(PaymentMethod);
-
-    const totalAmount = raw.reduce((sum, r) => sum + Number(r.totalAmount || 0), 0);
+    const totalAmount = raw.reduce(
+      (sum, r) => sum + Number(r.totalAmount || 0),
+      0,
+    );
 
     return methods.map((method) => {
       const record = raw.find((r) => r.method === method);
-
       const amount = record ? Number(record.totalAmount) : 0;
       const count = record ? Number(record.count) : 0;
 
@@ -676,7 +381,10 @@ export class PaymentService {
         method,
         amount,
         count,
-        percentage: totalAmount === 0 ? 0 : Number(((amount / totalAmount) * 100).toFixed(2)),
+        percentage:
+          totalAmount === 0
+            ? 0
+            : Number(((amount / totalAmount) * 100).toFixed(2)),
       };
     });
   }

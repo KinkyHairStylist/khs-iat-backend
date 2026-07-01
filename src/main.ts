@@ -100,7 +100,6 @@ async function bootstrap() {
     '/api/auth/business/verify-password-otp',
     '/api/auth/business/reset-password',
     '/api/webhook/paystack',
-    '/api/webhook/paypal',
     '/api/payments/verify',
     '/api/business/create',
     '/api/business/services'
