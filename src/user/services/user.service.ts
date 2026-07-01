@@ -127,7 +127,7 @@ export class UserService {
     await sgMail.send(msg);
   }
 
-  async getStarted(dto: GetStartedDto): Promise<AuthResponseDto> {
+  async getStarted(dto: GetStartedDto): Promise<void> {
     const { email } = dto;
 
     let user = await this.userRepository.findOne({ where: { email } });
@@ -205,7 +205,7 @@ export class UserService {
     };
   }
 
-  async resendCode(dto: ResendCodeDto): Promise<AuthResponseDto> {
+  async resendCode(dto: ResendCodeDto): Promise<void> {
     const { email } = dto;
 
     const user = await this.userRepository.findOne({ where: { email } });
@@ -351,7 +351,7 @@ export class UserService {
 
   async startResetPassword(
     dto: ResetPasswordStartDto,
-  ): Promise<AuthResponseDto> {
+  ): Promise<void> {
     const { email } = dto;
 
     const user = await this.userRepository.findOne({ where: { email } });
@@ -398,7 +398,7 @@ export class UserService {
 
   async finishResetPassword(
     dto: ResetPasswordFinishDto,
-  ): Promise<AuthResponseDto> {
+  ): Promise<void> {
     const { email, newPassword, confirmPassword } = dto;
 
     if (newPassword !== confirmPassword) {

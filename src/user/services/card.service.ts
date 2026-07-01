@@ -66,7 +66,7 @@ export class CardService {
     return await this.cardRepo.save(card);
   }
 
-  async deleteCard(cardId: string, user: User): Promise<{ message: string }> {
+  async deleteCard(cardId: string, user: User): Promise<void> {
     // Find the card and ensure it belongs to the user
     const card = await this.cardRepo.findOne({
       where: { id: cardId, user: { id: user.id } },

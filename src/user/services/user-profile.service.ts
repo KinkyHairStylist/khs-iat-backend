@@ -98,7 +98,7 @@ export class UserProfileService {
     return this.userRepo.save(foundUser);
   }
 
-  async deleteAvatar(user: User): Promise<{ message: string }> {
+  async deleteAvatar(user: User): Promise<void> {
     const foundUser = await this.userRepo.findOne({ where: { id: user.id } });
     if (!foundUser) throw new NotFoundException('User not found');
 

@@ -76,7 +76,7 @@ export class FavoriteServiceController {
   async getUserFavorites(
     @Request() req: any,
     @Query() query: any,
-  ): Promise<{ data: any[]; total: number; page: number; limit: number }> {
+  ) {
     const options = {
       page: parseInt(query.page) || 1,
       limit: parseInt(query.limit) || 20,

@@ -715,7 +715,7 @@ export class BookingService {
   }
 
   // Restore Cancelled Booking
-  async restoreBooking(orderId: string): Promise<{ message: string }> {
+  async restoreBooking(orderId: string): Promise<void> {
     const appointment = await this.bookingRepository.findOne({
       where: { orderId },
     });
