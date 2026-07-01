@@ -83,15 +83,12 @@ export class EmergencyContactService {
   async getEmergencyContacts(
     clientId: string,
     ownerId: string,
-  ): Promise<ApiResponse<EmergencyContact[]>> {
+    page = 1,
+    limit = 20,
+  ): Promise<ApiResponse<{ data: EmergencyContact[]; total: number; page: number; limit: number }>> {
     try {
-      // Verify client belongs to owner
       const client = await this.clientRepo.findOne({
-        where: {
-          id: clientId,
-          ownerId: ownerId,
-          isActive: true,
-        },
+        where: { id: clientId, ownerId, isActive: true },
       });
 
       if (!client) {
@@ -102,13 +99,15 @@ export class EmergencyContactService {
         };
       }
 
-      const contacts = await this.emergencyContactRepo.findBy({
-        clientId,
+      const [contacts, total] = await this.emergencyContactRepo.findAndCount({
+        where: { clientId },
+        skip: (page - 1) * limit,
+        take: limit,
       });
 
       return {
         success: true,
-        data: contacts,
+        data: { data: contacts, total, page, limit },
         message: 'Emergency contacts retrieved successfully',
       };
     } catch (error) {
