@@ -12,7 +12,6 @@ import { TransactionFeeModule } from './admin/transaction-fee/transaction-fee.mo
 import { WithdrawalModule } from './admin/withdrawal/withdrawal.module';
 import { WalletModule } from './admin/wallet/wallet.module';
 import { SalonModule } from './user/modules/salon.module';
-import { BookingModule } from './user/modules/booking.module';
 import { BusinessServicesModule } from './user/modules/business-services.module';
 import { FavoriteServiceModule } from './user/modules/favorite-service.module';
 
@@ -84,7 +83,6 @@ import { ZohoBooksModule } from './integration/zohobooks.module';
     WebhookModule,
     UserModule,
     SalonModule,
-    BookingModule,
     BusinessServicesModule,
     FavoriteServiceModule,
     ReferralModule,
