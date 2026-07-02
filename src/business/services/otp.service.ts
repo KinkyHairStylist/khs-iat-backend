@@ -164,7 +164,7 @@ export class OtpService {
   }
 
   async sendPhoneSmsOtp(phone: string, otp: string): Promise<void> {
-    // console.log(`OTP for ${phone}: ${otp}`);
+    console.log(`OTP for ${phone}`);
   }
 
   async verifyPhoneOtpService(phone: string, otp: string): Promise<boolean> {
