@@ -357,11 +357,18 @@ export class AuthService {
     const { phone } = requestPhoneOtpDto;
 
     const otp = await this.otpService.generatePhoneOtp(phone);
-    await this.otpService.sendPhoneSmsOtp(phone, otp);
+    const deliveryResult = await this.otpService.sendPhoneSmsOtp(phone, otp);
 
     return {
-      message: 'OTP sent successfully to your phone number.',
+      message: deliveryResult.fallbackMode
+        ? 'OTP generated successfully. Check the server logs for the code in local/dev mode.'
+        : 'OTP sent successfully to your phone number.',
       phone,
+      ...(deliveryResult.fallbackMode &&
+      process.env.NODE_ENV !== 'production' &&
+      deliveryResult.otp
+        ? { otp: deliveryResult.otp }
+        : {}),
     };
   }
 

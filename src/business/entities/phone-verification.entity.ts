@@ -7,14 +7,14 @@ import {
   Index,
 } from 'typeorm';
 
-@Entity('email_verifications')
-export class EmailVerification {
+@Entity('phone_verifications')
+export class PhoneVerification {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
   @Index({ unique: true })
   @Column({ unique: true })
-  email!: string;
+  phoneNumber!: string;
 
   @Column({ length: 6 })
   otp!: string;
