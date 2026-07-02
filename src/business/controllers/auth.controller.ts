@@ -5,6 +5,7 @@ import {
   HttpStatus,
   Post,
 } from '@nestjs/common';
+import { Public } from 'src/business/middlewares/public.decorator';
 import { AuthService } from '../services/auth.service';
 import { CreateUserDto } from '../dtos/requests/CreateUserDto';
 import { OtpService } from '../services/otp.service';
@@ -26,6 +27,7 @@ export class AuthController {
       private readonly otpService: OtpService,
   ) {}
 
+  @Public()
   @Post('/business/register')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Register a new business user' })
@@ -37,6 +39,7 @@ export class AuthController {
     return this.authService.register(createUserDto);
   }
 
+  @Public()
   @Post('/business/login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Login a business user' })
@@ -48,6 +51,7 @@ export class AuthController {
     return this.authService.login(loginDto);
   }
 
+  @Public()
   @Post('/business/forgot-password')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Request password reset OTP' })
@@ -57,6 +61,7 @@ export class AuthController {
     return this.authService.requestPasswordReset(forgotPasswordDto);
   }
 
+  @Public()
   @Post('/business/verify-password-otp')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Verify password reset OTP' })
@@ -68,6 +73,7 @@ export class AuthController {
     return this.authService.verifyPasswordOtp(verifyOtpDto);
   }
 
+  @Public()
   @Post('/business/reset-password')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Reset password with token' })
@@ -79,6 +85,7 @@ export class AuthController {
     return this.authService.resetPassword(resetPasswordDto);
   }
 
+  @Public()
   @Post('/business/otp/request')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Request email OTP for verification' })
@@ -89,6 +96,7 @@ export class AuthController {
     return { message: 'OTP sent to your email.', email: requestOtpDto.email };
   }
 
+  @Public()
   @Post('/business/otp/verify')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Verify email OTP' })
@@ -99,6 +107,7 @@ export class AuthController {
     return this.otpService.verifyOtp(verifyOtpDto.email, verifyOtpDto.otp);
   }
 
+  @Public()
   @Post('/business/otp/refresh')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Refresh access token using refresh token' })

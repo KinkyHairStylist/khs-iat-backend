@@ -14,6 +14,7 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
 import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
+import { Public } from 'src/business/middlewares/public.decorator';
 import { PaymentService } from './payment.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { RefundPaymentDto } from './dto/refund-payment.dto';
@@ -22,9 +23,6 @@ import { Role } from 'src/middleware/role.enum';
 import { RolesGuard } from 'src/middleware/roles.guard';
 
 @ApiTags('Admin All Transactions')
-@ApiBearerAuth('access-token')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.Admin, Role.SuperAdmin, Role.Client)
 @Controller('admin/payments')
 export class PaymentController {
   private readonly logger = new Logger(PaymentController.name);
@@ -52,11 +50,17 @@ export class PaymentController {
    * }
    */
 
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.Admin, Role.SuperAdmin, Role.Client)
   @Get('payment-methods')
   async paymentMethods() {
     return this.paymentService.getPaymentMethodStats();
   }
 
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.Admin, Role.SuperAdmin, Role.Client)
   @Post('create')
   async createPayment(
     @Body()
@@ -116,6 +120,9 @@ export class PaymentController {
    *   "message": "Payment captured successfully"
    * }
    */
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.Admin, Role.SuperAdmin, Role.Client)
   @Post('capture/:orderId')
   @HttpCode(HttpStatus.OK)
   async capturePayment(@Param('orderId') orderId: string) {
@@ -141,15 +148,24 @@ export class PaymentController {
     }
   }
 
+  @Public()
   @Patch('/verify/:txReference')
   async verifyPayment(@Param('txReference') txReference: string) {
     try {
       const result =
         await this.paymentService.verifyPaystackWebhookPayment(txReference);
 
+      const payment = result.payment;
       return {
         success: true,
-        data: result.payment,
+        data: {
+          status: payment.status,
+          amount: payment.amount,
+          currency: payment.currency,
+          reason: payment.reason,
+          createdAt: payment.createdAt,
+          gatewayTransactionId: payment.gatewayTransactionId,
+        },
         message: result.message,
       };
     } catch (error) {
@@ -162,26 +178,41 @@ export class PaymentController {
     }
   }
 
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.Admin, Role.SuperAdmin, Role.Client)
   @Get()
   findAll() {
     return this.paymentService.getAll();
   }
 
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.Admin, Role.SuperAdmin, Role.Client)
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.paymentService.getOne(id);
   }
 
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.Admin, Role.SuperAdmin, Role.Client)
   @Post('refund')
   refund(@Body() dto: RefundPaymentDto) {
     return this.paymentService.refund(dto);
   }
 
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.Admin, Role.SuperAdmin, Role.Client)
   @Get('disputes/all')
   getDisputes() {
     return this.paymentService.getDisputes();
   }
 
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.Admin, Role.SuperAdmin, Role.Client)
   @Delete('delete-all')
   async deleteAllPayments() {
     return this.paymentService.deleteAllPayments();

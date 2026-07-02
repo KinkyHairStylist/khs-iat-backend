@@ -7,6 +7,7 @@ import {
   ClassSerializerInterceptor,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
+import { Public } from 'src/business/middlewares/public.decorator';
 
 import { SalonService } from '../services/salon.service';
 import { CacheInterceptor } from '../../cache/cache.interceptor';
@@ -50,6 +51,7 @@ export class SalonController {
   @ApiQuery({ name: 'lng', required: false, type: Number, example: 151.2093 })
   @ApiResponse({ status: 200, description: 'Return list of salons' })
   @UseInterceptors(CacheInterceptor) //  Apply caching
+  @Public()
   async findAll(@Query() query: any) {
     const options = {
       page: parseInt(query.page) || 1,
@@ -70,6 +72,7 @@ export class SalonController {
     return this.salonService.findAll(options);
   }
 
+  @Public()
   @Get('search')
   @ApiQuery({
     name: 'category',
@@ -81,6 +84,7 @@ export class SalonController {
     return this.salonService.getServices(category);
   }
 
+  @Public()
   @Get('services/:businessId')
   @ApiOperation({ summary: 'Get all services for a business by business ID' })
   @ApiResponse({ status: 200, description: 'Return list of services' })
@@ -88,6 +92,7 @@ export class SalonController {
     return this.salonService.getServicesByBusinessId(businessId);
   }
   
+  @Public()
   @Get(':id')
   @ApiOperation({ summary: 'Get business by ID with services & available times' })
   @ApiResponse({ status: 200, description: 'Return business details' })

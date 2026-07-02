@@ -3,7 +3,6 @@ import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import session from 'express-session';
 import express from 'express';
-import { AuthMiddleware } from './middleware/anth.middleware';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { InputSanitizationMiddleware } from './middleware/input-sanitization.middleware';
 
@@ -71,65 +70,6 @@ async function bootstrap() {
       },
     }),
   );
-
-  // Global Authentication Middleware
-  // Define public routes that should bypass authentication
-  const publicRoutes = [
-    '/api/docs',
-    '/api/salons',
-    '/api/get-started',
-    '/api/auth/get-started',
-    '/api/auth/verify-code',
-    '/api/auth/resend-code',
-    '/api/auth/signup',
-    '/api/auth/login',
-    '/api/admin/auth/login',
-    '/api/auth/reset-password/start',
-    '/api/auth/reset-password/verify',
-    '/api/auth/reset-password/finish',
-    '/api/auth/business/login',
-    '/api/auth/business/register',
-    '/api/auth/business/otp/refresh',
-    '/api/auth/business/otp/request',
-    '/api/auth/business/otp/verify',
-    '/api/auth/business/forgot-password',
-    '/api/auth/business/verify-password-otp',
-    '/api/auth/business/reset-password',
-    '/api/webhook/paystack',
-    '/api/webhook/paypal',
-    '/api/payments/verify',
-    '/api/business/create',
-    '/api/business/services'
-    // Add other public routes here
-  ];
-
-  // Define public route patterns (regex) for parameterized routes
-  const publicRoutePatterns = [
-    /^\/api\/business\/[^/]+\/services$/, // Matches /api/business/:businessId/services
-  ];
-
-  // Ensure AuthMiddleware protects routes globally, except for public ones
-  app.use((req, res, next) => {
-    // Check if the request path starts with any of the public routes
-    const isPublic = publicRoutes.some((route) => req.path.startsWith(route));
-    
-    // Check if the request path matches any of the public route patterns
-    const matchesPattern = publicRoutePatterns.some((pattern) => pattern.test(req.path));
-
-    if (isPublic || matchesPattern) {
-      // Skip authentication for public routes
-      return next();
-    }
-
-    // For all other routes, apply the AuthMiddleware
-    try {
-      const authMiddleware = app.get(AuthMiddleware);
-      authMiddleware.use(req, res, next);
-    } catch (error) {
-      // Handle cases where middleware fails (e.g., token issues)
-      next(error);
-    }
-  });
 
   // Swagger Setup
   const config = new DocumentBuilder()

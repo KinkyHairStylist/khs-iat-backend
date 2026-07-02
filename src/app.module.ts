@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
+import { APP_GUARD } from '@nestjs/core';
 
 import { EmailModule } from './email/email.module';
 import { BusinessModule } from './business/business.module';
@@ -20,7 +21,7 @@ import { AppService } from './app.service';
 import { AppController } from './app.controller';
 import { typeOrmConfig as testTypeOrmConfig } from './config/database.test';
 import { typeOrmConfig } from './config/database';
-import { AuthMiddleware } from './middleware/anth.middleware';
+import { JwtAuthGuard } from './middleware/jwt-auth.guard';
 import { ReferralModule } from './user/modules/referral.module';
 import { MembershipModule } from './user/modules/membership-tier.module';
 import { CardModule } from './user/modules/card.module';
@@ -104,6 +105,12 @@ import { ZohoBooksModule } from './integration/zohobooks.module';
     ZohoBooksModule,
   ],
   controllers: [AppController],
-  providers: [AppService, AuthMiddleware],
+  providers: [
+    AppService,
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
+    },
+  ],
 })
 export class AppModule {}

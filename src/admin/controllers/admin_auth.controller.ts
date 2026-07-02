@@ -1,4 +1,5 @@
 import { Controller, Post, Body, Query, UseGuards, } from '@nestjs/common';
+import { Public } from 'src/business/middlewares/public.decorator';
 import {
   ApiBearerAuth,
   ApiTags
@@ -17,6 +18,7 @@ import { AdminAuthGuard } from 'src/middleware/admin-auth.guard';
 export class AdminAuthController {
   constructor(private readonly auth: AdminAuthService) {}
 
+  @Public()
   @Post('login')
   login(@Body() dto: AdminLoginDto) {
     return this.auth.Admin_login(dto.email, dto.password);
