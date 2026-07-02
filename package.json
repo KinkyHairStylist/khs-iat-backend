@@ -41,6 +41,7 @@
     "@nestjs/platform-express": "^11.1.8",
     "@nestjs/platform-socket.io": "^11.1.8",
     "@nestjs/swagger": "^11.2.1",
+    "@nestjs/throttler": "^6.5.0",
     "@nestjs/typeorm": "^11.0.0",
     "@nestjs/websockets": "^11.1.8",
     "@paypal/checkout-server-sdk": "^1.0.3",

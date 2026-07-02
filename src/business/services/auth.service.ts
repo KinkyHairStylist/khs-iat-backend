@@ -143,8 +143,6 @@ export class AuthService {
       where: { email: email.toLowerCase() },
     });
 
-    console.log('User found in login:', user);
-
     if (!user) {
       throw new UnauthorizedException('No user');
     }
@@ -270,7 +268,6 @@ export class AuthService {
     });
 
     if (!user) {
-      console.log(`Password reset requested for non-existent email: ${email}`);
       return {
         message:
           'If a user with that email exists, an OTP code has been sent to their email.',

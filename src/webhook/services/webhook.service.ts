@@ -266,8 +266,6 @@ export class WebhookService {
     try {
       const authToken = await this.getAccessToken();
 
-      console.log('PAYPAL ACCESS TOKEN:', authToken);
-
       const response = await axios.get(
         `${this.paypalBaseUrl}/v1/notifications/webhooks`,
         {
@@ -317,7 +315,6 @@ export class WebhookService {
 
       const result =
         await this.paymentsService.verifyPaystackPayment(reference);
-      console.log('✅ Payment verified via webhook:', reference);
 
       return result;
     }
