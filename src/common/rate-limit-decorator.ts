@@ -71,3 +71,12 @@ export function VerifyRateLimit() {
     },
   });
 }
+
+export function InviteRateLimit() {
+  return Throttle({
+    default: {
+      limit: 5,
+      ttl: 60_000,
+    },
+  });
+}
