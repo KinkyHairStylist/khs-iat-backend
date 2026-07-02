@@ -24,7 +24,7 @@ import { RolesGuard } from 'src/middleware/roles.guard';
 @ApiTags('Admin All Transactions')
 @ApiBearerAuth('access-token')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.Admin, Role.SuperAdmin, Role.Client)
+@Roles(Role.Staff, Role.Customer)
 @Controller('admin/payments')
 export class PaymentController {
   private readonly logger = new Logger(PaymentController.name);

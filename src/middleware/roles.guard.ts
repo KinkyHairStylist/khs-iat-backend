@@ -18,23 +18,14 @@ export class RolesGuard implements CanActivate {
 
     if (!user) return false;
 
-    // Use role fields directly from user entity (merged from UserRole)
     return requiredRoles.some((role) => {
       switch (role) {
-        case Role.SuperAdmin:
-          return user.isSuperAdmin;
-        case Role.Admin:
-          return user.isAdmin;
-        case Role.Business:
-          return user.isBusiness;
         case Role.Staff:
           return user.isStaff;
-        case Role.Client:
-          return user.isClient;
-        case Role.Manager:
-          return user.isManager;
-        case Role.BusinessAdmin:
-          return user.isBusinessAdmin;
+        case Role.Merchant:
+          return user.isMerchant;
+        case Role.Customer:
+          return user.isCustomer;
         default:
           return false;
       }

@@ -96,9 +96,9 @@ export class BusinessService {
       owner,
     });
 
-    // Set role fields directly on user (merged from UserRole entity)
-    owner.isBusiness = true;
-    owner.isClient = false;
+    owner.isMerchant = true;
+    owner.isCustomer = false;
+    owner.isStaff = false;
     await this.userRepo.save(owner);
 
     business.ownerName = owner?.firstName + ' ' + owner?.surname || '';
@@ -422,19 +422,6 @@ export class BusinessService {
 
     let tempPassword: string | undefined;
 
-    // Extract role from settings if provided
-    const staffRole = settings?.role || 'staff';
-    
-    // Map role to user fields:
-    // admin -> isBusinessAdmin
-    // manager -> isManager
-    // staff -> isStaff
-    const roleFields = {
-      isStaff: staffRole === 'staff',
-      isManager: staffRole === 'manager',
-      isBusinessAdmin: staffRole === 'admin',
-    };
-
     if (user) {
       // Email exists - update existing user to be staff
       // Update user details
@@ -444,14 +431,10 @@ export class BusinessService {
       if (gender) user.gender = gender.toUpperCase() as any;
       if (avatar) user.avatarUrl = avatar;
       
-      // Set role based on settings
-      user.isClient = false;
-      user.isBusiness = false;
-      user.isSuperAdmin = false;
-      user.isAdmin = false;
-      user.isStaff = roleFields.isStaff;
-      user.isManager = roleFields.isManager;
-      user.isBusinessAdmin = roleFields.isBusinessAdmin;
+      // Business staff are merchants
+      user.isMerchant = true;
+      user.isCustomer = false;
+      user.isStaff = false;
       
       await this.userRepo.save(user);
     } else {
@@ -473,12 +456,9 @@ export class BusinessService {
         gender: gender?.toUpperCase() as any,
         isVerified: true,
         avatarUrl: avatar,
-        // Set role fields directly on user based on settings.role
-        isClient: false,
-        isBusiness: false,
-        isSuperAdmin: false,
-        isAdmin: false,
-        ...roleFields,
+        isMerchant: true,
+        isCustomer: false,
+        isStaff: false,
       });
 
       await this.userRepo.save(newUser);
@@ -544,19 +524,12 @@ export class BusinessService {
       throw new Error('Staff not found');
     }
 
-    // If settings contain a role, update the user's role fields
-    if (editStaffDto.settings?.role) {
-      const staffRole = editStaffDto.settings.role;
-      
-      // Find the user by email and update their role
-      const user = await this.userRepo.findOne({
-        where: { email: staff.email },
-      });
-      
-      if (user) {
-        user.isStaff = staffRole === 'staff';
-        user.isManager = staffRole === 'manager';
-        user.isBusinessAdmin = staffRole === 'admin';
+    // Ensure user record stays as merchant when staff is edited
+    if (staff.email) {
+      const user = await this.userRepo.findOne({ where: { email: staff.email } });
+      if (user && !user.isMerchant) {
+        user.isMerchant = true;
+        user.isCustomer = false;
         await this.userRepo.save(user);
       }
     }
@@ -1053,7 +1026,18 @@ export class BusinessService {
     const staff = await this.staffRepo.findOne({ where: { id: id } });
     if (!staff) throw new Error('Staff not found');
     staff.isActive = false;
-    return this.staffRepo.save(staff);
+    await this.staffRepo.save(staff);
+
+    if (staff.email) {
+      const user = await this.userRepo.findOne({ where: { email: staff.email } });
+      if (user) {
+        user.isMerchant = false;
+        user.isCustomer = true;
+        await this.userRepo.save(user);
+      }
+    }
+
+    return staff;
   }
 
   async getRescheduledBookings(userId: string) {
@@ -1160,14 +1144,9 @@ export class BusinessService {
       phoneNumber: user.phoneNumber,
       gender: user.gender,
       avatarUrl: user.avatarUrl,
-      // Return role fields directly from user (merged from UserRole entity)
-      isSuperAdmin: user.isSuperAdmin,
-      isAdmin: user.isAdmin,
-      isBusiness: user.isBusiness,
-      isClient: user.isClient,
       isStaff: user.isStaff,
-      isManager: user.isManager,
-      isBusinessAdmin: user.isBusinessAdmin,
+      isMerchant: user.isMerchant,
+      isCustomer: user.isCustomer,
       createdAt: user.createdAt,
       verified: user.isVerified 
     };

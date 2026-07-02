@@ -1,4 +1,4 @@
-import {
+﻿import {
   Controller,
   Get,
   Post,
@@ -22,7 +22,7 @@ import { Roles } from 'src/middleware/roles.decorator';
 @ApiTags('Google Calendar')
 @ApiBearerAuth('access-token')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.Business, Role.SuperAdmin)
+@Roles(Role.Merchant, Role.Staff)
 @Controller('google-calendar')
 export class GoogleCalendarController {
   constructor(private readonly googleCalendarService: GoogleCalendarService) {}

@@ -23,7 +23,7 @@ import { CreateWithdrawalDto } from './dto/create-withdrawal.dto';
 @ApiTags('Admin Withdrawals')
 @ApiBearerAuth('access-token')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.Admin, Role.SuperAdmin)
+@Roles(Role.Staff)
 @Controller('/admin/withdrawals')
 export class WithdrawalController {
   constructor(private readonly withdrawalService: WithdrawalService) {}

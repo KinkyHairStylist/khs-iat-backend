@@ -1,4 +1,4 @@
-import {
+﻿import {
   Body,
   Controller,
   Delete,
@@ -21,7 +21,7 @@ import { Roles } from 'src/middleware/roles.decorator';
 @ApiTags('MailChimp')
 @ApiBearerAuth('access-token')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.Business, Role.SuperAdmin)
+@Roles(Role.Merchant, Role.Staff)
 @Controller('mailchimp')
 export class MailchimpController {
   constructor(private readonly mailchimpService: MailchimpService) {}

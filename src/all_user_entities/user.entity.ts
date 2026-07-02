@@ -168,36 +168,14 @@ export class User {
   notificationSettings: UserNotificationSettings;
 
   // ============================================
-  // ROLE FIELDS - Merged from UserRole entity
+  // ROLE FLAGS — 3 personas
   // ============================================
   @Column({ default: false })
-  isSuperAdmin: boolean;
+  isStaff: boolean; // platform admin
 
   @Column({ default: false })
-  isAdmin: boolean;
-
-  @Column({ default: false })
-  isBusiness: boolean;
+  isMerchant: boolean; // business owner or business staff
 
   @Column({ default: true })
-  isClient: boolean;
-
-  @Column({ default: false })
-  isStaff: boolean;
-
-  @Column({ default: false })
-  isManager: boolean;
-
-  @Column({ default: false })
-  isBusinessAdmin: boolean;
-
-  // Helper method to check if user has any admin role
-  hasAdminRole(): boolean {
-    return this.isSuperAdmin || this.isAdmin || this.isBusinessAdmin;
-  }
-
-  // Helper method to check if user has business access
-  hasBusinessAccess(): boolean {
-    return this.isBusiness || this.isStaff || this.isManager || this.isBusinessAdmin;
-  }
+  isCustomer: boolean; // registered client
 }

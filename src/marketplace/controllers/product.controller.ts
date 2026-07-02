@@ -1,4 +1,4 @@
-import {
+﻿import {
   Controller,
   Get,
   Post,
@@ -26,7 +26,7 @@ import { Roles } from 'src/middleware/roles.decorator';
 @ApiTags('Marketplace (Product)')
 @ApiBearerAuth('access-token')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.Business, Role.SuperAdmin)
+@Roles(Role.Merchant, Role.Staff)
 @Controller('marketplace')
 export class ProductController {
   constructor(private readonly productService: ProductService) {}

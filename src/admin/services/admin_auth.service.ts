@@ -67,8 +67,7 @@ export class AdminAuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    // Check role fields directly on user (merged from UserRole entity)
-    if (!user.isAdmin && !user.isSuperAdmin) {
+    if (!user.isStaff) {
       throw new UnauthorizedException('You are not authorized as admin');
     }
 
@@ -163,7 +162,6 @@ export class AdminAuthService {
 
     const hash = await PasswordHashingHelper.hashPassword(dto.password);
 
-    // Set role fields directly on user (merged from UserRole entity)
     const user = this.usersRepo.create({
       email: invite.email,
       password: hash,
@@ -172,13 +170,9 @@ export class AdminAuthService {
       phoneNumber: dto.phoneNumber,
       gender: dto.gender,
       isVerified: true,
-      isSuperAdmin: decoded.role === 'SUPER_ADMIN',
-      isAdmin: decoded.role === 'ADMIN',
-      isBusiness: false,
-      isClient: false,
-      isManager: false,
-      isBusinessAdmin: false,
-      isStaff: false,
+      isStaff: true,
+      isMerchant: false,
+      isCustomer: false,
     });
 
     await this.usersRepo.save(user);
@@ -189,7 +183,7 @@ export class AdminAuthService {
       user: {
         id: user.id,
         email: user.email,
-        isAdmin: true,
+        isStaff: true,
       },
     };
   }
@@ -206,8 +200,7 @@ export class AdminAuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    // Check role fields directly on user (merged from UserRole entity)
-    if (!user.isAdmin && !user.isSuperAdmin) {
+    if (!user.isStaff) {
       throw new UnauthorizedException('You are not authorized as admin');
     }
 

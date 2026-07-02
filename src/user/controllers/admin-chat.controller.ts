@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, UseGuards, Param } from '@nestjs/common';
+﻿import { Controller, Post, Body, Get, UseGuards, Param } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
 import { JwtAuthGuard } from '../../middleware/jwt-auth.guard';
@@ -15,7 +15,7 @@ import { GetUser } from '../../middleware/get-user.decorator';
 @ApiTags('User Admin Chat')
 @ApiBearerAuth('access-token')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.Client)
+@Roles(Role.Customer)
 @Controller('user/admin-chat')
 export class AdminChatController {
   constructor(

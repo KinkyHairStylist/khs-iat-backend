@@ -1,4 +1,4 @@
-import {
+﻿import {
   Body,
   Controller,
   HttpException,
@@ -17,7 +17,7 @@ import { Roles } from 'src/middleware/roles.decorator';
 @ApiTags('Business Reminder')
 @ApiBearerAuth('access-token')
 // @UseGuards(JwtAuthGuard, RolesGuard)
-// @Roles(Role.Business, Role.SuperAdmin)
+// @Roles(Role.Merchant, Role.Staff)
 @Controller('reminders')
 export class ReminderController {
   constructor(private readonly reminderService: ReminderService) {}

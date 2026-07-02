@@ -15,7 +15,7 @@ import { GetUser } from 'src/middleware/get-user.decorator';
 @ApiTags('Admin and Client Chat')
 @ApiBearerAuth('access-token')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.Admin, Role.SuperAdmin, Role.Client, Role.Business)
+@Roles(Role.Staff, Role.Customer, Role.Merchant)
 @Controller('users/chat')
 export class ChatController {
   constructor(
