@@ -73,8 +73,6 @@ export class ZohoBooksService {
     updateDto: UpdateBusinessOwnerSettingsDto,
   ): Promise<ZohoBooksCredentials> {
     try {
-      console.log('🔄 Step 1: Exchanging code for tokens...');
-
       // Step 1: Exchange code for tokens
       const tokenResponse = await axios.post(
         `${this.ZOHO_ACCOUNTS_URL}/oauth/v2/token`,
@@ -92,12 +90,6 @@ export class ZohoBooksService {
 
       const { access_token, refresh_token, expires_in, api_domain } =
         tokenResponse.data;
-
-      console.log('✅ Tokens received:', {
-        hasAccessToken: !!access_token,
-        hasRefreshToken: !!refresh_token,
-        apiDomain: api_domain,
-      });
 
       // Step 2: Determine the correct API base URL from api_domain
       // const domain = api_domain.replace('https://www.', ''); // "zohoapis.com"
@@ -152,8 +144,6 @@ export class ZohoBooksService {
       }
 
       await this.zohoBooksCredsRepo.save(credentials);
-
-      console.log('✅ Credentials saved successfully!');
 
       await this.businessOwnerSettingsService.update(
         ownerId,
