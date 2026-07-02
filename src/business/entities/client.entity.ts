@@ -36,7 +36,7 @@ export enum ClientSource {
 }
 
 @Entity('clients')
-@Index(['email'], { unique: true })
+@Index(['email', 'ownerId'], { unique: true })
 @Index(['owner'])
 export class ClientSchema {
   @PrimaryGeneratedColumn('uuid')
