@@ -82,7 +82,7 @@ const baseOptions: DataSourceOptions = {
       : false, // Use SSL in production, but not in development
 
   synchronize: process.env.NODE_ENV === 'development',
-  autoLoadEntities: true,
+
   extra: {
     max: 5,
   },

@@ -60,6 +60,7 @@
     "fast-xml-parser": "^5.3.5",
     "formidable": "^3.5.4",
     "googleapis": "^166.0.0",
+    "ioredis": "^5.11.1",
     "mongoose": "^8.18.3",
     "multer": "^2.0.2",
     "node-quickbooks": "^2.0.46",

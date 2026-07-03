@@ -55,7 +55,9 @@ import { ZohoBooksModule } from './integration/zohobooks.module';
       isGlobal: true,
     }),
     TypeOrmModule.forRoot(
-      process.env.NODE_ENV === 'test' ? testTypeOrmConfig : typeOrmConfig,
+      process.env.NODE_ENV === 'test'
+        ? { ...testTypeOrmConfig, autoLoadEntities: true }
+        : { ...typeOrmConfig, autoLoadEntities: true },
     ),
     JwtModule.registerAsync({
       global: true, // Make JwtModule globally available
