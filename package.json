@@ -15,7 +15,7 @@
     "seed:chat": "ts-node --project tsconfig.json ./scripts/seed-live-chat.ts",
     "build": "nest build",
     "start": "node dist/src/main.js",
-    "start:prod": "node --max-old-space-size=512 dist/main.js",
+    "start:prod": "node --max-old-space-size=512 dist/src/main.js",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
