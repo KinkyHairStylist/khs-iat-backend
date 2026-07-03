@@ -335,6 +335,14 @@ export class BusinessController {
     return this.businessService.getBusinessDetails(req.user.id);
   }
 
+  // Any authenticated user — public business profile by ID
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/info')
+  async getBusinessPublicInfo(@Param('id') id: string) {
+    return this.businessService.getBusinessPublicInfo(id);
+  }
+
   // Merchant/Staff only — sensitive financial/owner data
   @ApiBearerAuth('access-token')
   @UseGuards(JwtAuthGuard, RolesGuard)

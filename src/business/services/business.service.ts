@@ -1233,6 +1233,33 @@ export class BusinessService {
     throw new NotFoundException('No business found for this user');
   }
 
+  async getBusinessPublicInfo(businessId: string) {
+    const business = await this.businessRepo.findOne({
+      where: { id: businessId },
+      relations: ['owner'],
+    });
+
+    if (!business) {
+      throw new NotFoundException('Business not found');
+    }
+
+    return {
+      success: true,
+      data: {
+        id: business.id,
+        businessName: business.businessName,
+        description: business.description,
+        businessAddress: business.businessAddress,
+        businessImage: business.businessImage,
+        category: business.category,
+        status: business.status,
+        longitude: business.longitude,
+        latitude: business.latitude,
+        ownerName: business.ownerName,
+      },
+    };
+  }
+
   async updateBusinessCategory(userId: string, categories: BusinessCategory[]) {
     // Check if user is a business owner
     const business = await this.businessRepo.findOne({
