@@ -139,6 +139,9 @@ export class UserService {
 
     const verificationCode = this.generateCode();
     const verificationExpires = new Date(Date.now() + 10 * 60 * 1000);
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[DEV] OTP for ${email}: ${verificationCode}`);
+    }
 
     // user exists but not verified → update record
     if (user && !user.isVerified) {
@@ -217,6 +220,9 @@ export class UserService {
 
     user.verificationCode = this.generateCode();
     user.verificationExpires = new Date(Date.now() + 10 * 60 * 1000);
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[DEV] OTP for ${user.email}: ${user.verificationCode}`);
+    }
     await this.userRepository.save(user);
 
     await this.sendVerificationEmail(user.email, user.verificationCode);
