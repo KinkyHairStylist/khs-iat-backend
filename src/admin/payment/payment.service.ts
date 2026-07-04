@@ -612,12 +612,7 @@ export class PaymentService {
    * Get PayPal access token for API calls
    */
   private async getAccessToken(): Promise<string> {
-    console.log('PayPal Config:', {
-      clientId: this.clientId,
-      clientSecret: this.clientSecret ? '***HIDDEN***' : 'MISSING',
-      baseUrl: this.paypalBaseUrl,
-    });
-
+    
     try {
       const auth = Buffer.from(
         `${this.clientId}:${this.clientSecret}`,

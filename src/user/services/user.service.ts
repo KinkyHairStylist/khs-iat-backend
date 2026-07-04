@@ -510,8 +510,7 @@ export class UserService {
         message: 'User updated successfully',
       };
     } catch (error) {
-      console.log('Update user error:', error);
-      return {
+            return {
         success: false,
         message: 'Failed to update user',
         error: error.message,

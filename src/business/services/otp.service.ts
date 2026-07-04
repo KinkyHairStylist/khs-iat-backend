@@ -15,11 +15,8 @@ import { AuthService } from './auth.service';
 import { EmailService } from '../../email/email.service';
 import * as crypto from 'crypto';
 
-
-
 @Injectable()
 export class OtpService {
-
   private readonly logger = new Logger(OtpService.name);
   private readonly OTP_LENGTH = 5;
   private readonly EXPIRATION_MINUTES = 15;
@@ -34,8 +31,7 @@ export class OtpService {
     @Inject(forwardRef(() => AuthService))
     private readonly userService: AuthService,
     private readonly jwtService: JwtService,
-  ) {
-  }
+  ) {}
 
   async requestOtpForPasswordReset(email: string): Promise<void> {
     const otp = this.generateOtp();
@@ -60,7 +56,7 @@ export class OtpService {
     }
 
     await this.otpRepo.save(otpRecord);
-    this.logger.debug(`OTP generated for email ${email}: ${otp}`);
+    this.logger.debug(`OTP generated for email ${email}`);
 
     const subject = 'Forgotten Password Otp';
     await this.emailService.sendEmail(email, subject, otp);
@@ -96,7 +92,7 @@ export class OtpService {
     }
 
     await this.otpRepo.save(otpRecord);
-    this.logger.debug(`OTP generated for email ${email}: ${otp}`);
+    this.logger.debug(`OTP generated for email ${email}`);
 
     const subject = 'Email Verification';
     await this.emailService.sendEmail(email, subject, otp);
@@ -157,7 +153,7 @@ export class OtpService {
   private generateOtp(): string {
     return Math.floor(
       Math.pow(10, this.OTP_LENGTH - 1) +
-      Math.random() * 9 * Math.pow(10, this.OTP_LENGTH - 1),
+        Math.random() * 9 * Math.pow(10, this.OTP_LENGTH - 1),
     ).toString();
   }
 
@@ -248,4 +244,3 @@ export class OtpService {
     return true;
   }
 }
-

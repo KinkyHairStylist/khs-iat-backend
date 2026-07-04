@@ -22,8 +22,7 @@ export class EmailService {
 
     try {
       await sgMail.send(msg);
-      console.log(`Email sent successfully to ${to}`);
-      return { success: true };
+            return { success: true };
     } catch (error) {
       console.error('SendGrid Error:', error.response?.body || error);
       throw new Error('Failed to send email');
@@ -145,8 +144,7 @@ export class EmailService {
 
     try {
       await sgMail.send(msg);
-      console.log('Staff welcome email sent successfully to:', to);
-    } catch (error: any) {
+          } catch (error: any) {
       console.error('Failed to send staff welcome email:', error.response?.body || error.message);
       // Don't throw — staff creation should succeed even if email fails
     }

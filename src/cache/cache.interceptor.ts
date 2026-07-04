@@ -25,8 +25,7 @@ export class CacheInterceptor implements NestInterceptor {
     if (cache.has(key)) {
       const entry = cache.get(key)!;
       if (Date.now() - entry.timestamp < CACHE_TTL) {
-        console.log(`Cache hit for ${key}`);
-        return new Observable((observer) => {
+                return new Observable((observer) => {
           observer.next(entry.data);
           observer.complete();
         });
@@ -34,16 +33,14 @@ export class CacheInterceptor implements NestInterceptor {
       cache.delete(key);
     }
 
-    console.log(`Cache miss for ${key}`);
-
+    
     return next.handle().pipe(
       tap((data) => {
         cache.set(key, {
           data,
           timestamp: Date.now(),
         });
-        console.log(`Cached response for ${key}`);
-      }),
+              }),
     );
   }
 

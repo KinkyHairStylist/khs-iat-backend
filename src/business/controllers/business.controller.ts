@@ -237,8 +237,7 @@ export class BusinessController {
   @Get('/sendMail')
   async sendMail(){
   const staffEmail = 'ola-israel.528@jesuitmemorial.org'
-  console.log('lets go!')
-    const firstName = 'jesse'
+      const firstName = 'jesse'
     const business = {businessName:"Natures Gentle touch"}
     const tempPassword = "secure"
     try {
@@ -304,8 +303,7 @@ export class BusinessController {
 
   @Get('/ping')
   ping() {
-    console.log('yo');
-    return 'server is live';
+        return 'server is live';
   }
 
   @ApiBearerAuth('access-token')

@@ -214,8 +214,7 @@ export class BusinessWalletController {
         message: 'Business Wallet debited successfully',
       };
     } catch (error) {
-      console.log('Failed to debit business wallet error:', error);
-      return {
+            return {
         success: false,
         error: error.message,
         message: `Failed to debit business wallet: ${error.message}`,
