@@ -1,4 +1,4 @@
-import {
+﻿import {
   Body,
   Controller,
   HttpException,
@@ -20,7 +20,7 @@ import { Roles } from 'src/middleware/roles.decorator';
 @ApiTags('Business Communication')
 @ApiBearerAuth('access-token')
 // @UseGuards(JwtAuthGuard, RolesGuard)
-// @Roles(Role.Business, Role.SuperAdmin)
+// @Roles(Role.Merchant, Role.Staff)
 @Controller('communications')
 // @UseGuards(JwtAuthGuard)
 export class CommunicationController {

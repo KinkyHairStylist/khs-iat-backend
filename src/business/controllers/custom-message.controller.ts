@@ -1,4 +1,4 @@
-import {
+﻿import {
   Body,
   Controller,
   HttpException,
@@ -17,7 +17,7 @@ import { Roles } from 'src/middleware/roles.decorator';
 @ApiTags('Business Custom Message')
 @ApiBearerAuth('access-token')
 // @UseGuards(JwtAuthGuard, RolesGuard)
-// @Roles(Role.Business, Role.SuperAdmin)
+// @Roles(Role.Merchant, Role.Staff)
 @Controller('custom-messages')
 export class CustomMessageController {
   constructor(private readonly customMessageService: CustomMessageService) {}

@@ -11,6 +11,7 @@ import { Business } from './business.entity';
 import { Service } from './service.entity';
 import { Address } from './address.entity';
 import { EmergencyContact } from './emergency-contact.entity';
+import { BusinessStaffRole } from 'src/middleware/business-staff-role.enum';
 
 @Entity('staff')
 export class Staff {
@@ -40,17 +41,14 @@ export class Staff {
 
   @Column({
     type: 'enum',
-    enum: [
-      'HAIRSTYLIST',
-      'BARBER',
-      'NAIL_TECH',
-      'SPA_THERAPIST',
-      'MANAGER',
-      'RECEPTIONIST',
-    ],
-    default: 'HAIRSTYLIST',
+    enum: BusinessStaffRole,
+    default: BusinessStaffRole.STYLIST,
   })
-  role: string;
+  role: BusinessStaffRole;
+
+  // Links this staff profile to a User account (set when merchant invites a user)
+  @Column({ type: 'varchar', nullable: true, unique: true })
+  userId: string | null;
 
   @Column({ nullable: true })
   specialization: string;

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Query, UseGuards, HttpStatus } from '@nestjs/common';
+﻿import { Controller, Get, Post, Body, Query, UseGuards, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 
 import { RolesGuard } from 'src/middleware/roles.guard';
@@ -13,7 +13,7 @@ import { GetTransactionSummaryDto, RequestRefundDto, TransactionPaginationDto } 
 @ApiTags('User Transactions')
 @ApiBearerAuth('access-token')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.Client)
+@Roles(Role.Customer)
 @Controller('users/transactions')
 export class TransactionController {
   constructor(private readonly transactionService: TransactionService) {}
