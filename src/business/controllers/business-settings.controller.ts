@@ -30,13 +30,14 @@ import {
   UpdateBusinessProfileDto,
 } from '../dtos/requests/BusinessSettingsDto';
 import { JwtAuthGuard } from '../../middleware/jwt-auth.guard';
+import { RolesGuard } from 'src/middleware/roles.guard';
 import { Role } from 'src/middleware/role.enum';
 import { Roles } from 'src/middleware/roles.decorator';
 
 @ApiTags('Business Settings')
 @ApiBearerAuth('access-token')
-// @UseGuards(JwtAuthGuard, RolesGuard)
-// @Roles(Role.Merchant, Role.Staff)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.Merchant, Role.Staff)
 @Controller('business-settings')
 export class BusinessSettingsController {
   constructor(
