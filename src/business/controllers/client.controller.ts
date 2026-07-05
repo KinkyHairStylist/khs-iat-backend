@@ -1,4 +1,4 @@
-import {
+﻿import {
   Controller,
   Post,
   Get,
@@ -43,7 +43,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 @ApiTags('Business Clients')
 @ApiBearerAuth('access-token')
 // @UseGuards(JwtAuthGuard, RolesGuard)
-// @Roles(Role.Business, Role.SuperAdmin)
+// @Roles(Role.Merchant, Role.Staff)
 @Controller('clients')
 @UsePipes(new ValidationPipe({ transform: true }))
 export class ClientController {
@@ -426,7 +426,7 @@ export class ClientController {
 
       throw new HttpException(
         {
-          message: combinedMessage, // ✅ FINAL message shown to the user
+          message: combinedMessage, // âœ… FINAL message shown to the user
           errors: failedResults.map((r) => ({
             message: r.message,
             error: r.error,
@@ -669,7 +669,7 @@ export class ClientController {
 
       throw new HttpException(
         {
-          message: combinedMessage, // ✅ FINAL message shown to the user
+          message: combinedMessage, // âœ… FINAL message shown to the user
           errors: failedResults.map((r) => ({
             message: r.message,
             error: r.error,

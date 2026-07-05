@@ -14,7 +14,7 @@ import { RolesGuard } from 'src/middleware/roles.guard';
 @ApiTags('Admin Moderation')
 @ApiBearerAuth('access-token')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.Admin, Role.SuperAdmin)
+@Roles(Role.Staff)
 @Controller('admin/moderation')
 export class ModerationController {
   constructor(private readonly moderationService: ModerationService) {}

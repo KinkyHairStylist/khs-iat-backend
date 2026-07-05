@@ -1,0 +1,16 @@
+export enum Permission {
+  VIEW_BOOKINGS = 'view_bookings',
+  MANAGE_BOOKINGS = 'manage_bookings',
+  VIEW_CLIENTS = 'view_clients',
+  MANAGE_CLIENTS = 'manage_clients',
+  VIEW_STAFF = 'view_staff',
+  MANAGE_STAFF = 'manage_staff',
+  VIEW_SERVICES = 'view_services',
+  MANAGE_SERVICES = 'manage_services',
+  MANAGE_PROMOTIONS = 'manage_promotions',
+  VIEW_REPORTS = 'view_reports',
+  MANAGE_OWN_SCHEDULE = 'manage_own_schedule',
+  VIEW_TRANSACTIONS = 'view_transactions',
+  PROCESS_PAYMENT = 'process_payment',
+  SEND_COMMUNICATIONS = 'send_communications',
+}

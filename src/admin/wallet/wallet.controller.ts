@@ -14,7 +14,7 @@ import { TopEarningsQueryDto, TopEarningsResponseDto, DashboardResponseDto } fro
 @ApiTags('Admin All Transactions')
 @ApiBearerAuth('access-token')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.Admin, Role.SuperAdmin)
+@Roles(Role.Staff)
 @Controller('/admin/wallet')
 export class WalletController {
   constructor(private readonly walletService: WalletService) {}
