@@ -350,7 +350,7 @@ export class PaymentService {
     reference: string,
     retryCount = 0,
     maxRetries = 6, // 6 retries → 60 seconds max
-  ): Promise<any> {
+  ): Promise<{ payment: Payment; message: string }> {
     if (!reference) {
       throw new BadRequestException('Provide a valid transaction reference');
     }
@@ -367,41 +367,22 @@ export class PaymentService {
       where: { referenceId: existingPayment.gatewayTransactionId },
     });
 
-    // If payment already decided → return immediately
     if (existingPayment.status === 'successful' && transaction) {
-      return {
-        success: true,
-        payment: existingPayment,
-        message: 'Payment already verified',
-      };
+      return { payment: existingPayment, message: 'Payment already verified' };
     }
 
     if (existingPayment.status === 'failed' && transaction) {
-      return {
-        success: false,
-        payment: existingPayment,
-        message: 'Payment already failed',
-      };
+      throw new BadRequestException('Payment already failed');
     }
 
-    // If status is pending → retry logic
     if (existingPayment.status === 'pending' && transaction) {
       if (retryCount >= maxRetries) {
-        return {
-          success: false,
-          payment: existingPayment,
-          message: 'Payment could not be verified after multiple attempts',
-        };
+        throw new BadRequestException('Payment could not be verified after multiple attempts');
       }
 
-      // Wait 10 seconds before retry
       await new Promise((res) => setTimeout(res, 10000));
 
-      return this.verifyPaystackWebhookPayment(
-        reference,
-        retryCount + 1,
-        maxRetries,
-      );
+      return this.verifyPaystackWebhookPayment(reference, retryCount + 1, maxRetries);
     }
 
     if (!transaction) {
@@ -422,24 +403,15 @@ export class PaymentService {
 
       this.logger.log(`Payment mark as Success: ${reference}`);
 
-      return {
-        success: false,
-        payment: existingPayment,
-        message: 'Payment transaction recorded successfully',
-      };
+      return { payment: existingPayment, message: 'Payment transaction recorded successfully' };
     }
 
-    return {
-      success: false,
-      payment: existingPayment,
-      message: 'Unknown payment status',
-    };
+    throw new InternalServerErrorException('Unknown payment status');
   }
 
-  async verifyPaystackPayment(reference: string): Promise<any> {
-    // Validation
+  async verifyPaystackPayment(reference: string): Promise<{ payment: Payment; message: string }> {
     if (!reference) {
-      throw new BadRequestException('Provide a vaild transaction reference');
+      throw new BadRequestException('Provide a valid transaction reference');
     }
 
     const existingPayment = await this.paymentRepo.findOne({
@@ -447,30 +419,19 @@ export class PaymentService {
     });
 
     if (!existingPayment) {
-      throw new InternalServerErrorException('No existing payment record ');
+      throw new InternalServerErrorException('No existing payment record');
     }
 
     if (existingPayment.status === 'successful') {
-      return {
-        success: true,
-        payment: existingPayment,
-        message: 'Payment already verified',
-      };
+      return { payment: existingPayment, message: 'Payment already verified' };
     }
 
     if (existingPayment.status === 'failed') {
-      return {
-        uccess: false,
-        payment: existingPayment,
-        message: 'Payment already failed',
-      };
+      throw new BadRequestException('Payment already failed');
     }
 
     try {
-      // Verify PayStack reference
-      this.logger.log(
-        `Verifying PayStack transaction reference: ${reference}.`,
-      );
+      this.logger.log(`Verifying PayStack transaction reference: ${reference}.`);
 
       const verifyResponse = await axios.get(
         `${this.paystackBaseUrl}/transaction/verify/${reference}`,
@@ -481,8 +442,6 @@ export class PaymentService {
 
       if (verifyResponse.data.status) {
         const { amount, channel, currency } = verifyResponse.data.data;
-
-        // Mark payment as successful in your database
 
         existingPayment.status = 'successful';
         existingPayment.mode = channel;
@@ -507,20 +466,12 @@ export class PaymentService {
 
         this.logger.log(`Payment mark as Success: ${reference}`);
       } else {
-        // Mark payment as successful in your database
-
         existingPayment.status = 'failed';
-
         await this.paymentRepo.save(existingPayment);
-
         this.logger.log(`Payment mark as failed: ${reference}`);
       }
 
-      return {
-        success: true,
-        data: existingPayment,
-        message: 'Payment Completed',
-      };
+      return { payment: existingPayment, message: 'Payment Completed' };
     } catch (error) {
       if (error.response) {
         this.logger.error('Paystack verification error', error.response.data);

@@ -58,47 +58,32 @@ export class PaymentController {
   }
 
   @Post('create')
-  async createPayment(
-    @Body()
-    dto: CreatePaymentDto,
-  ) {
-    try {
-      this.logger.log(
-        `${dto.method.toUpperCase()}: Creating payment for business`,
-      );
+  async createPayment(@Body() dto: CreatePaymentDto) {
+    this.logger.log(`${dto.method.toUpperCase()}: Creating payment for business`);
 
-      let result;
-      if (dto.method === 'paypal') {
-        result = await this.paymentService.createPayPalPayment(dto);
-
-        return {
-          success: true,
+    if (dto.method === 'paypal') {
+      const result = await this.paymentService.createPayPalPayment(dto);
+      return {
+        success: true,
+        data: {
           approvalUrl: result.approvalUrl,
           orderId: result.orderId,
           payment: result.payment,
-          message: 'Redirect user to approval URL to complete payment',
-        };
-      } else if (dto.method === 'paystack') {
-        result = await this.paymentService.createPaystackPayment(dto);
-
-        return {
-          success: true,
-          data: {
-            authorizationUrl: result.authorizationUrl,
-            reference: result.reference,
-            payment: result.payment,
-          },
-          message: 'Proceeding to Checkout to complete payment',
-        };
-      }
-    } catch (error) {
-      // this.logger.error('Payment creation failed', error);
-      return {
-        success: false,
-        error: error.message,
-        message: error.message,
+        },
+        message: 'Redirect user to approval URL to complete payment',
       };
     }
+
+    const result = await this.paymentService.createPaystackPayment(dto);
+    return {
+      success: true,
+      data: {
+        authorizationUrl: result.authorizationUrl,
+        reference: result.reference,
+        payment: result.payment,
+      },
+      message: 'Proceeding to Checkout to complete payment',
+    };
   }
 
   /**
@@ -119,47 +104,28 @@ export class PaymentController {
   @Post('capture/:orderId')
   @HttpCode(HttpStatus.OK)
   async capturePayment(@Param('orderId') orderId: string) {
-    try {
-      this.logger.log(`Capturing payment for order: ${orderId}`);
-
-      const result = await this.paymentService.capturePayment(orderId);
-
-      return {
-        success: true,
+    this.logger.log(`Capturing payment for order: ${orderId}`);
+    const result = await this.paymentService.capturePayment(orderId);
+    return {
+      success: true,
+      data: {
         captureId: result.captureId,
         status: result.status,
         amount: result.amount,
         businessId: result.businessId,
-        message: 'Payment captured successfully. Webhook will update wallet.',
-      };
-    } catch (error) {
-      this.logger.error('Payment capture failed', error);
-      return {
-        success: false,
-        error: error.message,
-      };
-    }
+      },
+      message: 'Payment captured successfully. Webhook will update wallet.',
+    };
   }
 
   @Patch('/verify/:txReference')
   async verifyPayment(@Param('txReference') txReference: string) {
-    try {
-      const result =
-        await this.paymentService.verifyPaystackWebhookPayment(txReference);
-
-      return {
-        success: true,
-        data: result.payment,
-        message: result.message,
-      };
-    } catch (error) {
-      // this.logger.error('Payment creation failed', error);
-      return {
-        success: false,
-        error: error.message,
-        message: error.message,
-      };
-    }
+    const result = await this.paymentService.verifyPaystackWebhookPayment(txReference);
+    return {
+      success: true,
+      data: result.payment,
+      message: result.message,
+    };
   }
 
   @Get()
