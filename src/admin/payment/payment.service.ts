@@ -51,26 +51,14 @@ export class PaymentService {
     private readonly transactionRepo: Repository<Transaction>,
     private readonly businessWalletService: BusinessWalletService,
   ) {
-    const paypalBaseUrl = process.env.PAYPAL_SANDBOX_URL;
     const frontendUrl = process.env.FRONTEND_URL;
-    const clientId = process.env.PAYPAL_CLIENT_ID;
-    const clientSecret = process.env.PAYPAL_SECRET_KEY!;
+    const clientSecret = process.env.PAYPAL_SECRET_KEY;
 
     const paystackAcessKey = process.env.PAYSTACK_SECRET_KEY!;
     const paystackBaseUrl = process.env.PAYSTACK_BASE_URL!;
 
-    if (!paypalBaseUrl || !clientId || !clientSecret || !frontendUrl) {
-      throw new Error('PAYMENT PAYPAL CREDENTIALS must be set');
-    }
-
-    // if (!paystackAcessKey || !paystackBaseUrl) {
-    //   throw new Error('PAYMENT PAYSTACK CREDENTIALS must be set');
-    // }
-
-    // this.paypalBaseUrl = paypalBaseUrl;
-    this.frontendUrl = frontendUrl;
-    // this.clientId = clientId;
-    this.clientSecret = clientSecret;
+    this.frontendUrl = frontendUrl ?? '';
+    this.clientSecret = clientSecret ?? '';
 
     this.paystackAcessKey = paystackAcessKey;
     this.paystackBaseUrl = paystackBaseUrl;

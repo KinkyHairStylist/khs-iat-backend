@@ -15,6 +15,17 @@ import { AuthService } from './auth.service';
 import { EmailService } from '../../email/email.service';
 import * as crypto from 'crypto';
 
+function hashOtp(otp: string): string {
+  return crypto.createHash('sha256').update(otp).digest('hex');
+}
+
+function timingSafeEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
 @Injectable()
 export class OtpService {
   private readonly logger = new Logger(OtpService.name);
@@ -43,13 +54,13 @@ export class OtpService {
     if (!otpRecord) {
       otpRecord = this.otpRepo.create({
         email,
-        otp,
+        otp: hashOtp(otp),
         expiresAt,
         trials: 0,
         maxTrials: this.MAX_TRIALS,
       });
     } else {
-      otpRecord.otp = otp;
+      otpRecord.otp = hashOtp(otp);
       otpRecord.expiresAt = expiresAt;
       otpRecord.trials = 0;
       otpRecord.maxTrials = this.MAX_TRIALS;
@@ -79,13 +90,13 @@ export class OtpService {
     if (!otpRecord) {
       otpRecord = this.otpRepo.create({
         email,
-        otp,
+        otp: hashOtp(otp),
         expiresAt,
         trials: 0,
         maxTrials: this.MAX_TRIALS,
       });
     } else {
-      otpRecord.otp = otp;
+      otpRecord.otp = hashOtp(otp);
       otpRecord.expiresAt = expiresAt;
       otpRecord.trials = 0;
       otpRecord.maxTrials = this.MAX_TRIALS;
@@ -117,7 +128,7 @@ export class OtpService {
       );
     }
 
-    if (otpRecord.otp !== providedOtp) {
+    if (!timingSafeEqual(otpRecord.otp, hashOtp(providedOtp))) {
       otpRecord.trials += 1;
       await this.otpRepo.save(otpRecord);
       throw new BadRequestException('Invalid OTP provided.');
@@ -151,10 +162,9 @@ export class OtpService {
   }
 
   private generateOtp(): string {
-    return Math.floor(
-      Math.pow(10, this.OTP_LENGTH - 1) +
-        Math.random() * 9 * Math.pow(10, this.OTP_LENGTH - 1),
-    ).toString();
+    const min = Math.pow(10, this.OTP_LENGTH - 1);
+    const max = Math.pow(10, this.OTP_LENGTH) - 1;
+    return crypto.randomInt(min, max).toString();
   }
 
   async generatePhoneOtp(phone: string): Promise<string> {

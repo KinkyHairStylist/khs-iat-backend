@@ -11,7 +11,7 @@ import {CreateMembershipPlanDto} from "../../business/dtos/requests/CreateMember
 @ApiTags('Admin User Management')
 @ApiBearerAuth('access-token')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.Admin, Role.SuperAdmin)
+@Roles(Role.Staff)
 @Controller('admin')
 export class AdminController {
     constructor(private readonly adminService: AdminService) {}

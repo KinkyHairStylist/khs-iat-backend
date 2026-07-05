@@ -1,4 +1,4 @@
-import {
+﻿import {
   Body,
   Controller,
   Get,
@@ -28,7 +28,7 @@ import { Roles } from 'src/middleware/roles.decorator';
 @ApiTags('Business Wallet')
 @ApiBearerAuth('access-token')
 // @UseGuards(JwtAuthGuard, RolesGuard)
-// @Roles(Role.Business, Role.SuperAdmin)
+// @Roles(Role.Merchant, Role.Staff)
 @Controller('business-wallet')
 export class BusinessWalletController {
   constructor(private readonly walletService: BusinessWalletService) {}

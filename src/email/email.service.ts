@@ -1,15 +1,18 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import sgMail from '@sendgrid/mail';
 
 @Injectable()
 export class EmailService {
+  private readonly logger = new Logger(EmailService.name);
+  private readonly maxRetries = 3;
+
   constructor(private configService: ConfigService) {
     sgMail.setApiKey(this.configService.get<any>('SENDGRID_API_KEY'));
   }
 
-  async sendEmail(to: string, subject: string, text: string, html?: string) {
-    const msg:any = {
+  sendEmail(to: string, subject: string, text: string, html?: string) {
+    const msg: any = {
       to,
       from: {
         email: this.configService.get<string>('SENDGRID_FROM_EMAIL'),
@@ -20,16 +23,11 @@ export class EmailService {
       html: html || text,
     };
 
-    try {
-      await sgMail.send(msg);
-            return { success: true };
-    } catch (error) {
-      console.error('SendGrid Error:', error.response?.body || error);
-      throw new Error('Failed to send email');
-    }
+    void this.sendWithRetry(msg, 1);
+    return { success: true };
   }
 
-  async sendWelcomeEmail(to: string, name: string) {
+  sendWelcomeEmail(to: string, name: string) {
     const subject = 'Welcome to Our App!';
     const text = `Hi ${name}, welcome to our platform!`;
     const html = `
@@ -42,7 +40,7 @@ export class EmailService {
     return this.sendEmail(to, subject, text, html);
   }
 
-  async sendPasswordResetEmail(to: string, resetToken: string) {
+  sendPasswordResetEmail(to: string, resetToken: string) {
     const subject = 'Password Reset Request';
     const resetUrl = `${this.configService.get<string>('FRONTEND_URL')}/reset-password?token=${resetToken}`;
     const text = `Click this link to reset your password: ${resetUrl}`;
@@ -60,19 +58,11 @@ export class EmailService {
     return this.sendEmail(to, subject, text, html);
   }
 
-  // email.service.ts
-
-  /**
-   * Send beautiful staff welcome email — fixes SendGrid "text/html" bug
-   */
-  /**
-   * Send beautiful staff welcome email — fully compatible with SendGrid
-   */
-  async sendStaffWelcomeEmail(
-      to: string,
-      firstName: string,
-      businessName: string,
-      tempPassword: string,
+  sendStaffWelcomeEmail(
+    to: string,
+    firstName: string,
+    businessName: string,
+    tempPassword: string,
   ) {
     const loginUrl = `${process.env.FRONTEND_URL}/prospect/auth/login/email-login-modal`;
 
@@ -137,17 +127,33 @@ export class EmailService {
         name: this.configService.get<string>('SENDGRID_FROM_NAME') || businessName,
       },
       subject: `Welcome to ${businessName} – Your Login Details`,
-      html, // ← This is enough for 99% of cases
+      html,
       text: `Hi ${firstName},\n\nYou've been added to ${businessName}!\n\nLogin:\nEmail: ${to}\nPassword: ${tempPassword}\n\nLog in: ${loginUrl}\n\nPlease change your password after logging in.\n\nWelcome!`,
-      // REMOVED content[] → this was causing the conflict
     };
 
-    try {
-      await sgMail.send(msg);
-          } catch (error: any) {
-      console.error('Failed to send staff welcome email:', error.response?.body || error.message);
-      // Don't throw — staff creation should succeed even if email fails
-    }
+    void this.sendWithRetry(msg, 1);
   }
 
+  private async sendWithRetry(msg: any, attempt: number) {
+    try {
+      await sgMail.send(msg);
+      this.logger.log(`Email sent to ${msg.to} (attempt ${attempt})`);
+    } catch (error: any) {
+      const statusCode = error.response?.statusCode || error.code;
+      const body = error.response?.body;
+      this.logger.warn(
+        `Email to ${msg.to} failed (attempt ${attempt}/${this.maxRetries}): ${statusCode} ${body ? JSON.stringify(body) : error.message}`,
+      );
+
+      if (attempt < this.maxRetries) {
+        const delay = 1000 * Math.pow(2, attempt - 1);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        return this.sendWithRetry(msg, attempt + 1);
+      }
+
+      this.logger.error(
+        `Email to ${msg.to} permanently failed after ${this.maxRetries} attempts`,
+      );
+    }
+  }
 }

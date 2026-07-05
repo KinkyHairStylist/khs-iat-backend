@@ -1,4 +1,4 @@
-import {
+﻿import {
   Body,
   Controller,
   Get,
@@ -20,7 +20,7 @@ import { Roles } from 'src/middleware/roles.decorator';
 @ApiTags('Business Promotion Message')
 @ApiBearerAuth('access-token')
 // @UseGuards(JwtAuthGuard, RolesGuard)
-// @Roles(Role.Business, Role.SuperAdmin)
+// @Roles(Role.Merchant, Role.Staff)
 @Controller('reviews')
 export class ReviewController {
   constructor(private readonly reviewService: ReviewService) {}

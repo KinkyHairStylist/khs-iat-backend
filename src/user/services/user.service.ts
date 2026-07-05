@@ -271,7 +271,7 @@ export class UserService {
     // Generate referral code for the new user
     user.referralCode = await this.referralService.ensureReferralCode(user.id);
 
-    // isClient defaults to true, so no need to set it explicitly
+    // isCustomer defaults to true, so no need to set it explicitly
 
     await this.userRepository.save(user);
 

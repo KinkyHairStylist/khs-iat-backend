@@ -24,13 +24,14 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json"
+    "test:e2e": "jest --config ./test/jest-e2e.json --runInBand",
+    "test:e2e:dev030": "jest --config ./test/jest-e2e.json --testPathPatterns=dev030"
   },
   "dependencies": {
     "@google-cloud/local-auth": "^3.0.1",
     "@mailchimp/mailchimp_marketing": "^3.0.80",
     "@mailchimp/mailchimp_transactional": "^1.1.2",
-    "@nestjs/common": "^11.0.1",
+    "@nestjs/common": "^11.1.18",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.0.1",
     "@nestjs/event-emitter": "^3.0.1",
@@ -60,6 +61,7 @@
     "fast-xml-parser": "^5.3.5",
     "formidable": "^3.5.4",
     "googleapis": "^166.0.0",
+    "ioredis": "^5.11.1",
     "mongoose": "^8.18.3",
     "multer": "^2.0.2",
     "node-quickbooks": "^2.0.46",
