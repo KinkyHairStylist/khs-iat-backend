@@ -15,4 +15,3 @@ export class AppController {
     return { message: 'Welcome to the Kinky Hair Stylist API! Get started here.' };
   }
 }
-// test
