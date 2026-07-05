@@ -803,6 +803,8 @@ export class ClientController {
   async getEmergencyContacts(
     @Request() req,
     @Param('clientId') clientId: string,
+    @Query('page') page = 1,
+    @Query('limit') limit = 10,
   ) {
     const ownerId = req.user._id || req.user.userId;
     if (!ownerId) {
@@ -815,6 +817,8 @@ export class ClientController {
     const result = await this.emergencyContactService.getEmergencyContacts(
       clientId,
       ownerId,
+      Number(page),
+      Number(limit),
     );
 
     if (!result.success) {
