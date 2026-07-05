@@ -64,9 +64,8 @@
     "ioredis": "^5.11.1",
     "mongoose": "^8.18.3",
     "multer": "^2.2.0",
-    "nodemailer": "^9.0.3",
-    "uuid": "^11.0.0",
     "node-quickbooks": "^2.0.46",
+    "nodemailer": "^9.0.3",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "pg": "^8.16.3",
@@ -79,6 +78,7 @@
     "swagger-ui-express": "^5.0.1",
     "twilio": "^5.10.4",
     "typeorm": "^0.3.6",
+    "uuid": "^11.0.0",
     "xss": "^1.0.15"
   },
   "overrides": {
