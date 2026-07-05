@@ -503,11 +503,11 @@ export class ClientService {
         });
       }
 
-      // Sorting
-      const sortColumn =
-        sortBy === 'createdAt' ? 'client.createdAt' : `client.${sortBy}`;
+      // Sorting — allowlist prevents column name injection
+      const ALLOWED_SORT_COLUMNS = new Set(['createdAt', 'firstName', 'lastName', 'email', 'phone', 'updatedAt']);
+      const safeSortBy = ALLOWED_SORT_COLUMNS.has(sortBy) ? sortBy : 'createdAt';
       queryBuilder.orderBy(
-        sortColumn,
+        `client.${safeSortBy}`,
         sortOrder.toUpperCase() as 'ASC' | 'DESC',
       );
 
