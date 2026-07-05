@@ -1,4 +1,4 @@
-import {
+﻿import {
   BadRequestException,
   Controller,
   Get,
@@ -36,7 +36,7 @@ import { Roles } from 'src/middleware/roles.decorator';
 @ApiTags('Business Settings')
 @ApiBearerAuth('access-token')
 // @UseGuards(JwtAuthGuard, RolesGuard)
-// @Roles(Role.Business, Role.SuperAdmin)
+// @Roles(Role.Merchant, Role.Staff)
 @Controller('business-settings')
 export class BusinessSettingsController {
   constructor(

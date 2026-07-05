@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, Param, Patch, UseGuards } from '@nestjs/common';
+﻿import { Controller, Post, Body, Get, Param, Patch, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { Role } from 'src/middleware/role.enum';
@@ -17,7 +17,7 @@ import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
 @ApiBearerAuth('access-token')
 //  @UseGuards(JwtAuthGuard, RolesGuard)
  @UseGuards(JwtAuthGuard)
-// @Roles(Role.Client)
+// @Roles(Role.Customer)
 @Controller('/bookings')
 export class BookingController {
   constructor(private bookingService: BookingService) {}

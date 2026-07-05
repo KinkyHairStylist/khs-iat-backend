@@ -47,27 +47,11 @@ export class WebhookService {
     private readonly walletService: BusinessWalletService,
     private readonly paymentsService: PaymentService,
   ) {
-    const paypalBaseUrl = process.env.PAYPAL_SANDBOX_URL!;
-    const clientId = process.env.PAYPAL_CLIENT_ID!;
-    const clientSecret = process.env.PAYPAL_SECRET_KEY!;
-    const webhookId = process.env.PAYPAL_WEBHOOK_ID!;
-
-    const paystackAcessKey = process.env.PAYSTACK_SECRET_KEY!;
-
-    if (!paypalBaseUrl || !clientId || !clientSecret || !webhookId) {
-      throw new Error('PAYPAL CREDENTIALS must be set');
-    }
-
-    if (!paystackAcessKey) {
-      throw new Error('PAYMENT PAYSTACK CREDENTIALS must be set');
-    }
-
-    this.paypalBaseUrl = paypalBaseUrl;
-    this.clientId = clientId;
-    this.clientSecret = clientSecret;
-    this.webhookId = webhookId;
-
-    this.paystackAcessKey = paystackAcessKey;
+    this.paypalBaseUrl = process.env.PAYPAL_SANDBOX_URL ?? '';
+    this.clientId = process.env.PAYPAL_CLIENT_ID ?? '';
+    this.clientSecret = process.env.PAYPAL_SECRET_KEY ?? '';
+    this.webhookId = process.env.PAYPAL_WEBHOOK_ID ?? '';
+    this.paystackAcessKey = process.env.PAYSTACK_SECRET_KEY ?? '';
   }
 
   /**
@@ -266,8 +250,6 @@ export class WebhookService {
     try {
       const authToken = await this.getAccessToken();
 
-      console.log('PAYPAL ACCESS TOKEN:', authToken);
-
       const response = await axios.get(
         `${this.paypalBaseUrl}/v1/notifications/webhooks`,
         {
@@ -317,7 +299,6 @@ export class WebhookService {
 
       const result =
         await this.paymentsService.verifyPaystackPayment(reference);
-      console.log('✅ Payment verified via webhook:', reference);
 
       return result;
     }

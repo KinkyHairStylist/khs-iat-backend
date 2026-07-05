@@ -270,10 +270,9 @@ export class ClientService {
   //         dateOfBirth: savedClient.dateOfBirth,
   //         password: hashedPassword,
   //         isVerified: true,
-  //         isClient: true,
-  //         isBusiness: false,
-  //         isAdmin: false,
-  //         isSuperAdmin: false,
+  //         isCustomer: true,
+  //         isMerchant: false,
+  //         isStaff: false,
   //         addresses: [],
   //         clientAppointments: [],
   //       });
@@ -320,67 +319,55 @@ export class ClientService {
     let profileImage: string | undefined;
 
     try {
-      // 1️⃣ Fetch business info first (needed for Cloudinary path)
-      const business = await this.dataSource.getRepository(Business).findOne({
-        where: { ownerId },
-      });
+      // STEP 1: VALIDATE — all preconditions checked before any write or slow I/O
+      const business = await this.validateClientCreation(
+        clientData.profile.email,
+        ownerId,
+      );
 
-      if (!business) {
-        throw new Error('Business not found');
-      }
-
-      // 2️⃣ Upload to Cloudinary BEFORE opening transaction
+      // STEP 2: UPLOAD — slow I/O outside transaction to keep transaction short
       if (bodyProfileImage) {
         const clientName =
           `${clientData.profile.firstName}-${clientData.profile.lastName}`
             .trim()
             .replace(/\s+/g, '_');
         const folderPath = `KHS/business/${business.businessName}/clients/${clientName}`;
-
-        console.log('Uploading profile image to Cloudinary...');
         const { imageUrl } = await this.businessCloudinaryService.uploadImage(
           bodyProfileImage,
           folderPath,
         );
         profileImage = imageUrl;
-        console.log('✔ Profile image uploaded:', profileImage);
       }
 
-      // 3️⃣ Generate and hash password BEFORE transaction (CPU-intensive)
+      // STEP 3: HASH — CPU-intensive work outside transaction
       const generatedPassword = this.generateSecurePassword(12);
       const hashedPassword =
         await PasswordHashingHelper.hashPassword(generatedPassword);
 
-      // 4️⃣ Now run fast database operations in a transaction
+      // STEP 4: CREATE — transaction contains only fast DB writes.
+      // Re-check inside transaction as safety net against concurrent requests.
+      // The (email, ownerId) unique index is the final DB-level guard.
       const result = await this.dataSource.transaction(async (manager) => {
-        // Check if client already exists
         const existingClient = await manager.findOne(ClientSchema, {
           where: { email: clientData.profile.email, ownerId, isActive: true },
         });
+        if (existingClient) throw new Error('Client already exists');
 
-        if (existingClient) {
-          throw new Error('Client already exists');
-        }
-
-        // Save client with already-uploaded image
         const savedClient = await manager.save(ClientSchema, {
           ...clientData.profile,
           profileImage,
           ownerId,
         });
 
-        // Insert placeholder address
         await manager.insert(ClientAddressSchema, {
           clientId: savedClient.id,
           isPrimary: false,
         });
 
-        // Insert placeholder emergency contact
         await manager.insert(EmergencyContactSchema, {
           clientId: savedClient.id,
         });
 
-        // Save settings if provided
         if (clientData.settings) {
           await manager.save(ClientSettingsSchema, {
             ...clientData.settings,
@@ -388,7 +375,6 @@ export class ClientService {
           });
         }
 
-        // Create linked user account with pre-hashed password
         const newUser = manager.create(User, {
           email: savedClient.email,
           firstName: savedClient.firstName,
@@ -398,34 +384,27 @@ export class ClientService {
           dateOfBirth: savedClient.dateOfBirth,
           password: hashedPassword,
           isVerified: true,
-          isClient: true,
-          isBusiness: false,
-          isAdmin: false,
-          isSuperAdmin: false,
+          isCustomer: true,
+          isMerchant: false,
+          isStaff: false,
           addresses: [],
           clientAppointments: [],
         });
-
         await manager.save(newUser);
 
         return { savedClient, newUser, generatedPassword };
       });
 
-      // 5️⃣ Send welcome email AFTER transaction commits
-      console.log('Sending welcome email...');
+      // STEP 5: EMAIL — after transaction commits so we never send on rollback
       await this.sendWelcomeClientAccountEmail(
         result.newUser.email,
         `${result.newUser.firstName} ${result.newUser.surname}`,
         result.generatedPassword,
       );
-      console.log('✔ Welcome email sent');
 
-      // 6️⃣ Load populated client
       const populatedClient = await this.getClientWithRelations(
         result.savedClient.id,
       );
-
-      console.log(populatedClient);
 
       return {
         success: true,
@@ -435,14 +414,10 @@ export class ClientService {
     } catch (error) {
       console.error('Create client error:', error);
 
-      // 7️⃣ Cleanup: Delete Cloudinary image if database operations failed
+      // Cleanup Cloudinary image if DB writes failed after upload
       if (profileImage) {
         try {
-          console.log('Rolling back: Deleting uploaded image from Cloudinary');
-          await this.businessCloudinaryService.deleteBusinessImage(
-            profileImage,
-          );
-          console.log('✔ Cloudinary image deleted');
+          await this.businessCloudinaryService.deleteBusinessImage(profileImage);
         } catch (cleanupError) {
           console.error('Failed to cleanup Cloudinary image:', cleanupError);
         }
@@ -453,6 +428,29 @@ export class ClientService {
         message: error.message || 'Failed to create client',
       };
     }
+  }
+
+  private async validateClientCreation(
+    email: string | undefined,
+    ownerId: string,
+  ): Promise<Business> {
+    if (!email) {
+      throw new HttpException('Email is required', HttpStatus.BAD_REQUEST);
+    }
+
+    const business = await this.businessRepo.findOne({ where: { ownerId } });
+    if (!business) {
+      throw new HttpException('Business not found', HttpStatus.NOT_FOUND);
+    }
+
+    const existing = await this.clientRepo.findOne({
+      where: { email, ownerId, isActive: true },
+    });
+    if (existing) {
+      throw new HttpException('Client already exists', HttpStatus.CONFLICT);
+    }
+
+    return business;
   }
 
   async getClients(

@@ -19,7 +19,7 @@ import { RolesGuard } from 'src/middleware/roles.guard';
 @ApiTags('Admin Gift Card')
 @ApiBearerAuth('access-token')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.Admin, Role.SuperAdmin)
+@Roles(Role.Staff)
 @Controller('/admin/giftcards')
 export class GiftcardController {
   constructor(private readonly giftcardService: GiftcardService) {}

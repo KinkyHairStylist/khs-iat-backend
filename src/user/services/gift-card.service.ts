@@ -163,7 +163,6 @@ export class GiftCardService {
 
     if (!verification || verification.status !== 'success') {
       const meta = verification.metadata;
-      console.log('Payment verification failed for reference:', reference, 'Meta:', meta);
       const giftCardId = meta.giftCardId;
       await this.giftCardRepo.update(
         { id: giftCardId },

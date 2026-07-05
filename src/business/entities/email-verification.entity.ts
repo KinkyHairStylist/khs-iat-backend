@@ -16,7 +16,7 @@ export class EmailVerification {
   @Column({ unique: true })
   email: string;
 
-  @Column({ length: 6 })
+  @Column({ length: 64 })
   otp: string;
 
   @Column({ type: 'timestamptz' })

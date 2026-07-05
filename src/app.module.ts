@@ -24,11 +24,12 @@ import { AuthMiddleware } from './middleware/anth.middleware';
 import { ReferralModule } from './user/modules/referral.module';
 import { MembershipModule } from './user/modules/membership-tier.module';
 import { CardModule } from './user/modules/card.module';
-// import { ModerationModule } from './admin/moderation/moderation.module';
 import { ModerationModule } from './admin/moderation/moderation.module';
 import { ChatModule } from './admin/live-chat/chat.module';
 import { PlatformSettingsModule } from './admin/platform-settings/platform-settings.module';
 import { NotificationSettingsModule } from './user/modules/notification-settings.module';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 
 import { ClientModule } from './business/client.module';
 import { UserModule } from './user/modules/user.module';
@@ -54,7 +55,9 @@ import { ZohoBooksModule } from './integration/zohobooks.module';
       isGlobal: true,
     }),
     TypeOrmModule.forRoot(
-      process.env.NODE_ENV === 'test' ? testTypeOrmConfig : typeOrmConfig,
+      process.env.NODE_ENV === 'test'
+        ? { ...testTypeOrmConfig, autoLoadEntities: true }
+        : { ...typeOrmConfig, autoLoadEntities: true },
     ),
     JwtModule.registerAsync({
       global: true, // Make JwtModule globally available
@@ -65,6 +68,12 @@ import { ZohoBooksModule } from './integration/zohobooks.module';
       }),
       inject: [ConfigService],
     }),
+    ThrottlerModule.forRoot([
+      {
+        ttl: 30_000, // 30 seconds
+        limit: 10, // 20 requests per minute
+      },
+    ]),
 
     EmailModule,
     BusinessModule,
@@ -104,6 +113,13 @@ import { ZohoBooksModule } from './integration/zohobooks.module';
     ZohoBooksModule,
   ],
   controllers: [AppController],
-  providers: [AppService, AuthMiddleware],
+  providers: [
+    AppService,
+    AuthMiddleware,
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+  ],
 })
 export class AppModule {}
