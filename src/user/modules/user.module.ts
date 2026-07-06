@@ -30,6 +30,7 @@ import { JwtRefreshStrategy } from '../../middleware/strategy/jwt-refresh.strate
 import { EmailModule } from '../../email/email.module';
 import { ReferralModule } from './referral.module';
 import { PhoneVerificationModule } from './phone-verification.module';
+import { PhoneVerification } from 'src/business/entities/phone-verification.entity';
 import { CloudinaryModule } from './cloudinary.module';
 import { PreferencesModule } from './preferences.module';
 import { PasswordUtil } from 'src/business/utils/password.util';
@@ -50,6 +51,7 @@ import { AdminChatModule } from './admin-chat.module';
       Transaction,
       Refund,
       UserAddress,
+      PhoneVerification,
     ]),
     forwardRef(() => BusinessModule),
     BusinessWalletModule,

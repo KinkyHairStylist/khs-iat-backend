@@ -163,21 +163,18 @@ export class ClientService {
 
   //     await queryRunner.commitTransaction();
 
-  //     console.log('Transaction committed...');
-
+  //     
   //     // Load full client (outside transaction)
   //     const populatedClient = await this.getClientWithRelations(savedClient.id);
 
   //     // Send email AFTER transaction
   //     // Send Email with login credentials to client
-  //     console.log('Sending welcome email...');
-  //     await this.sendWelcomeClientAccountEmail(
+  //       //     await this.sendWelcomeClientAccountEmail(
   //       user.email,
   //       `${user.firstName} ${user.surname}`,
   //       generatedPassword,
   //     );
-  //     console.log('✔ Welcome email sent');
-
+  //     
   //     return {
   //       success: true,
   //       data: populatedClient,
@@ -284,14 +281,12 @@ export class ClientService {
   //     });
 
   //     // 9️⃣ Send welcome email AFTER transaction commits
-  //     console.log('Sending welcome email...');
-  //     await this.sendWelcomeClientAccountEmail(
+  //       //     await this.sendWelcomeClientAccountEmail(
   //       result.newUser.email,
   //       `${result.newUser.firstName} ${result.newUser.surname}`,
   //       result.generatedPassword,
   //     );
-  //     console.log('✔ Welcome email sent');
-
+  //     
   //     // 10️⃣ Load populated client
   //     const populatedClient = await this.getClientWithRelations(
   //       result.savedClient.id,
@@ -586,8 +581,7 @@ export class ClientService {
         message: 'Clients retrieved successfully',
       };
     } catch (error) {
-      // console.log('Get clients error:', error);
-      return {
+      //       return {
         success: false,
         error: error.message,
         message: 'Failed to fetch clients',
@@ -636,8 +630,7 @@ export class ClientService {
         message: 'Clients List retrieved successfully',
       };
     } catch (error) {
-      // console.log('Get clients error:', error);
-      return {
+      //       return {
         success: false,
         error: error.message,
         message: 'Failed to fetch clients',
@@ -875,16 +868,13 @@ export class ClientService {
     client: ClientSchema,
   ): Promise<{ user: User; generatedPassword }> {
     try {
-      console.log('Creating account for:', client.email);
-
+      
       const generatedPassword = this.generateSecurePassword(12);
-      console.log('Generated password:', generatedPassword);
-
+      
       const hashedPassword =
         await PasswordHashingHelper.hashPassword(generatedPassword);
 
-      console.log('Password hashed successfully');
-
+      
       const newUser = this.userRepo.create({
         email: client.email,
         firstName: client.firstName,
@@ -898,11 +888,9 @@ export class ClientService {
         clientAppointments: [], // no appointments yet
       });
 
-      console.log('Attempting to save new user...');
-      await this.userRepo.save(newUser);
+            await this.userRepo.save(newUser);
 
-      console.log('✔ User account created for client!');
-
+      
       return { user: newUser, generatedPassword };
     } catch (error) {
       console.error('❌ Error creating linked user account:', error);

@@ -67,8 +67,7 @@ export class ClientSettingsService {
         message: 'Settings added successfully',
       };
     } catch (error) {
-      console.log(error);
-      return {
+            return {
         success: false,
         error: error.message,
         message: 'Failed to add client settings',

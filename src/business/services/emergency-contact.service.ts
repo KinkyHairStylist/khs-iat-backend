@@ -195,8 +195,7 @@ export class EmergencyContactService {
         message: 'Emergency contact updated successfully',
       };
     } catch (error) {
-      console.log(error);
-      return {
+            return {
         success: false,
         error: error.message,
         message: 'Failed to update emergency contact',

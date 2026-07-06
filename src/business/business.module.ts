@@ -13,6 +13,7 @@ import { User } from '../all_user_entities/user.entity';
 import { Business } from './entities/business.entity';
 import { RefreshToken } from './entities/refresh.token.entity';
 import { EmailVerification } from './entities/email-verification.entity';
+import { PhoneVerification } from './entities/phone-verification.entity';
 import { EmailModule } from '../email/email.module';
 import { Appointment } from './entities/appointment.entity';
 import { BusinessWalletModule } from './wallet.module';
@@ -37,6 +38,7 @@ import { ZohoBooksModule } from 'src/integration/zohobooks.module';
       Business,
       RefreshToken,
       EmailVerification,
+      PhoneVerification,
       Appointment,
       Staff,
       BlockedTimeSlot,

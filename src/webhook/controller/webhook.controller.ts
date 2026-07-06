@@ -74,8 +74,7 @@ export class WebhookController {
         message: result.message,
       };
     } catch (error) {
-      console.log('WEBHOOK ERROR:', error);
-      this.logger.error('Error processing PayStack webhook', error);
+            this.logger.error('Error processing PayStack webhook', error);
 
       // Still return 200 to prevent PayStack from retrying
       return {
