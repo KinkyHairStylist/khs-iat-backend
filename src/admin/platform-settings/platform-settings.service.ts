@@ -230,35 +230,35 @@ export class PlatformSettingsService {
 
   async getIntegrations() {
     const s = await this.getSettings();
-    const i = s.integrations;
+    const def = this.getDefaultSettings().integrations;
+
+    // Use optional chaining + defaults so partial/legacy DB rows never throw
+    const pg = s.integrations?.paymentGateways ?? def.paymentGateways;
+    const comm = s.integrations?.communication ?? def.communication;
+    const stripe = pg.stripe ?? def.paymentGateways.stripe;
+    const paypal = pg.paypal ?? def.paymentGateways.paypal;
+    const twilio = comm.twilio ?? def.communication.twilio;
+    const sendgrid = comm.sendgrid ?? def.communication.sendgrid;
 
     return {
       paymentGateways: {
         stripe: {
-          ...i.paymentGateways.stripe,
-          key: maskSecret(
-            this.decryptStoredKey(i.paymentGateways.stripe.key, 'stripe'),
-          ),
+          ...stripe,
+          key: maskSecret(this.decryptStoredKey(stripe.key ?? '', 'stripe')),
         },
         paypal: {
-          ...i.paymentGateways.paypal,
-          key: maskSecret(
-            this.decryptStoredKey(i.paymentGateways.paypal.key, 'paypal'),
-          ),
+          ...paypal,
+          key: maskSecret(this.decryptStoredKey(paypal.key ?? '', 'paypal')),
         },
       },
       communication: {
         twilio: {
-          ...i.communication.twilio,
-          key: maskSecret(
-            this.decryptStoredKey(i.communication.twilio.key, 'twilio'),
-          ),
+          ...twilio,
+          key: maskSecret(this.decryptStoredKey(twilio.key ?? '', 'twilio')),
         },
         sendgrid: {
-          ...i.communication.sendgrid,
-          key: maskSecret(
-            this.decryptStoredKey(i.communication.sendgrid.key, 'sendgrid'),
-          ),
+          ...sendgrid,
+          key: maskSecret(this.decryptStoredKey(sendgrid.key ?? '', 'sendgrid')),
         },
       },
     };
