@@ -80,7 +80,7 @@ const baseOptions: DataSourceOptions = {
     process.env.NODE_ENV === 'production'
       ? { rejectUnauthorized: true }
       : false, // Use SSL in production, but not in development
-  synchronize: process.env.NODE_ENV === 'development',
+  synchronize: false,
   extra: {
     max: 5,
   },
