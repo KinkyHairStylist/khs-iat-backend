@@ -83,8 +83,7 @@ export class BusinessWalletService {
         message: 'Business Wallet created successfully',
       };
     } catch (error) {
-      console.log('Business Wallet creation error:', error);
-      return {
+            return {
         success: false,
         error: error.message,
         message: 'Failed to create business wallet',
@@ -139,8 +138,7 @@ export class BusinessWalletService {
         message: 'Business Wallet fetched successfully',
       };
     } catch (error) {
-      console.log('Failed to fetch business wallet error:', error);
-      return {
+            return {
         success: false,
         error: error.message,
         message: 'Failed to fetch business wallet',
@@ -305,15 +303,13 @@ export class BusinessWalletService {
         wallet.totalIncome =
           Number(wallet.totalIncome) + Number(addTransactionDto.amount);
 
-        // console.log(`WALLET CREDITED ${addTransactionDto.amount / 100}`);
-      } else {
+        //       } else {
         wallet.balance =
           Number(wallet.balance) - Number(addTransactionDto.amount);
         wallet.totalExpenses =
           Number(wallet.totalExpenses) + Number(addTransactionDto.amount);
 
-        // console.log(`WALLET DEBITED ${addTransactionDto.amount}`);
-      }
+        //       }
 
       await this.walletRepository.save(wallet);
 
@@ -395,8 +391,7 @@ export class BusinessWalletService {
         message: 'Payment Method added successfully',
       };
     } catch (error) {
-      console.log('Failed to add payment method to business error:', error);
-      return {
+            return {
         success: false,
         error: error.message,
         message: 'Failed to add payment method to business',
@@ -460,8 +455,7 @@ export class BusinessWalletService {
         message: 'Payment Methods list retrieved successfully',
       };
     } catch (error) {
-      console.log('Failed to fetch payment methods error:', error);
-      return {
+            return {
         success: false,
         error: error.message,
         message: 'Failed to fetch payment methods',
@@ -487,8 +481,7 @@ export class BusinessWalletService {
         message: 'Business Withdrawals list retrieved successfully',
       };
     } catch (error) {
-      console.log('Failed to fetch Business Withdrawals error:', error);
-      return {
+            return {
         success: false,
         error: error.message,
         message: 'Failed to fetch Business Withdrawals',
@@ -644,8 +637,7 @@ export class BusinessWalletService {
         message: 'Transaction history fetched',
       };
     } catch (error) {
-      console.log('Failed to fetch Transaction history error:', error);
-      return {
+            return {
         success: false,
         error: error.message,
         message: 'Failed to fetch Transaction history',
@@ -673,8 +665,7 @@ export class BusinessWalletService {
       requestDate: new Date().toISOString(),
     });
 
-    // console.log('Withdrawal Record Logged');
-
+    // 
     return await this.withdrawalRepository.save(withdrawal);
   }
 }

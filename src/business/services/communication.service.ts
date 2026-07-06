@@ -61,8 +61,7 @@ export class CommunicationService {
         message: `Message sent ${payload.clientEmail} successfully`,
       };
     } catch (error) {
-      console.log('ERROR MSG', error);
-      return {
+            return {
         success: false,
         error: error.message,
         message: 'Failed to send reminder',
@@ -179,9 +178,7 @@ export class CommunicationService {
     };
 
     await sgMail.send(msg);
-    // console.log('SendGrid Response Status:', response.statusCode);
-    // console.log('SendGrid Headers:', response.headers);
-  }
+    //     //   }
 
   private async sendCustomMessageEmailBatch(
     data: SendBulkMessageDto,

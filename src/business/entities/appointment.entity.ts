@@ -110,7 +110,7 @@ export class Appointment {
     actor: string;
     action: string;
     timestamp: string;
-  }[];
+  }[] = [];
 
   @CreateDateColumn()
   createdAt: Date;
