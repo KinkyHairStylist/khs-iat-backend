@@ -60,26 +60,17 @@ export class PaymentController {
   @Roles(Role.Admin, Role.SuperAdmin, Role.Client)
   @Post('create')
   async createPayment(@Body() dto: CreatePaymentDto) {
-    try {
-      this.logger.log(`PAYSTACK: Creating payment for business`);
-      const result = await this.paymentService.createPaystackPayment(dto);
-
-      return {
-        success: true,
-        data: {
-          authorizationUrl: result.authorizationUrl,
-          reference: result.reference,
-          payment: result.payment,
-        },
-        message: 'Proceeding to Checkout to complete payment',
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error.message,
-        message: error.message,
-      };
-    }
+    this.logger.log(`PAYSTACK: Creating payment for business`);
+    const result = await this.paymentService.createPaystackPayment(dto);
+    return {
+      success: true,
+      data: {
+        authorizationUrl: result.authorizationUrl,
+        reference: result.reference,
+        payment: result.payment,
+      },
+      message: 'Proceeding to Checkout to complete payment',
+    };
   }
 
   /**
@@ -101,30 +92,13 @@ export class PaymentController {
   @Public()
   @Patch('/verify/:txReference')
   async verifyPayment(@Param('txReference') txReference: string) {
-    try {
-      const result =
-        await this.paymentService.verifyPaystackWebhookPayment(txReference);
-
-      const payment = result.payment;
-      return {
-        success: true,
-        data: {
-          status: payment.status,
-          amount: payment.amount,
-          currency: payment.currency,
-          reason: payment.reason,
-          createdAt: payment.createdAt,
-          gatewayTransactionId: payment.gatewayTransactionId,
-        },
-        message: result.message,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error.message,
-        message: error.message,
-      };
-    }
+    const result =
+      await this.paymentService.verifyPaystackWebhookPayment(txReference);
+    return {
+      success: true,
+      data: result.payment,
+      message: result.message,
+    };
   }
 
   @ApiBearerAuth('access-token')
