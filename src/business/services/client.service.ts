@@ -15,9 +15,7 @@ import { Business } from '../entities/business.entity';
 import { ClientSchema, ClientType } from '../entities/client.entity';
 import { ClientAddressSchema } from '../entities/client-address.entity';
 import { EmergencyContactSchema } from '../entities/emergency-contact-schema.entity';
-import {
-  ClientSettingsSchema,
-} from '../entities/client-settings.entity';
+import { ClientSettingsSchema } from '../entities/client-settings.entity';
 import { formatClientType } from '../utils/client.utils';
 import { ClientFiltersDto, UpdateClientDto } from '../dtos/requests/ClientDto';
 import {
@@ -163,22 +161,19 @@ export class ClientService {
 
   //     await queryRunner.commitTransaction();
 
-  //     console.log('Transaction committed...');
-
+  //
   //     // Load full client (outside transaction)
   //     const populatedClient = await this.getClientWithRelations(savedClient.id);
 
   //     // Send email AFTER transaction
   //     // Send Email with login credentials to client
-  //     console.log('Sending welcome email...');
-  //     await this.sendWelcomeClientAccountEmail(
+  //       //     await this.sendWelcomeClientAccountEmail(
   //       user.email,
   //       `${user.firstName} ${user.surname}`,
   //       generatedPassword,
   //     );
-  //     console.log('✔ Welcome email sent');
-
-  //     return {
+  //
+  //   return {
   //       success: true,
   //       data: populatedClient,
   //       message: 'Client created successfully',
@@ -186,7 +181,7 @@ export class ClientService {
   //   } catch (error) {
   //     await queryRunner.rollbackTransaction();
   //     console.error('Create client error:', error);
-  //     return {
+  //   return {
   //       success: false,
   //       message: error.message || 'Failed to create client',
   //     };
@@ -270,10 +265,9 @@ export class ClientService {
   //         dateOfBirth: savedClient.dateOfBirth,
   //         password: hashedPassword,
   //         isVerified: true,
-  //         isClient: true,
-  //         isBusiness: false,
-  //         isAdmin: false,
-  //         isSuperAdmin: false,
+  //         isCustomer: true,
+  //         isMerchant: false,
+  //         isStaff: false,
   //         addresses: [],
   //         clientAppointments: [],
   //       });
@@ -281,31 +275,29 @@ export class ClientService {
   //       await manager.save(newUser);
 
   //       // Return everything needed after transaction
-  //       return { savedClient, newUser, generatedPassword };
+  //   return { savedClient, newUser, generatedPassword };
   //     });
 
   //     // 9️⃣ Send welcome email AFTER transaction commits
-  //     console.log('Sending welcome email...');
-  //     await this.sendWelcomeClientAccountEmail(
+  //       //     await this.sendWelcomeClientAccountEmail(
   //       result.newUser.email,
   //       `${result.newUser.firstName} ${result.newUser.surname}`,
   //       result.generatedPassword,
   //     );
-  //     console.log('✔ Welcome email sent');
-
+  //
   //     // 10️⃣ Load populated client
   //     const populatedClient = await this.getClientWithRelations(
   //       result.savedClient.id,
   //     );
 
-  //     return {
+  //   return {
   //       success: true,
   //       data: populatedClient,
   //       message: 'Client created successfully',
   //     };
   //   } catch (error) {
   //     console.error('Create client error:', error);
-  //     return {
+  //   return {
   //       success: false,
   //       message: error.message || 'Failed to create client',
   //     };
@@ -385,10 +377,9 @@ export class ClientService {
           dateOfBirth: savedClient.dateOfBirth,
           password: hashedPassword,
           isVerified: true,
-          isClient: true,
-          isBusiness: false,
-          isAdmin: false,
-          isSuperAdmin: false,
+          isCustomer: true,
+          isMerchant: false,
+          isStaff: false,
           addresses: [],
           clientAppointments: [],
         });
@@ -419,7 +410,9 @@ export class ClientService {
       // Cleanup Cloudinary image if DB writes failed after upload
       if (profileImage) {
         try {
-          await this.businessCloudinaryService.deleteBusinessImage(profileImage);
+          await this.businessCloudinaryService.deleteBusinessImage(
+            profileImage,
+          );
         } catch (cleanupError) {
           console.error('Failed to cleanup Cloudinary image:', cleanupError);
         }
@@ -464,7 +457,7 @@ export class ClientService {
       //   where: { ownerId },
       // });
       // if (!business) {
-      //   return {
+      // return {
       //     success: false,
       //     error: 'Business not found',
       //     message: 'No business found for this user',
@@ -588,7 +581,6 @@ export class ClientService {
         message: 'Clients retrieved successfully',
       };
     } catch (error) {
-      // console.log('Get clients error:', error);
       return {
         success: false,
         error: error.message,
@@ -603,7 +595,7 @@ export class ClientService {
       //   where: { ownerId },
       // });
       // if (!business) {
-      //   return {
+      //return {
       //     success: false,
       //     error: 'Business not found',
       //     message: 'No business found for this user',
@@ -638,7 +630,6 @@ export class ClientService {
         message: 'Clients List retrieved successfully',
       };
     } catch (error) {
-      // console.log('Get clients error:', error);
       return {
         success: false,
         error: error.message,
@@ -656,7 +647,7 @@ export class ClientService {
       //   where: { ownerId },
       // });
       // if (!business) {
-      //   return {
+      //return {
       //     success: false,
       //     error: 'Business not found',
       //     message: 'No business found for this user',
@@ -877,15 +868,10 @@ export class ClientService {
     client: ClientSchema,
   ): Promise<{ user: User; generatedPassword }> {
     try {
-      console.log('Creating account for:', client.email);
-
       const generatedPassword = this.generateSecurePassword(12);
-      console.log('Generated password:', generatedPassword);
 
       const hashedPassword =
         await PasswordHashingHelper.hashPassword(generatedPassword);
-
-      console.log('Password hashed successfully');
 
       const newUser = this.userRepo.create({
         email: client.email,
@@ -900,10 +886,7 @@ export class ClientService {
         clientAppointments: [], // no appointments yet
       });
 
-      console.log('Attempting to save new user...');
       await this.userRepo.save(newUser);
-
-      console.log('✔ User account created for client!');
 
       return { user: newUser, generatedPassword };
     } catch (error) {

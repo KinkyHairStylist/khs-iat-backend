@@ -1,10 +1,4 @@
-import {
-  Body,
-  Controller,
-  HttpCode,
-  HttpStatus,
-  Post,
-} from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
 import { Public } from 'src/business/middlewares/public.decorator';
 import { AuthService } from '../services/auth.service';
 import { CreateUserDto } from '../dtos/requests/CreateUserDto';
@@ -17,18 +11,27 @@ import { ForgotPasswordDto } from '../dtos/requests/ForgotPasswordDto';
 import { ResetPasswordDto } from '../dtos/requests/ResetPasswordDto';
 import { RequestPhoneOtpDto } from '../dtos/requests/RequestPhoneOtpDto';
 import { VerifyPhoneOtpDto } from '../dtos/requests/VerifyPhoneOtpDto';
-import { ApiTags, ApiOperation, ApiBody, ApiResponse  } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiBody, ApiResponse } from '@nestjs/swagger';
+import {
+  LoginRateLimit,
+  RegisterRateLimit,
+  PasswordRateLimit,
+  OtpRateLimit,
+  PhoneRateLimit,
+  RefreshRateLimit,
+} from '../../common/rate-limit-decorator';
 
 @ApiTags('Business Authentication')
 @Controller('auth')
 export class AuthController {
   constructor(
-      private readonly authService: AuthService,
-      private readonly otpService: OtpService,
+    private readonly authService: AuthService,
+    private readonly otpService: OtpService,
   ) {}
 
   @Public()
   @Post('/business/register')
+  @RegisterRateLimit()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Register a new business user' })
   @ApiBody({ type: CreateUserDto })
@@ -41,12 +44,16 @@ export class AuthController {
 
   @Public()
   @Post('/business/login')
+  @LoginRateLimit()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Login a business user' })
   @ApiBody({ type: LoginDto })
   @ApiResponse({ status: 200, description: 'Login successful' })
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
-  @ApiResponse({ status: 403, description: 'Account not verified or suspended' })
+  @ApiResponse({
+    status: 403,
+    description: 'Account not verified or suspended',
+  })
   async login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto);
   }
@@ -63,6 +70,7 @@ export class AuthController {
 
   @Public()
   @Post('/business/verify-password-otp')
+  @OtpRateLimit()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Verify password reset OTP' })
   @ApiBody({ type: VerifyOtpDto })
@@ -75,6 +83,7 @@ export class AuthController {
 
   @Public()
   @Post('/business/reset-password')
+  @PasswordRateLimit()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Reset password with token' })
   @ApiBody({ type: ResetPasswordDto })
@@ -87,6 +96,7 @@ export class AuthController {
 
   @Public()
   @Post('/business/otp/request')
+  @OtpRateLimit()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Request email OTP for verification' })
   @ApiBody({ type: RequestOtpDto })
@@ -98,6 +108,7 @@ export class AuthController {
 
   @Public()
   @Post('/business/otp/verify')
+  @OtpRateLimit()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Verify email OTP' })
   @ApiBody({ type: VerifyOtpDto })
@@ -109,6 +120,7 @@ export class AuthController {
 
   @Public()
   @Post('/business/otp/refresh')
+  @RefreshRateLimit()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Refresh access token using refresh token' })
   @ApiBody({ type: RefreshTokenDto })
@@ -119,6 +131,7 @@ export class AuthController {
   }
 
   @Post('/business/request-phone-otp')
+  @PhoneRateLimit()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Request phone OTP for verification' })
   @ApiBody({ type: RequestPhoneOtpDto })
@@ -128,10 +141,14 @@ export class AuthController {
   }
 
   @Post('/business/verify-phone-number')
+  @PhoneRateLimit()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Verify phone number with OTP' })
   @ApiBody({ type: VerifyPhoneOtpDto })
-  @ApiResponse({ status: 200, description: 'Phone number verified successfully' })
+  @ApiResponse({
+    status: 200,
+    description: 'Phone number verified successfully',
+  })
   @ApiResponse({ status: 400, description: 'Invalid or expired OTP' })
   async verifyPhoneNumber(@Body() verifyPhoneOtpDto: VerifyPhoneOtpDto) {
     return this.authService.verifyPhoneNumber(verifyPhoneOtpDto);

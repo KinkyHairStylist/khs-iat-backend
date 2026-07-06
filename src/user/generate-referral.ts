@@ -15,8 +15,7 @@ async function bootstrap() {
 
   try {
     const code = await referralService.ensureReferralCode(userId);
-    console.log(`✅ Referral code generated successfully`);
-  } catch (error) {
+      } catch (error) {
     console.error('❌ Error generating referral code:', error.message);
   }
 

@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Put, Delete, Body, Param, UseGuards, Req } from '@nestjs/common';
+﻿import { Controller, Post, Get, Put, Delete, Body, Param, UseGuards, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiBody } from '@nestjs/swagger';
 
 import { AddressService } from '../services/address.service';
@@ -13,7 +13,7 @@ import { JwtAuthGuard } from '../../middleware/jwt-auth.guard';
 @ApiTags('User Addresses')
 @ApiBearerAuth('access-token')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.Client)
+@Roles(Role.Customer)
 @Controller('user/addresses')
 export class AddressController {
   constructor(private readonly addressService: AddressService) {}

@@ -15,6 +15,8 @@ import { Appointment } from 'src/business/entities/appointment.entity';
 import { RefreshToken } from 'src/business/entities/refresh.token.entity';
 import { Business } from 'src/business/entities/business.entity';
 import { Gender } from 'src/business/types/constants';
+import { AdminRole } from 'src/middleware/admin-role.enum';
+import { BusinessStaffRole } from 'src/middleware/business-staff-role.enum';
 import { Transaction } from 'src/business/entities/transaction.entity';
 import { UserPreferences } from 'src/user/user_entities/preferences.entity';
 import { UserNotificationSettings } from 'src/user/user_entities/user_notification_settings.entity';
@@ -168,36 +170,23 @@ export class User {
   notificationSettings: UserNotificationSettings;
 
   // ============================================
-  // ROLE FIELDS - Merged from UserRole entity
+  // ROLE FLAGS — 4 personas
   // ============================================
   @Column({ default: false })
-  isSuperAdmin: boolean;
+  isStaff: boolean; // platform admin (super admin / admin)
+
+  @Column({ type: 'enum', enum: AdminRole, nullable: true, default: null })
+  adminRole: AdminRole | null; // SUPER_ADMIN or ADMIN — only set when isStaff is true
 
   @Column({ default: false })
-  isAdmin: boolean;
+  isMerchant: boolean; // business owner
 
   @Column({ default: false })
-  isBusiness: boolean;
+  isBusinessStaff: boolean; // merchant sub-staff (manager / stylist / receptionist / cashier)
+
+  @Column({ type: 'enum', enum: BusinessStaffRole, nullable: true, default: null })
+  businessStaffRole: BusinessStaffRole | null; // only set when isBusinessStaff is true
 
   @Column({ default: true })
-  isClient: boolean;
-
-  @Column({ default: false })
-  isStaff: boolean;
-
-  @Column({ default: false })
-  isManager: boolean;
-
-  @Column({ default: false })
-  isBusinessAdmin: boolean;
-
-  // Helper method to check if user has any admin role
-  hasAdminRole(): boolean {
-    return this.isSuperAdmin || this.isAdmin || this.isBusinessAdmin;
-  }
-
-  // Helper method to check if user has business access
-  hasBusinessAccess(): boolean {
-    return this.isBusiness || this.isStaff || this.isManager || this.isBusinessAdmin;
-  }
+  isCustomer: boolean; // registered client
 }

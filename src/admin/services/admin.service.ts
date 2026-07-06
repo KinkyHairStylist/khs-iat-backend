@@ -309,7 +309,6 @@ export class AdminService {
         }
         application.status = BusinessStatus.REJECTED;
         return this.businessRepo.save(application);
-
     }
 
     async approveApplication(id: string) {
@@ -319,7 +318,6 @@ export class AdminService {
         }
         application.status = BusinessStatus.APPROVED;
         return this.businessRepo.save(application);
-
     }
 
     async findByFirstName(firstName: string) {
@@ -382,26 +380,24 @@ export class AdminService {
     }
 
     async suspendBusiness(id: string) {
-        const business = await this.businessRepo.findOne({ where: {id}})
+        const business = await this.businessRepo.findOne({ where: {id}});
         if (!business) {
-            throw new BadRequestException('User not found');
+            throw new BadRequestException('Business not found');
         }
 
         business.status = BusinessStatus.SUSPENDED;
-
         await this.businessRepo.save(business);
 
         return { message: `Business has been suspended.` };
     }
 
     async unsuspendBusiness(id: string) {
-        const business = await this.businessRepo.findOne({ where: {id}})
+        const business = await this.businessRepo.findOne({ where: {id}});
         if (!business) {
             throw new BadRequestException('Business not found');
         }
 
         business.status = BusinessStatus.APPROVED;
-
         await this.businessRepo.save(business);
 
         return { message: `Business has been unsuspended.` };

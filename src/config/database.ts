@@ -74,11 +74,13 @@ const baseOptions: DataSourceOptions = {
   password: process.env.DB_PASSWORD ?? 'password',
   database: process.env.DB_DATABASE ?? 'khs',
   entities: [__dirname + '/../**/*.entity{.ts,.js}'],
+
+  migrations: [__dirname + '/../migrations/*{.ts,.js}'],
   ssl:
     process.env.NODE_ENV === 'production'
-      ? { rejectUnauthorized: false }
-      : false,
-  synchronize: false, // 🔴 never let TypeORM auto-sync — we control it below
+      ? { rejectUnauthorized: true }
+      : false, // Use SSL in production, but not in development
+  synchronize: process.env.NODE_ENV === 'development',
   extra: {
     max: 5,
   },

@@ -5,6 +5,7 @@ import session from 'express-session';
 import express from 'express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { InputSanitizationMiddleware } from './middleware/input-sanitization.middleware';
+import { requireEnv } from './config/env.validation';
 import { logger } from './config/logger';
 
 async function bootstrap() {
@@ -64,7 +65,7 @@ async function bootstrap() {
   // Session Configuration
   app.use(
     session({
-      secret: process.env.SESSION_SECRET || 'a-very-secret-key',
+      secret: requireEnv('SESSION_SECRET'),
       resave: false,
       saveUninitialized: false,
       cookie: {

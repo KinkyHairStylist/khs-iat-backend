@@ -5,8 +5,6 @@ import {
   Param,
   Body,
   Delete,
-  HttpCode,
-  HttpStatus,
   Logger,
   Patch,
   UseGuards,
@@ -49,7 +47,6 @@ export class PaymentController {
    *   "message": "Redirect user to approval URL"
    * }
    */
-
   @ApiBearerAuth('access-token')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.Admin, Role.SuperAdmin, Role.Client)
@@ -62,41 +59,21 @@ export class PaymentController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.Admin, Role.SuperAdmin, Role.Client)
   @Post('create')
-  async createPayment(
-    @Body()
-    dto: CreatePaymentDto,
-  ) {
+  async createPayment(@Body() dto: CreatePaymentDto) {
     try {
-      this.logger.log(
-        `${dto.method.toUpperCase()}: Creating payment for business`,
-      );
+      this.logger.log(`PAYSTACK: Creating payment for business`);
+      const result = await this.paymentService.createPaystackPayment(dto);
 
-      let result;
-      if (dto.method === 'paypal') {
-        result = await this.paymentService.createPayPalPayment(dto);
-
-        return {
-          success: true,
-          approvalUrl: result.approvalUrl,
-          orderId: result.orderId,
+      return {
+        success: true,
+        data: {
+          authorizationUrl: result.authorizationUrl,
+          reference: result.reference,
           payment: result.payment,
-          message: 'Redirect user to approval URL to complete payment',
-        };
-      } else if (dto.method === 'paystack') {
-        result = await this.paymentService.createPaystackPayment(dto);
-
-        return {
-          success: true,
-          data: {
-            authorizationUrl: result.authorizationUrl,
-            reference: result.reference,
-            payment: result.payment,
-          },
-          message: 'Proceeding to Checkout to complete payment',
-        };
-      }
+        },
+        message: 'Proceeding to Checkout to complete payment',
+      };
     } catch (error) {
-      // this.logger.error('Payment creation failed', error);
       return {
         success: false,
         error: error.message,
@@ -120,33 +97,6 @@ export class PaymentController {
    *   "message": "Payment captured successfully"
    * }
    */
-  @ApiBearerAuth('access-token')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.Admin, Role.SuperAdmin, Role.Client)
-  @Post('capture/:orderId')
-  @HttpCode(HttpStatus.OK)
-  async capturePayment(@Param('orderId') orderId: string) {
-    try {
-      this.logger.log(`Capturing payment for order: ${orderId}`);
-
-      const result = await this.paymentService.capturePayment(orderId);
-
-      return {
-        success: true,
-        captureId: result.captureId,
-        status: result.status,
-        amount: result.amount,
-        businessId: result.businessId,
-        message: 'Payment captured successfully. Webhook will update wallet.',
-      };
-    } catch (error) {
-      this.logger.error('Payment capture failed', error);
-      return {
-        success: false,
-        error: error.message,
-      };
-    }
-  }
 
   @Public()
   @Patch('/verify/:txReference')
@@ -169,7 +119,6 @@ export class PaymentController {
         message: result.message,
       };
     } catch (error) {
-      // this.logger.error('Payment creation failed', error);
       return {
         success: false,
         error: error.message,

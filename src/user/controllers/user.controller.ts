@@ -30,6 +30,15 @@ import {
 } from '../dtos/user.dto';
 import { RefreshTokenDto } from '../../business/dtos/requests/RefreshTokenDto';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
+import {
+  LoginRateLimit,
+  RegisterRateLimit,
+  PasswordRateLimit,
+  OtpRateLimit,
+  InitRateLimit,
+  RefreshRateLimit,
+  VerifyRateLimit,
+} from '../../common/rate-limit-decorator';
 
 interface RequestWithSession extends Request {
   session: Session & {
@@ -45,6 +54,7 @@ export class UserController {
 
   @Public()
   @Post('/auth/get-started')
+  @InitRateLimit()
   @ApiOperation({
     summary: 'Start authentication by sending verification code',
   })
@@ -61,6 +71,7 @@ export class UserController {
 
   @Public()
   @Post('/auth/verify-code')
+  @VerifyRateLimit()
   @ApiOperation({ summary: 'Verify user email or phone with a code' })
   @ApiBody({ type: VerifyCodeDto })
   @ApiResponse({
@@ -106,6 +117,7 @@ export class UserController {
 
   @Public()
   @Post('/auth/login')
+  @LoginRateLimit()
   @ApiOperation({ summary: 'Authenticate user and start session' })
   @ApiBody({ type: CustomerLoginDto })
   @ApiResponse({
@@ -168,6 +180,7 @@ export class UserController {
   // Password Reset Endpoints
   @Public()
   @Post('/auth/reset-password/start')
+  @PasswordRateLimit()
   @ApiOperation({
     summary: 'Start password reset by sending code to email/phone',
   })
@@ -186,6 +199,7 @@ export class UserController {
 
   @Public()
   @Post('/auth/reset-password/verify')
+  @VerifyRateLimit()
   @ApiOperation({ summary: 'Verify password reset code' })
   @ApiBody({ type: ResetPasswordVerifyDto })
   @ApiResponse({
@@ -217,6 +231,7 @@ export class UserController {
   }
 
   @Post('/auth/refresh-token')
+  @RefreshRateLimit()
   @UseGuards(AuthGuard('access-token'))
   @ApiOperation({ summary: 'Refresh authentication tokens' })
   @ApiBody({ type: RefreshTokenDto })
