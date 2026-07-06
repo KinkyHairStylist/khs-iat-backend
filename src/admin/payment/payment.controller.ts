@@ -5,8 +5,6 @@ import {
   Param,
   Body,
   Delete,
-  HttpCode,
-  HttpStatus,
   Logger,
   Patch,
   UseGuards,
@@ -31,27 +29,6 @@ export class PaymentController {
 
   constructor(private readonly paymentService: PaymentService) {}
 
-  /**
-   * Step 1: Create PayPal Order
-   *
-   * POST /payments/paypal/create
-   *
-   * Body: {
-   *   "client": "John Doe",
-   *   "businessId": "uuid-here",
-   *   "business": "My Business",
-   *   "amount": 100.00,
-   *   "method": "paypal"
-   * }
-   *
-   * Response: {
-   *   "success": true,
-   *   "approvalUrl": "https://paypal.com/approve?token=...",
-   *   "orderId": "ORDER_ID",
-   *   "message": "Redirect user to approval URL"
-   * }
-   */
-
   @Get('payment-methods')
   async paymentMethods() {
     return this.paymentService.getPaymentMethodStats();
@@ -59,21 +36,7 @@ export class PaymentController {
 
   @Post('create')
   async createPayment(@Body() dto: CreatePaymentDto) {
-    this.logger.log(`${dto.method.toUpperCase()}: Creating payment for business`);
-
-    if (dto.method === 'paypal') {
-      const result = await this.paymentService.createPayPalPayment(dto);
-      return {
-        success: true,
-        data: {
-          approvalUrl: result.approvalUrl,
-          orderId: result.orderId,
-          payment: result.payment,
-        },
-        message: 'Redirect user to approval URL to complete payment',
-      };
-    }
-
+    this.logger.log(`PAYSTACK: Creating payment for business`);
     const result = await this.paymentService.createPaystackPayment(dto);
     return {
       success: true,
@@ -86,41 +49,10 @@ export class PaymentController {
     };
   }
 
-  /**
-   * Step 2: Capture Payment (after user approves)
-   *
-   * POST /payments/paypal/capture/:orderId
-   *
-   * This should be called after the user returns from PayPal
-   * (from the return_url with the orderId)
-   *
-   * Response: {
-   *   "success": true,
-   *   "captureId": "CAPTURE_ID",
-   *   "status": "COMPLETED",
-   *   "message": "Payment captured successfully"
-   * }
-   */
-  @Post('capture/:orderId')
-  @HttpCode(HttpStatus.OK)
-  async capturePayment(@Param('orderId') orderId: string) {
-    this.logger.log(`Capturing payment for order: ${orderId}`);
-    const result = await this.paymentService.capturePayment(orderId);
-    return {
-      success: true,
-      data: {
-        captureId: result.captureId,
-        status: result.status,
-        amount: result.amount,
-        businessId: result.businessId,
-      },
-      message: 'Payment captured successfully. Webhook will update wallet.',
-    };
-  }
-
   @Patch('/verify/:txReference')
   async verifyPayment(@Param('txReference') txReference: string) {
-    const result = await this.paymentService.verifyPaystackWebhookPayment(txReference);
+    const result =
+      await this.paymentService.verifyPaystackWebhookPayment(txReference);
     return {
       success: true,
       data: result.payment,

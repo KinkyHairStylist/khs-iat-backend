@@ -83,9 +83,10 @@ export class EmergencyContactService {
   async getEmergencyContacts(
     clientId: string,
     ownerId: string,
-  ): Promise<ApiResponse<EmergencyContact[]>> {
+    page: number = 1,
+    limit: number = 10,
+  ): Promise<ApiResponse<{ contacts: EmergencyContact[]; total: number; page: number; limit: number; totalPages: number }>> {
     try {
-      // Verify client belongs to owner
       const client = await this.clientRepo.findOne({
         where: {
           id: clientId,
@@ -102,13 +103,22 @@ export class EmergencyContactService {
         };
       }
 
-      const contacts = await this.emergencyContactRepo.findBy({
-        clientId,
+      const [contacts, total] = await this.emergencyContactRepo.findAndCount({
+        where: { clientId },
+        skip: (page - 1) * limit,
+        take: limit,
+        order: { createdAt: 'DESC' },
       });
 
       return {
         success: true,
-        data: contacts,
+        data: {
+          contacts,
+          total,
+          page,
+          limit,
+          totalPages: Math.ceil(total / limit),
+        },
         message: 'Emergency contacts retrieved successfully',
       };
     } catch (error) {
@@ -195,8 +205,7 @@ export class EmergencyContactService {
         message: 'Emergency contact updated successfully',
       };
     } catch (error) {
-      console.log(error);
-      return {
+            return {
         success: false,
         error: error.message,
         message: 'Failed to update emergency contact',

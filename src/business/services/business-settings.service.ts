@@ -182,8 +182,7 @@ export class BusinessSettingsService {
         for (const img of imagesArr) {
           const mimetype = img.mimetype || img.type;
 
-          console.log('IMAGE SIZE: ', img.size);
-
+          
           if (
             mimetype?.startsWith('image/svg') ||
             !mimetype?.startsWith('image')
