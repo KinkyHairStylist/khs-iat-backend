@@ -34,21 +34,9 @@ export class CreatePaymentDto {
   method: string;
 }
 
-export interface PaymentResponse {
-  payment: any;
-  approvalUrl: string;
-  orderId: string;
-}
-
 export interface PayStackPaymentResponse {
   payment: any;
   authorizationUrl: string;
   reference: string;
 }
 
-export interface CaptureResponse {
-  captureId: string;
-  status: string;
-  amount: number;
-  businessId: string;
-}
