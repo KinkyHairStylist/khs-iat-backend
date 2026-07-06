@@ -19,9 +19,6 @@ export enum PaymentMethodType {
   DEBIT_CARD = 'debit_card',
   DIGITAL_WALLET = 'digital_wallet',
 }
-export type PaymentMethod = 'paypal'; // ✅ Only PayPal now
-
 export enum PaymentModeType {
-  PAYPAL = 'paypal',
   PAYSTACK = 'paystack',
 }

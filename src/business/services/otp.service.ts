@@ -10,30 +10,39 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { EmailVerification } from '../entities/email-verification.entity';
+import { PhoneVerification } from '../entities/phone-verification.entity';
 import { AuthService } from './auth.service';
 import { EmailService } from '../../email/email.service';
 import * as crypto from 'crypto';
 
+function hashOtp(otp: string): string {
+  return crypto.createHash('sha256').update(otp).digest('hex');
+}
 
+function timingSafeEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
 
 @Injectable()
 export class OtpService {
-
   private readonly logger = new Logger(OtpService.name);
   private readonly OTP_LENGTH = 5;
   private readonly EXPIRATION_MINUTES = 15;
   private readonly MAX_TRIALS = 5;
-  private otpStore: Map<string, string> = new Map();
 
   constructor(
     @InjectRepository(EmailVerification)
     private readonly otpRepo: Repository<EmailVerification>,
+    @InjectRepository(PhoneVerification)
+    private readonly phoneOtpRepo: Repository<PhoneVerification>,
     private readonly emailService: EmailService,
     @Inject(forwardRef(() => AuthService))
     private readonly userService: AuthService,
     private readonly jwtService: JwtService,
-  ) {
-  }
+  ) {}
 
   async requestOtpForPasswordReset(email: string): Promise<void> {
     const otp = this.generateOtp();
@@ -45,20 +54,20 @@ export class OtpService {
     if (!otpRecord) {
       otpRecord = this.otpRepo.create({
         email,
-        otp,
+        otp: hashOtp(otp),
         expiresAt,
         trials: 0,
         maxTrials: this.MAX_TRIALS,
       });
     } else {
-      otpRecord.otp = otp;
+      otpRecord.otp = hashOtp(otp);
       otpRecord.expiresAt = expiresAt;
       otpRecord.trials = 0;
       otpRecord.maxTrials = this.MAX_TRIALS;
     }
 
     await this.otpRepo.save(otpRecord);
-    this.logger.debug(`OTP generated for email ${email}: ${otp}`);
+    this.logger.debug(`OTP generated for email ${email}`);
 
     const subject = 'Forgotten Password Otp';
     await this.emailService.sendEmail(email, subject, otp);
@@ -81,20 +90,20 @@ export class OtpService {
     if (!otpRecord) {
       otpRecord = this.otpRepo.create({
         email,
-        otp,
+        otp: hashOtp(otp),
         expiresAt,
         trials: 0,
         maxTrials: this.MAX_TRIALS,
       });
     } else {
-      otpRecord.otp = otp;
+      otpRecord.otp = hashOtp(otp);
       otpRecord.expiresAt = expiresAt;
       otpRecord.trials = 0;
       otpRecord.maxTrials = this.MAX_TRIALS;
     }
 
     await this.otpRepo.save(otpRecord);
-    this.logger.debug(`OTP generated for email ${email}: ${otp}`);
+    this.logger.debug(`OTP generated for email ${email}`);
 
     const subject = 'Email Verification';
     await this.emailService.sendEmail(email, subject, otp);
@@ -119,7 +128,7 @@ export class OtpService {
       );
     }
 
-    if (otpRecord.otp !== providedOtp) {
+    if (!timingSafeEqual(otpRecord.otp, hashOtp(providedOtp))) {
       otpRecord.trials += 1;
       await this.otpRepo.save(otpRecord);
       throw new BadRequestException('Invalid OTP provided.');
@@ -153,27 +162,95 @@ export class OtpService {
   }
 
   private generateOtp(): string {
-    return Math.floor(
-      Math.pow(10, this.OTP_LENGTH - 1) +
-      Math.random() * 9 * Math.pow(10, this.OTP_LENGTH - 1),
-    ).toString();
+    const min = Math.pow(10, this.OTP_LENGTH - 1);
+    const max = Math.pow(10, this.OTP_LENGTH) - 1;
+    return crypto.randomInt(min, max).toString();
   }
 
   async generatePhoneOtp(phone: string): Promise<string> {
     const otp = crypto.randomInt(100000, 999999).toString();
-    this.otpStore.set(phone, otp);
+    const expiresAt = new Date();
+    expiresAt.setMinutes(expiresAt.getMinutes() + this.EXPIRATION_MINUTES);
 
-    setTimeout(() => this.otpStore.delete(phone), 15 * 60 * 1000);
+    let phoneOtpRecord = await this.phoneOtpRepo.findOne({
+      where: { phoneNumber: phone },
+    });
+
+    if (!phoneOtpRecord) {
+      phoneOtpRecord = this.phoneOtpRepo.create({
+        phoneNumber: phone,
+        otp,
+        expiresAt,
+        trials: 0,
+        maxTrials: this.MAX_TRIALS,
+      });
+    } else {
+      phoneOtpRecord.otp = otp;
+      phoneOtpRecord.expiresAt = expiresAt;
+      phoneOtpRecord.trials = 0;
+      phoneOtpRecord.maxTrials = this.MAX_TRIALS;
+    }
+
+    await this.phoneOtpRepo.save(phoneOtpRecord);
+    this.logger.debug(`Phone OTP generated for ${phone}: ${otp}`);
     return otp;
   }
 
-  async sendPhoneSmsOtp(phone: string, otp: string): Promise<void> {
-    console.log(`OTP for ${phone}: ${otp}`);
+  async sendPhoneSmsOtp(
+    phone: string,
+    otp: string,
+  ): Promise<{ delivered: boolean; fallbackMode: boolean; otp?: string }> {
+    const hasTwilioConfig = Boolean(
+      process.env.TWILIO_ACCOUNT_SID &&
+        process.env.TWILIO_AUTH_TOKEN &&
+        process.env.TWILIO_MESSAGING_SERVICE_SID,
+    );
+
+    if (!hasTwilioConfig) {
+      const fallbackMode = process.env.NODE_ENV !== 'production';
+      const message = fallbackMode
+        ? `[Phone OTP fallback] OTP for ${phone}: ${otp}`
+        : `OTP for ${phone}: ${otp}`;
+
+      console.warn(message);
+      return {
+        delivered: false,
+        fallbackMode,
+        otp: fallbackMode ? otp : undefined,
+      };
+    }
+
+    return { delivered: true, fallbackMode: false };
   }
 
   async verifyPhoneOtpService(phone: string, otp: string): Promise<boolean> {
-    const storedOtp = this.otpStore.get(phone);
-    return storedOtp === otp;
+    const phoneOtpRecord = await this.phoneOtpRepo.findOne({
+      where: { phoneNumber: phone },
+    });
+
+    if (!phoneOtpRecord) {
+      throw new BadRequestException('Please request a new OTP.');
+    }
+
+    if (phoneOtpRecord.trials >= phoneOtpRecord.maxTrials) {
+      await this.phoneOtpRepo.delete({ phoneNumber: phone });
+      throw new ConflictException(
+        'Maximum verification attempts reached. Please request a new OTP.',
+      );
+    }
+
+    if (phoneOtpRecord.otp !== otp) {
+      phoneOtpRecord.trials += 1;
+      await this.phoneOtpRepo.save(phoneOtpRecord);
+      throw new BadRequestException('Invalid OTP provided.');
+    }
+
+    if (new Date() > phoneOtpRecord.expiresAt) {
+      await this.phoneOtpRepo.delete({ phoneNumber: phone });
+      throw new BadRequestException('OTP has expired. Please request a new one.');
+    }
+
+    await this.phoneOtpRepo.delete({ phoneNumber: phone });
+    return true;
   }
 }
-

@@ -6,6 +6,7 @@ import express from 'express';
 import { AuthMiddleware } from './middleware/anth.middleware';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { InputSanitizationMiddleware } from './middleware/input-sanitization.middleware';
+import { requireEnv } from './config/env.validation';
 import { logger } from './config/logger';
 
 async function bootstrap() {
@@ -65,7 +66,7 @@ async function bootstrap() {
   // Session Configuration
   app.use(
     session({
-      secret: process.env.SESSION_SECRET || 'a-very-secret-key',
+      secret: requireEnv('SESSION_SECRET'),
       resave: false,
       saveUninitialized: false,
       cookie: {
@@ -103,7 +104,7 @@ async function bootstrap() {
     '/api/webhook/paypal',
     '/api/payments/verify',
     '/api/business/create',
-    '/api/business/services'
+    '/api/business/services',
     // Add other public routes here
   ];
 
@@ -116,9 +117,11 @@ async function bootstrap() {
   app.use((req, res, next) => {
     // Check if the request path starts with any of the public routes
     const isPublic = publicRoutes.some((route) => req.path.startsWith(route));
-    
+
     // Check if the request path matches any of the public route patterns
-    const matchesPattern = publicRoutePatterns.some((pattern) => pattern.test(req.path));
+    const matchesPattern = publicRoutePatterns.some((pattern) =>
+      pattern.test(req.path),
+    );
 
     if (isPublic || matchesPattern) {
       // Skip authentication for public routes
