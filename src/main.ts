@@ -106,6 +106,7 @@ async function bootstrap() {
     '/api/payments/verify',
     '/api/business/create',
     '/api/business/services',
+    '/api/landing',
     // Add other public routes here
   ];
 
