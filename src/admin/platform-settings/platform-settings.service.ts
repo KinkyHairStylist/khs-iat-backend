@@ -86,14 +86,41 @@ export class PlatformSettingsService {
     return settings;
   }
 
-  /** Fetch settings or create default if none found */
+  /** Fetch settings or create default if none found. Backfills any JSONB
+   * column that was persisted as an empty {} before the full default structure
+   * was established — prevents TypeError when accessing nested fields. */
   private async getSettings() {
     let settings = await this.repo.findOne({ where: {} });
     if (!settings) {
-      // Create default settings if none exist
       settings = this.getDefaultSettings();
-      settings = await this.repo.save(settings);
+      return this.repo.save(settings);
     }
+
+    const defaults = this.getDefaultSettings();
+    let dirty = false;
+
+    if (!settings.general?.platformName) {
+      settings.general = { ...defaults.general, ...settings.general };
+      dirty = true;
+    }
+    if (!settings.notifications?.email) {
+      settings.notifications = defaults.notifications;
+      dirty = true;
+    }
+    if (!settings.payments?.methods) {
+      settings.payments = { ...defaults.payments, ...settings.payments };
+      dirty = true;
+    }
+    if (!settings.features?.user) {
+      settings.features = defaults.features;
+      dirty = true;
+    }
+    if (!settings.integrations?.paymentGateways) {
+      settings.integrations = defaults.integrations;
+      dirty = true;
+    }
+
+    if (dirty) settings = await this.repo.save(settings);
     return settings;
   }
 
