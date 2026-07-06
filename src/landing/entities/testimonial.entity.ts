@@ -29,6 +29,9 @@ export class Testimonial {
   @Column({ default: false })
   isApproved: boolean;
 
+  @Column({ default: false })
+  isRejected: boolean;
+
   @CreateDateColumn()
   createdAt: Date;
 

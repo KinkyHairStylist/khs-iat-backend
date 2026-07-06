@@ -6,17 +6,25 @@ import {
   Param,
   Patch,
   Post,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiConsumes } from '@nestjs/swagger';
 import { BlogPostService } from '../services/blog-post.service';
 import { CreateBlogPostDto, UpdateBlogPostDto } from '../dtos/blog-post.dto';
 import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
+import { CloudinaryService } from 'src/user/services/cloudinary.service';
+import { fileUploadOptions } from 'src/middleware/file-upload.middleware';
 
 @ApiTags('Landing - Blog')
 @Controller('landing/blog')
 export class BlogPostController {
-  constructor(private readonly blogPostService: BlogPostService) {}
+  constructor(
+    private readonly blogPostService: BlogPostService,
+    private readonly cloudinaryService: CloudinaryService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'Get all published blog posts (public)' })
@@ -36,6 +44,17 @@ export class BlogPostController {
   @ApiOperation({ summary: 'Get a published blog post by slug (public)' })
   findBySlug(@Param('slug') slug: string) {
     return this.blogPostService.findBySlug(slug);
+  }
+
+  @Post('upload-image')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('access-token')
+  @UseInterceptors(FileInterceptor('file', fileUploadOptions()))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Upload a blog post cover image (admin)' })
+  async uploadImage(@UploadedFile() file: Express.Multer.File) {
+    const url = await this.cloudinaryService.uploadFile(file);
+    return { success: true, data: { url } };
   }
 
   @Post()

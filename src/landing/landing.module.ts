@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { CloudinaryModule } from 'src/user/modules/cloudinary.module';
 
 import { NewsletterSubscriber } from './entities/newsletter-subscriber.entity';
 import { BlogPost } from './entities/blog-post.entity';
@@ -24,6 +25,7 @@ import { LandingStatController } from './controllers/landing-stat.controller';
 
 @Module({
   imports: [
+    CloudinaryModule,
     TypeOrmModule.forFeature([
       NewsletterSubscriber,
       BlogPost,
@@ -44,6 +46,7 @@ import { LandingStatController } from './controllers/landing-stat.controller';
   providers: [
     NewsletterService,
     BlogPostService,
+    // CloudinaryService is provided via CloudinaryModule import above
     FaqService,
     StoryService,
     TestimonialService,

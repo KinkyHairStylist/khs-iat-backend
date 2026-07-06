@@ -35,10 +35,12 @@ export class TestimonialService {
     return this.testimonialRepo.save(testimonial);
   }
 
-  async reject(id: string): Promise<void> {
+  async reject(id: string): Promise<Testimonial> {
     const testimonial = await this.testimonialRepo.findOne({ where: { id } });
     if (!testimonial) throw new NotFoundException('Testimonial not found');
-    await this.testimonialRepo.remove(testimonial);
+    testimonial.isRejected = true;
+    testimonial.isApproved = false;
+    return this.testimonialRepo.save(testimonial);
   }
 
   async update(id: string, dto: UpdateTestimonialDto): Promise<Testimonial> {
