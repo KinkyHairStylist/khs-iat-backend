@@ -48,6 +48,7 @@ import { BusinessSettingsModule } from './business/business-settings.module';
 import { GoogleCalendarModule } from './integration/google-calendar.module';
 import { MailchimpModule } from './integration/mail-chimp.module';
 import { ZohoBooksModule } from './integration/zohobooks.module';
+import { LandingModule } from './landing/landing.module';
 
 @Module({
   imports: [
@@ -111,6 +112,7 @@ import { ZohoBooksModule } from './integration/zohobooks.module';
     GoogleCalendarModule,
     MailchimpModule,
     ZohoBooksModule,
+    LandingModule,
   ],
   controllers: [AppController],
   providers: [

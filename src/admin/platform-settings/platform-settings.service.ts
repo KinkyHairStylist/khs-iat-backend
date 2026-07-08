@@ -33,7 +33,7 @@ export class PlatformSettingsService {
       platformUrl: 'https://kinkyhairstylist.com',
       platformDescription: 'Hair styling platform',
       supportEmail: 'support@kinkyhairstylist.com',
-      contactPhone: '',
+      contactPhone: '08099823810',
       userRegistration: true,
       businessRegistration: true,
       maintenanceMode: false,
@@ -86,14 +86,41 @@ export class PlatformSettingsService {
     return settings;
   }
 
-  /** Fetch settings or create default if none found */
+  /** Fetch settings or create default if none found. Backfills any JSONB
+   * column that was persisted as an empty {} before the full default structure
+   * was established — prevents TypeError when accessing nested fields. */
   private async getSettings() {
     let settings = await this.repo.findOne({ where: {} });
     if (!settings) {
-      // Create default settings if none exist
       settings = this.getDefaultSettings();
-      settings = await this.repo.save(settings);
+      return this.repo.save(settings);
     }
+
+    const defaults = this.getDefaultSettings();
+    let dirty = false;
+
+    if (!settings.general?.platformName) {
+      settings.general = { ...defaults.general, ...settings.general };
+      dirty = true;
+    }
+    if (!settings.notifications?.email) {
+      settings.notifications = defaults.notifications;
+      dirty = true;
+    }
+    if (!settings.payments?.methods) {
+      settings.payments = { ...defaults.payments, ...settings.payments };
+      dirty = true;
+    }
+    if (!settings.features?.user) {
+      settings.features = defaults.features;
+      dirty = true;
+    }
+    if (!settings.integrations?.paymentGateways) {
+      settings.integrations = defaults.integrations;
+      dirty = true;
+    }
+
+    if (dirty) settings = await this.repo.save(settings);
     return settings;
   }
 
@@ -203,35 +230,35 @@ export class PlatformSettingsService {
 
   async getIntegrations() {
     const s = await this.getSettings();
-    const i = s.integrations;
+    const def = this.getDefaultSettings().integrations;
+
+    // Use optional chaining + defaults so partial/legacy DB rows never throw
+    const pg = s.integrations?.paymentGateways ?? def.paymentGateways;
+    const comm = s.integrations?.communication ?? def.communication;
+    const stripe = pg.stripe ?? def.paymentGateways.stripe;
+    const paypal = pg.paypal ?? def.paymentGateways.paypal;
+    const twilio = comm.twilio ?? def.communication.twilio;
+    const sendgrid = comm.sendgrid ?? def.communication.sendgrid;
 
     return {
       paymentGateways: {
         stripe: {
-          ...i.paymentGateways.stripe,
-          key: maskSecret(
-            this.decryptStoredKey(i.paymentGateways.stripe.key, 'stripe'),
-          ),
+          ...stripe,
+          key: maskSecret(this.decryptStoredKey(stripe.key ?? '', 'stripe')),
         },
         paypal: {
-          ...i.paymentGateways.paypal,
-          key: maskSecret(
-            this.decryptStoredKey(i.paymentGateways.paypal.key, 'paypal'),
-          ),
+          ...paypal,
+          key: maskSecret(this.decryptStoredKey(paypal.key ?? '', 'paypal')),
         },
       },
       communication: {
         twilio: {
-          ...i.communication.twilio,
-          key: maskSecret(
-            this.decryptStoredKey(i.communication.twilio.key, 'twilio'),
-          ),
+          ...twilio,
+          key: maskSecret(this.decryptStoredKey(twilio.key ?? '', 'twilio')),
         },
         sendgrid: {
-          ...i.communication.sendgrid,
-          key: maskSecret(
-            this.decryptStoredKey(i.communication.sendgrid.key, 'sendgrid'),
-          ),
+          ...sendgrid,
+          key: maskSecret(this.decryptStoredKey(sendgrid.key ?? '', 'sendgrid')),
         },
       },
     };
@@ -239,58 +266,51 @@ export class PlatformSettingsService {
 
   async updateIntegrations(dto: UpdateIntegrationsSettingsDto) {
     const s = await this.getSettings();
+    const def = this.getDefaultSettings().integrations;
+
+    // Resolve existing stored values with defaults to guard against partial rows
+    const pg = s.integrations?.paymentGateways ?? def.paymentGateways;
+    const comm = s.integrations?.communication ?? def.communication;
+    const existingStripe = pg.stripe ?? def.paymentGateways.stripe;
+    const existingPaypal = pg.paypal ?? def.paymentGateways.paypal;
+    const existingTwilio = comm.twilio ?? def.communication.twilio;
+    const existingSendgrid = comm.sendgrid ?? def.communication.sendgrid;
 
     s.integrations = {
       paymentGateways: {
         stripe: {
-          enabled:
-            dto.paymentGateways?.stripe?.enabled ??
-            s.integrations.paymentGateways.stripe.enabled,
+          enabled: dto.paymentGateways?.stripe?.enabled ?? existingStripe.enabled,
           key: this.resolveKeyForStorage(
             dto.paymentGateways?.stripe?.key,
-            s.integrations.paymentGateways.stripe.key,
+            existingStripe.key ?? '',
           ),
-          description:
-            dto.paymentGateways?.stripe?.description ??
-            s.integrations.paymentGateways.stripe.description,
+          description: dto.paymentGateways?.stripe?.description ?? existingStripe.description,
         },
         paypal: {
-          enabled:
-            dto.paymentGateways?.paypal?.enabled ??
-            s.integrations.paymentGateways.paypal.enabled,
+          enabled: dto.paymentGateways?.paypal?.enabled ?? existingPaypal.enabled,
           key: this.resolveKeyForStorage(
             dto.paymentGateways?.paypal?.key,
-            s.integrations.paymentGateways.paypal.key,
+            existingPaypal.key ?? '',
           ),
-          description:
-            dto.paymentGateways?.paypal?.description ??
-            s.integrations.paymentGateways.paypal.description,
+          description: dto.paymentGateways?.paypal?.description ?? existingPaypal.description,
         },
       },
       communication: {
         twilio: {
-          enabled:
-            dto.communication?.twilio?.enabled ??
-            s.integrations.communication.twilio.enabled,
+          enabled: dto.communication?.twilio?.enabled ?? existingTwilio.enabled,
           key: this.resolveKeyForStorage(
             dto.communication?.twilio?.key,
-            s.integrations.communication.twilio.key,
+            existingTwilio.key ?? '',
           ),
-          description:
-            dto.communication?.twilio?.description ??
-            s.integrations.communication.twilio.description,
+          description: dto.communication?.twilio?.description ?? existingTwilio.description,
         },
         sendgrid: {
-          enabled:
-            dto.communication?.sendgrid?.enabled ??
-            s.integrations.communication.sendgrid.enabled,
+          enabled: dto.communication?.sendgrid?.enabled ?? existingSendgrid.enabled,
           key: this.resolveKeyForStorage(
             dto.communication?.sendgrid?.key,
-            s.integrations.communication.sendgrid.key,
+            existingSendgrid.key ?? '',
           ),
-          description:
-            dto.communication?.sendgrid?.description ??
-            s.integrations.communication.sendgrid.description,
+          description: dto.communication?.sendgrid?.description ?? existingSendgrid.description,
         },
       },
     };

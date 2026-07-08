@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
@@ -105,6 +106,7 @@ async function bootstrap() {
     '/api/payments/verify',
     '/api/business/create',
     '/api/business/services',
+    '/api/landing',
     // Add other public routes here
   ];
 
