@@ -40,14 +40,12 @@ export class ProductController {
   ) {
     try {
       const ownerId = req.user.id || req.user.sub;
-      console.log('[ProductController] createProduct hit ownerId=%s bodyKeys=%j', ownerId, Object.keys(body ?? {}));
 
       if (!ownerId) {
         throw new HttpException('User not authenticated', HttpStatus.UNAUTHORIZED);
       }
 
       const { productImageBase64, ...fields } = body;
-      console.log('[ProductController] base64 present=%s size=%dKB fields=%j', !!productImageBase64, Math.round((productImageBase64?.length ?? 0) / 1024), Object.keys(fields));
 
       if (!productImageBase64) {
         throw new HttpException('Product image is required', HttpStatus.BAD_REQUEST);
