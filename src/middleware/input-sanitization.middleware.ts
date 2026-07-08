@@ -52,6 +52,11 @@ export class InputSanitizationMiddleware implements NestMiddleware {
     }
 
     if (typeof data === 'string') {
+      // Base64 data URIs are binary-encoded — XSS filtering them is both pointless
+      // and catastrophically slow (~128k chars through the HTML state machine).
+      if (data.startsWith('data:') && data.includes(';base64,')) {
+        return data;
+      }
       return xss.filterXSS(data);
     }
 
