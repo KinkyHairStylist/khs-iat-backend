@@ -12,6 +12,7 @@ import {
   Param,
   Request,
 } from '@nestjs/common';
+import { Public } from 'src/business/middlewares/public.decorator';
 import { AuthGuard } from '@nestjs/passport';
 import type { Response } from 'express';
 import { Session } from 'express-session';
@@ -51,6 +52,7 @@ interface RequestWithSession extends Request {
 export class UserController {
   constructor(private readonly userService: UserService) {}
 
+  @Public()
   @Post('/auth/get-started')
   @InitRateLimit()
   @ApiOperation({
@@ -67,6 +69,7 @@ export class UserController {
     return this.userService.getStarted(dto);
   }
 
+  @Public()
   @Post('/auth/verify-code')
   @VerifyRateLimit()
   @ApiOperation({ summary: 'Verify user email or phone with a code' })
@@ -81,6 +84,7 @@ export class UserController {
     return this.userService.verifyCode(dto);
   }
 
+  @Public()
   @Post('/auth/resend-code')
   @ApiOperation({ summary: 'Resend verification code' })
   @ApiBody({ type: ResendCodeDto })
@@ -94,6 +98,7 @@ export class UserController {
     return this.userService.resendCode(dto);
   }
 
+  @Public()
   @Post('/auth/signup')
   @ApiOperation({ summary: 'Register a new user' })
   @ApiBody({ type: SignUpDto })
@@ -110,6 +115,7 @@ export class UserController {
     return this.userService.signUp(dto);
   }
 
+  @Public()
   @Post('/auth/login')
   @LoginRateLimit()
   @ApiOperation({ summary: 'Authenticate user and start session' })
@@ -172,6 +178,7 @@ export class UserController {
   }
 
   // Password Reset Endpoints
+  @Public()
   @Post('/auth/reset-password/start')
   @PasswordRateLimit()
   @ApiOperation({
@@ -190,6 +197,7 @@ export class UserController {
     return this.userService.startResetPassword(dto);
   }
 
+  @Public()
   @Post('/auth/reset-password/verify')
   @VerifyRateLimit()
   @ApiOperation({ summary: 'Verify password reset code' })
@@ -206,6 +214,7 @@ export class UserController {
     return this.userService.verifyResetCode(dto);
   }
 
+  @Public()
   @Post('/auth/reset-password/finish')
   @ApiOperation({ summary: 'Complete password reset with new password' })
   @ApiBody({ type: ResetPasswordFinishDto })

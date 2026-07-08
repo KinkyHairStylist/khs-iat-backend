@@ -1,4 +1,5 @@
 import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import { Public } from 'src/business/middlewares/public.decorator';
 import { AuthService } from '../services/auth.service';
 import { CreateUserDto } from '../dtos/requests/CreateUserDto';
 import { OtpService } from '../services/otp.service';
@@ -28,6 +29,7 @@ export class AuthController {
     private readonly otpService: OtpService,
   ) {}
 
+  @Public()
   @Post('/business/register')
   @RegisterRateLimit()
   @HttpCode(HttpStatus.CREATED)
@@ -40,6 +42,7 @@ export class AuthController {
     return this.authService.register(createUserDto);
   }
 
+  @Public()
   @Post('/business/login')
   @LoginRateLimit()
   @HttpCode(HttpStatus.OK)
@@ -55,6 +58,7 @@ export class AuthController {
     return this.authService.login(loginDto);
   }
 
+  @Public()
   @Post('/business/forgot-password')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Request password reset OTP' })
@@ -64,6 +68,7 @@ export class AuthController {
     return this.authService.requestPasswordReset(forgotPasswordDto);
   }
 
+  @Public()
   @Post('/business/verify-password-otp')
   @OtpRateLimit()
   @HttpCode(HttpStatus.OK)
@@ -76,6 +81,7 @@ export class AuthController {
     return this.authService.verifyPasswordOtp(verifyOtpDto);
   }
 
+  @Public()
   @Post('/business/reset-password')
   @PasswordRateLimit()
   @HttpCode(HttpStatus.OK)
@@ -88,6 +94,7 @@ export class AuthController {
     return this.authService.resetPassword(resetPasswordDto);
   }
 
+  @Public()
   @Post('/business/otp/request')
   @OtpRateLimit()
   @HttpCode(HttpStatus.OK)
@@ -99,6 +106,7 @@ export class AuthController {
     return { message: 'OTP sent to your email.', email: requestOtpDto.email };
   }
 
+  @Public()
   @Post('/business/otp/verify')
   @OtpRateLimit()
   @HttpCode(HttpStatus.OK)
@@ -110,6 +118,7 @@ export class AuthController {
     return this.otpService.verifyOtp(verifyOtpDto.email, verifyOtpDto.otp);
   }
 
+  @Public()
   @Post('/business/otp/refresh')
   @RefreshRateLimit()
   @HttpCode(HttpStatus.OK)

@@ -61,7 +61,7 @@ export class CommunicationService {
         message: `Message sent ${payload.clientEmail} successfully`,
       };
     } catch (error) {
-            return {
+      return {
         success: false,
         error: error.message,
         message: 'Failed to send reminder',

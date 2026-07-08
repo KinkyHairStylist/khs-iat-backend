@@ -83,7 +83,7 @@ export class BusinessWalletService {
         message: 'Business Wallet created successfully',
       };
     } catch (error) {
-            return {
+      return {
         success: false,
         error: error.message,
         message: 'Failed to create business wallet',
@@ -138,7 +138,7 @@ export class BusinessWalletService {
         message: 'Business Wallet fetched successfully',
       };
     } catch (error) {
-            return {
+      return {
         success: false,
         error: error.message,
         message: 'Failed to fetch business wallet',
@@ -389,7 +389,7 @@ export class BusinessWalletService {
         message: 'Payment Method added successfully',
       };
     } catch (error) {
-            return {
+      return {
         success: false,
         error: error.message,
         message: 'Failed to add payment method to business',
@@ -453,7 +453,7 @@ export class BusinessWalletService {
         message: 'Payment Methods list retrieved successfully',
       };
     } catch (error) {
-            return {
+      return {
         success: false,
         error: error.message,
         message: 'Failed to fetch payment methods',
@@ -479,7 +479,7 @@ export class BusinessWalletService {
         message: 'Business Withdrawals list retrieved successfully',
       };
     } catch (error) {
-            return {
+      return {
         success: false,
         error: error.message,
         message: 'Failed to fetch Business Withdrawals',
@@ -635,7 +635,7 @@ export class BusinessWalletService {
         message: 'Transaction history fetched',
       };
     } catch (error) {
-            return {
+      return {
         success: false,
         error: error.message,
         message: 'Failed to fetch Transaction history',
@@ -663,7 +663,7 @@ export class BusinessWalletService {
       requestDate: new Date().toISOString(),
     });
 
-    // 
+    //
     return await this.withdrawalRepository.save(withdrawal);
   }
 }

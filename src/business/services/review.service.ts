@@ -97,7 +97,7 @@ export class ReviewService {
         message: 'Client reviews retrieved successfully',
       };
     } catch (error) {
-            return {
+      return {
         success: false,
         error: error.message,
         message: 'Failed to fetch client reviews',
@@ -166,7 +166,7 @@ export class ReviewService {
         message: 'Client review details retrieved successfully',
       };
     } catch (error) {
-            return {
+      return {
         success: false,
         error: error.message,
         message: 'Failed to fetch client review',
@@ -245,7 +245,7 @@ export class ReviewService {
         message: 'Client review updated with response successfully',
       };
     } catch (error) {
-            return {
+      return {
         success: false,
         error: error.message,
         message: 'Failed to submit response to this review',
@@ -264,7 +264,7 @@ export class ReviewService {
         message: 'Client review created successfully',
       };
     } catch (error) {
-            return {
+      return {
         success: false,
         error: error.message,
         message: 'Failed to create client review',

@@ -1,6 +1,6 @@
 import { Controller, Post, Body, Query, UseGuards } from '@nestjs/common';
+import { Public } from 'src/business/middlewares/public.decorator';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-
 import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
 import { AdminAuthService } from '../services/admin_auth.service';
 import {
@@ -25,6 +25,7 @@ import {
 export class AdminAuthController {
   constructor(private readonly auth: AdminAuthService) {}
 
+  @Public()
   @Post('login')
   @LoginRateLimit()
   login(@Body() dto: AdminLoginDto) {

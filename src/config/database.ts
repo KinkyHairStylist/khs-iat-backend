@@ -103,10 +103,10 @@ const log = {
 };
 
 const getExistingTableNames = async (
-  dataSource: DataSource
+  dataSource: DataSource,
 ): Promise<string[]> => {
   const rows: { table_name: string }[] = await dataSource.query(
-    `SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema()`
+    `SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema()`,
   );
   return rows.map((r) => r.table_name);
 };
@@ -119,12 +119,12 @@ const getExistingTableNames = async (
  */
 const syncSpecificEntities = async (entityNames: string[]) => {
   const matched = AppDataSource.entityMetadatas.filter((meta) =>
-    entityNames.includes(meta.name)
+    entityNames.includes(meta.name),
   );
 
   if (matched.length === 0) {
     log.warn(
-      `SYNC_ONLY_TABLES was set but none of [${entityNames.join(', ')}] matched a known entity`
+      `SYNC_ONLY_TABLES was set but none of [${entityNames.join(', ')}] matched a known entity`,
     );
     return;
   }
@@ -139,7 +139,9 @@ const syncSpecificEntities = async (entityNames: string[]) => {
   try {
     log.info(`Synchronizing only: [${matched.map((m) => m.name).join(', ')}]`);
     await scopedDataSource.synchronize();
-    log.info(`✅ Synced ${matched.length} table(s): [${matched.map((m) => m.name).join(', ')}]`);
+    log.info(
+      `✅ Synced ${matched.length} table(s): [${matched.map((m) => m.name).join(', ')}]`,
+    );
   } finally {
     await scopedDataSource.destroy();
   }
@@ -161,11 +163,11 @@ const runSmartSync = async (dataSource: DataSource) => {
 
     const tablesAfter = await getExistingTableNames(dataSource);
     log.info(
-      `${tablesAfter.length} table(s) created: [${tablesAfter.join(', ')}]`
+      `${tablesAfter.length} table(s) created: [${tablesAfter.join(', ')}]`,
     );
   } else {
     log.info(
-      `Tables already exist (${tablesBefore.length}), skipping full synchronize`
+      `Tables already exist (${tablesBefore.length}), skipping full synchronize`,
     );
 
     if (SYNC_ONLY_TABLES.length > 0) {
@@ -202,7 +204,8 @@ export const connectDB = async (): Promise<void> => {
       const code = error?.code ?? error?.name;
 
       if (code === 'ECONNREFUSED') {
-        friendlyMessage = 'Database is still sleeping or refusing connections ❌';
+        friendlyMessage =
+          'Database is still sleeping or refusing connections ❌';
       } else if (code === 'ETIMEDOUT') {
         friendlyMessage = 'Database connection attempt timed out ⏱️';
       } else if (code === 'ENOTFOUND') {
@@ -227,14 +230,14 @@ let watchdogInterval: NodeJS.Timeout | null = null;
 
 export const startDbWatchdog = (
   interval = isProduction ? 120000 : 15000,
-  pingTimeout = 10000
+  pingTimeout = 10000,
 ) => {
   const pingLoop = async () => {
     try {
       await Promise.race([
         AppDataSource.query('SELECT 1'),
         new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('DB ping timeout')), pingTimeout)
+          setTimeout(() => reject(new Error('DB ping timeout')), pingTimeout),
         ),
       ]);
 
@@ -293,19 +296,19 @@ export const disconnectDB = async () => {
   }
 };
 
-  // 🔥 CRITICAL: Connection pool settings
-  // poolSize: 10, // Maximum number of connections in the pool
+// 🔥 CRITICAL: Connection pool settings
+// poolSize: 10, // Maximum number of connections in the pool
 
-  // // Additional pool configuration
-  // extra: {
-  //   max: 10, // Maximum pool size (same as poolSize for consistency)
-  //   min: 2, // Minimum pool size (keep 2 connections always ready)
-  //   idleTimeoutMillis: 30000, // Close idle connections after 30 seconds
-  //   connectionTimeoutMillis: 2000, // Max wait time for connection (2s)
-  //   statement_timeout: 30000, // Timeout for SQL statements (30s)
-  //   query_timeout: 30000, // Query timeout (30s)
-  // },
+// // Additional pool configuration
+// extra: {
+//   max: 10, // Maximum pool size (same as poolSize for consistency)
+//   min: 2, // Minimum pool size (keep 2 connections always ready)
+//   idleTimeoutMillis: 30000, // Close idle connections after 30 seconds
+//   connectionTimeoutMillis: 2000, // Max wait time for connection (2s)
+//   statement_timeout: 30000, // Timeout for SQL statements (30s)
+//   query_timeout: 30000, // Query timeout (30s)
+// },
 
-  // // Log slow queries (helpful for debugging)
-  // logging: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : false,
-  // maxQueryExecutionTime: 5000, // Log queries taking longer than 5s
+// // Log slow queries (helpful for debugging)
+// logging: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : false,
+// maxQueryExecutionTime: 5000, // Log queries taking longer than 5s
