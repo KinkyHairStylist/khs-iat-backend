@@ -581,7 +581,7 @@ export class ClientService {
         message: 'Clients retrieved successfully',
       };
     } catch (error) {
-      //       return {
+      return {
         success: false,
         error: error.message,
         message: 'Failed to fetch clients',
@@ -630,7 +630,7 @@ export class ClientService {
         message: 'Clients List retrieved successfully',
       };
     } catch (error) {
-      //       return {
+      return {
         success: false,
         error: error.message,
         message: 'Failed to fetch clients',

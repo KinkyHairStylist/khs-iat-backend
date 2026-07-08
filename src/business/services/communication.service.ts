@@ -178,7 +178,7 @@ export class CommunicationService {
     };
 
     await sgMail.send(msg);
-    //     //   }
+  }
 
   private async sendCustomMessageEmailBatch(
     data: SendBulkMessageDto,

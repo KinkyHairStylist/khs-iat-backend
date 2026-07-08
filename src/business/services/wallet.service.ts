@@ -302,14 +302,12 @@ export class BusinessWalletService {
           Number(wallet.balance) + Number(addTransactionDto.amount);
         wallet.totalIncome =
           Number(wallet.totalIncome) + Number(addTransactionDto.amount);
-
-        //       } else {
+      } else {
         wallet.balance =
           Number(wallet.balance) - Number(addTransactionDto.amount);
         wallet.totalExpenses =
           Number(wallet.totalExpenses) + Number(addTransactionDto.amount);
-
-        //       }
+      }
 
       await this.walletRepository.save(wallet);
 
