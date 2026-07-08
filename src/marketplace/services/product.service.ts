@@ -10,10 +10,7 @@ import { CreateProductDto, ProductFiltersDto } from '../dto/marketplace.dto';
 import { SkuGeneratorService } from './sku-generator.service';
 import { ApiResponse } from 'src/business/types/client.types';
 import { InventoryService } from './inventory.service';
-import {
-  BusinessCloudinaryService,
-  FileUpload,
-} from 'src/business/services/business-cloudinary.service';
+import { BusinessCloudinaryService } from 'src/business/services/business-cloudinary.service';
 import { Business } from 'src/business/entities/business.entity';
 
 @Injectable()
@@ -34,68 +31,79 @@ export class ProductService {
   async createProduct(
     createProductDto: CreateProductDto,
     ownerId: string,
-    bodyproductImage: FileUpload,
+    productImageBase64: string,
   ): Promise<Product> {
+    console.log('[createProduct] START ownerId=%s', ownerId);
+
+    console.log('[createProduct] 1. looking up business...');
     const business = await this.businessRepo.findOne({
       where: { ownerId },
     });
     if (!business) {
+      console.warn('[createProduct] no business found for ownerId=%s', ownerId);
       throw new BadRequestException(`No business found for this user`);
     }
-    // Check if product already exists
+    console.log('[createProduct] 2. business found id=%s name=%s', business.id, business.businessName);
+
+    console.log('[createProduct] 3. checking for duplicate SKU...');
     const existingProduct = await this.productRepository.findOne({
       where: { sku: createProductDto.sku },
     });
 
     if (existingProduct) {
+      console.warn('[createProduct] duplicate SKU=%s', existingProduct.sku);
       throw new BadRequestException(
         `Product with SKU ${existingProduct.sku} already exists`,
       );
     }
 
-    // 2. Ensure inventory exists and get current categories
+    console.log('[createProduct] 4. ensuring inventory exists...');
     const platformInventory =
       await this.inventoryService.ensureInventoryExists();
+    console.log('[createProduct] 5. inventory ok, categories=%j', platformInventory.categoriesList);
 
     if (!platformInventory.categoriesList.includes(createProductDto.category)) {
+      console.warn('[createProduct] invalid category=%s', createProductDto.category);
       throw new BadRequestException(
         `Invalid category "${createProductDto.category}". Please use a valid category from the platform inventory.`,
       );
     }
 
-    // create sku
+    console.log('[createProduct] 6. generating SKU...');
     const sku = await this.skuGeneratorService.generateSku(
       createProductDto.category,
       business.businessName,
       business.id,
     );
+    console.log('[createProduct] 7. generated SKU=%s', sku);
 
-    // Validate SKU format
     if (!this.skuGeneratorService.validateSku(sku)) {
       throw new BadRequestException(
         'SKU must be 8-30 characters, alphanumeric with hyphens only',
       );
     }
 
-    // Product image upload
-    let productImage;
-
     const folderPath = `KHS/business/${business.businessName}/products/${createProductDto.productName}`;
+    const base64SizeKB = Math.round((productImageBase64?.length ?? 0) / 1024);
+    console.log('[createProduct] 8. uploading image to Cloudinary... base64Size=%dKB folder=%s', base64SizeKB, folderPath);
 
+    let productImage: string;
+    const uploadStart = Date.now();
     try {
-      const { imageUrl } = await this.businessCloudinaryService.uploadImage(
-        bodyproductImage,
+      const { imageUrl } = await this.businessCloudinaryService.uploadImageFromBase64(
+        productImageBase64,
         folderPath,
       );
-
       productImage = imageUrl;
+      console.log('[createProduct] 9. Cloudinary upload done in %dms url=%s', Date.now() - uploadStart, imageUrl);
     } catch (error) {
+      console.error('[createProduct] Cloudinary upload FAILED after %dms: %s', Date.now() - uploadStart, error.message);
       throw new BadRequestException(
         error.message || 'Failed to create product image',
       );
     }
 
-    // Create product
+    console.log('[createProduct] 10. saving product to DB...');
     const product = this.productRepository.create({
       ...createProductDto,
       businessId: business.id,
@@ -105,16 +113,18 @@ export class ProductService {
     });
 
     const savedProduct = await this.productRepository.save(product);
+    console.log('[createProduct] 11. product saved id=%s', savedProduct.id);
 
     const productWithBusiness = await this.productRepository.findOne({
       where: { id: savedProduct.id },
-      relations: ['business'], // <-- THIS loads the business relation
+      relations: ['business'],
     });
 
     if (!productWithBusiness) {
       throw new BadRequestException('Failed to fetch product');
     }
 
+    console.log('[createProduct] DONE id=%s', productWithBusiness.id);
     return productWithBusiness;
   }
 
