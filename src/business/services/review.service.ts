@@ -332,5 +332,5 @@ Kinky Hair Stylist Team`;
     };
 
     const [response] = await sgMail.send(msg);
-    //     //   }
+  }
 }
