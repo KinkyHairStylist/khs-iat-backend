@@ -74,13 +74,8 @@ const baseOptions: DataSourceOptions = {
   password: process.env.DB_PASSWORD ?? 'password',
   database: process.env.DB_DATABASE ?? 'khs',
   entities: [__dirname + '/../**/*.entity{.ts,.js}'],
-
-  migrations: [__dirname + '/../migrations/*{.ts,.js}'],
-  ssl:
-    process.env.NODE_ENV === 'production'
-      ? { rejectUnauthorized: true }
-      : false, // Use SSL in production, but not in development
-  synchronize: process.env.NODE_ENV === 'development',
+  ssl: process.env.DB_SSL === 'require' ? { rejectUnauthorized: false } : false,
+  synchronize: false, // 🔴 never let TypeORM auto-sync — we control it below
   extra: {
     max: 5,
   },
@@ -185,7 +180,7 @@ const runSmartSync = async (dataSource: DataSource) => {
 };
 
 export const connectDB = async (): Promise<void> => {
-  const initialDelay = 5000; // 5s
+  const initialDelay = isProduction ? 5000 : 500;
   const maxDelay = 30000; // 30s
   const factor = 2;
   let delay = initialDelay;
