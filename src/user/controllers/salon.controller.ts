@@ -3,20 +3,16 @@ import {
   Get,
   Param,
   Query,
-  UseGuards,
   UseInterceptors,
   ClassSerializerInterceptor,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
-import { ApiBearerAuth } from '@nestjs/swagger';
 
 import { SalonService } from '../services/salon.service';
-import { Salon } from '../user_entities/salon.entity';
 import { CacheInterceptor } from '../../cache/cache.interceptor';
 
-@ApiTags('salons')
+@ApiTags('Salons')
 @Controller('salons')
-@ApiBearerAuth('access-token')
 @UseInterceptors(ClassSerializerInterceptor)
 export class SalonController {
   constructor(private readonly salonService: SalonService) {}
@@ -53,7 +49,7 @@ export class SalonController {
   @ApiQuery({ name: 'lat', required: false, type: Number, example: -33.8688 })
   @ApiQuery({ name: 'lng', required: false, type: Number, example: 151.2093 })
   @ApiResponse({ status: 200, description: 'Return list of salons' })
-  @UseInterceptors(CacheInterceptor) // 👈 Apply caching
+  @UseInterceptors(CacheInterceptor) //  Apply caching
   async findAll(@Query() query: any) {
     const options = {
       page: parseInt(query.page) || 1,
@@ -74,19 +70,33 @@ export class SalonController {
     return this.salonService.findAll(options);
   }
 
-  @Get(':id')
-  @ApiOperation({ summary: 'Get single salon details' })
-  @ApiResponse({ status: 200, description: 'Return salon details' })
-  @ApiResponse({ status: 404, description: 'Salon not found' })
-  async findOne(@Param('id') id: string) {
-    return this.salonService.findOne(id);
+  @Get('search')
+  @ApiQuery({
+    name: 'category',
+    required: false,
+    example: 'Hair Salon',
+    description: 'Filter services by category',
+  })
+  async getServices(@Query('category') category?: string) {
+    return this.salonService.getServices(category);
   }
 
-  @Get(':id/images')
-  @ApiOperation({ summary: 'Get salon portfolio/images' })
-  @ApiResponse({ status: 200, description: 'Return salon images' })
-  @ApiResponse({ status: 404, description: 'Salon not found' })
-  async findImages(@Param('id') id: string) {
-    return this.salonService.findImages(id);
+  @Get('services/:businessId')
+  @ApiOperation({ summary: 'Get all services for a business by business ID' })
+  @ApiResponse({ status: 200, description: 'Return list of services' })
+  async getServicesByBusinessId(@Param('businessId') businessId: string) {
+    return this.salonService.getServicesByBusinessId(businessId);
   }
+  
+  @Get(':id')
+  @ApiOperation({ summary: 'Get business by ID with services & available times' })
+  @ApiResponse({ status: 200, description: 'Return business details' })
+  @ApiResponse({ status: 404, description: 'Business not found' })
+  async getBusiness(
+    @Param('id') id: string
+  ) {
+    return this.salonService.getBusinessById(id);
+  }
+
+
 }

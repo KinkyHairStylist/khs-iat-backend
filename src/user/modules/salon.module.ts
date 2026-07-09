@@ -1,15 +1,16 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { Salon } from '../user_entities/salon.entity';
-import { SalonImage } from '../user_entities/salon-image.entity';
+
+import { Service } from 'src/business/entities/service.entity';
+import { Business } from 'src/business/entities/business.entity';
 import { SalonController } from '../controllers/salon.controller';
 import { SalonService } from '../services/salon.service';
-import { SalonRepository } from '../user_utilities/salon.repository';
+import { BusinessRepository } from '../user_utilities/salon.repository';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Salon, SalonImage])],
+  imports: [TypeOrmModule.forFeature([Business, Service])],
   controllers: [SalonController],
-  providers: [SalonService, SalonRepository],
+  providers: [SalonService, BusinessRepository],
   exports: [SalonService],
 })
 export class SalonModule {}

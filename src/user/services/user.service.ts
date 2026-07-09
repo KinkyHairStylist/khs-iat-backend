@@ -8,24 +8,26 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import sgMail from '@sendgrid/mail';
-import { randomUUID } from 'crypto';
+import axios from 'axios';
 
 import { User } from '../../all_user_entities/user.entity';
-import { 
-  GetStartedDto, 
-  VerifyCodeDto, 
-  ResendCodeDto, 
-  SignUpDto, 
-  LoginDto, 
-  ResetPasswordStartDto, 
-  ResetPasswordVerifyDto, 
-  ResetPasswordFinishDto, 
-  AuthResponseDto 
+import {
+  GetStartedDto,
+  VerifyCodeDto,
+  ResendCodeDto,
+  SignUpDto,
+  CustomerLoginDto,
+  ResetPasswordStartDto,
+  ResetPasswordVerifyDto,
+  ResetPasswordFinishDto,
+  AuthResponseDto,
 } from '../dtos/user.dto';
 import { PasswordHashingHelper } from '../../helpers/password-hashing.helper';
+import { getTokens } from '../../helpers/token.helper';
 import { Referral } from '../user_entities/referrals.entity';
 import { Gender } from 'src/business/types/constants';
 import { ReferralService } from './referral.service';
+import { PasswordUtil } from 'src/business/utils/password.util';
 
 type SanitizedUser = Omit<
   User,
@@ -34,6 +36,8 @@ type SanitizedUser = Omit<
   | 'verificationExpires'
   | 'resetCode'
   | 'resetCodeExpires'
+  | 'hasAdminRole'
+  | 'hasBusinessAccess'
 >;
 
 @Injectable()
@@ -45,10 +49,11 @@ export class UserService {
     private userRepository: Repository<User>,
 
     @InjectRepository(Referral)
-    private referralRepository: Repository<Referral>, // new line added
+    private referralRepository: Repository<Referral>,
 
     private jwtService: JwtService,
     private readonly referralService: ReferralService,
+    private readonly passwordUtil: PasswordUtil,
   ) {
     const apiKey = process.env.SENDGRID_API_KEY;
     const fromEmail = process.env.SENDGRID_FROM_EMAIL;
@@ -56,7 +61,7 @@ export class UserService {
     if (!apiKey || !fromEmail) {
       throw new Error('SENDGRID_API_KEY and SENDGRID_FROM_EMAIL must be set');
     }
-    
+
     sgMail.setApiKey(apiKey);
     this.fromEmail = fromEmail;
   }
@@ -64,6 +69,40 @@ export class UserService {
   private generateCode(): string {
     return Math.floor(10000 + Math.random() * 90000).toString();
   }
+
+  private async updateUserLocation(userId: string, lng: number, lat: number) {
+    try {
+      const response = await axios.get('https://nominatim.openstreetmap.org/reverse', {
+        params: {
+          format: 'jsonv2',
+          lat,
+          lon: lng,
+        },
+        timeout: 5000,
+        headers: {
+          'User-Agent': 'KHS-App/1.0 (support@khs.com)',
+        },
+      });
+
+      const address = response.data?.address ?? {};
+      const city = address.city || address.town || address.village || null;
+      const state = address.state || null;
+      const country = address.country || null;
+
+      await this.userRepository.update(userId, {
+        city,
+        state,
+        country,
+        latitude: lat,
+        longitude: lng,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('Location lookup failed:', message);
+    }
+  }
+
+
 
   private async sendVerificationEmail(
     email: string,
@@ -132,7 +171,6 @@ export class UserService {
     return { message: 'Verification code sent', success: true };
   }
 
-    
   async verifyCode(dto: VerifyCodeDto): Promise<AuthResponseDto> {
     const { email, code } = dto;
 
@@ -176,11 +214,11 @@ export class UserService {
     const user = await this.userRepository.findOne({ where: { email } });
 
     if (!user) {
-        throw new NotFoundException('User not found');
+      throw new NotFoundException('User not found');
     }
 
     if (user.isVerified) {
-        return { message: 'Already verified', success: true };
+      return { message: 'Already verified', success: true };
     }
 
     user.verificationCode = this.generateCode();
@@ -193,7 +231,17 @@ export class UserService {
   }
 
   async signUp(dto: SignUpDto): Promise<AuthResponseDto> {
-    const { email, password, firstName, surname, phoneNumber, gender, referralCode } = dto;
+    const {
+      email,
+      password,
+      firstName,
+      surname,
+      phoneNumber,
+      gender,
+      referralCode,
+      longitude,
+      latitude,
+    } = dto;
 
     const user = await this.userRepository.findOne({ where: { email } });
 
@@ -211,18 +259,45 @@ export class UserService {
     user.surname = surname;
     user.phoneNumber = phoneNumber;
     user.gender = gender as Gender;
+    if (typeof longitude === 'number') {
+      user.longitude = longitude;
+    }
+
+    if (typeof latitude === 'number') {
+      user.latitude = latitude;
+    }
+
 
     // Generate referral code for the new user
     user.referralCode = await this.referralService.ensureReferralCode(user.id);
 
+    // isClient defaults to true, so no need to set it explicitly
+
     await this.userRepository.save(user);
+
+
+    if (
+      typeof longitude === 'number' &&
+      typeof latitude === 'number' &&
+      latitude !== 0 &&
+      longitude !== 0
+    ) {
+      await this.updateUserLocation(user.id, user.longitude, user.latitude);
+    }
+
+
+
 
     // If a referral code was used, complete the referral and reward the referrer
     if (referralCode) {
       await this.referralService.completeReferral(email, user.id);
     }
 
-    const { accessToken, refreshToken } = await this.getTokens(user.id, user.email);
+    const { accessToken, refreshToken } = await getTokens(
+      this.jwtService,
+      user.id,
+      user.email
+    );
 
     return {
       message: 'Signup successful',
@@ -233,7 +308,7 @@ export class UserService {
     };
   }
 
-  async login(dto: LoginDto): Promise<AuthResponseDto> {
+  async login(dto: CustomerLoginDto): Promise<AuthResponseDto> {
     const { email, password } = dto;
 
     const user = await this.userRepository.findOne({ where: { email } });
@@ -243,7 +318,7 @@ export class UserService {
     }
 
     if (!user.isVerified) {
-        throw new BadRequestException('Email not verified');
+      throw new BadRequestException('Email not verified');
     }
 
     if (!user.password) {
@@ -259,7 +334,14 @@ export class UserService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    const { accessToken, refreshToken } = await this.getTokens(user.id, user.email);
+    user.activity = new Date().toISOString();
+    await this.userRepository.save(user);
+
+    const { accessToken, refreshToken } = await getTokens(
+      this.jwtService,
+      user.id,
+      user.email
+    );
 
     return {
       message: 'Login successful',
@@ -366,38 +448,24 @@ export class UserService {
     return result;
   }
 
-  async getTokens(
-    userId: string,
-    email: string,
-  ): Promise<{ accessToken: string; refreshToken: string }> {
-    const payload = { sub: userId, email };
-
-    const [accessToken, refreshToken] = await Promise.all([
-      this.jwtService.signAsync(payload, {
-        secret: process.env.JWT_ACCESS_SECRET,
-        expiresIn: '15m',
-      }),
-      this.jwtService.signAsync(payload, {
-        secret: process.env.JWT_REFRESH_SECRET,
-        expiresIn: '7d',
-      }),
-    ]);
-
-    return { accessToken, refreshToken };
-  }
-
   async refreshTokens(refreshToken: string): Promise<AuthResponseDto> {
     try {
       const payload = await this.jwtService.verifyAsync(refreshToken, {
         secret: process.env.JWT_REFRESH_SECRET,
       });
 
-      const user = await this.userRepository.findOne({ where: { id: payload.sub } });
+      const user = await this.userRepository.findOne({
+        where: { id: payload.sub },
+      });
       if (!user) {
         throw new UnauthorizedException('User not found');
       }
 
-      const { accessToken, refreshToken: newRefreshToken } = await this.getTokens(user.id, user.email);
+      const { accessToken, refreshToken: newRefreshToken } = await getTokens(
+        this.jwtService,
+        user.id,
+        user.email
+      );
 
       return {
         success: true,
@@ -408,6 +476,46 @@ export class UserService {
       };
     } catch (e) {
       throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+  }
+
+  async updateUser(userId: string, dto: any): Promise<any> {
+    try {
+      const user = await this.userRepository.findOne({ where: { id: userId } });
+
+      if (!user) {
+        return {
+          success: false,
+          message: 'User not found',
+        };
+      }
+
+      // ✅ Convert dateOfBirth string → Date
+      if (dto.dateOfBirth) {
+        dto.dateOfBirth = new Date(dto.dateOfBirth) as any;
+      }
+
+      // ✅ Hash password ONLY if provided
+      if (dto.password) {
+        dto.password = await this.passwordUtil.hashPassword(dto.password);
+      }
+
+      Object.assign(user, dto);
+
+      await this.userRepository.save(user);
+
+      return {
+        success: true,
+        data: user,
+        message: 'User updated successfully',
+      };
+    } catch (error) {
+      console.log('Update user error:', error);
+      return {
+        success: false,
+        message: 'Failed to update user',
+        error: error.message,
+      };
     }
   }
 }

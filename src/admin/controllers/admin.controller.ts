@@ -1,8 +1,17 @@
-import {Body, Controller, Get, Param, Post, Req, Res} from '@nestjs/common';
+import {Body, Controller, Get, Param, Post, UseGuards, Res} from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+
+import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
+import { Roles } from 'src/middleware/roles.decorator';
+import { Role } from 'src/middleware/role.enum';
+import { RolesGuard } from 'src/middleware/roles.guard';
 import { AdminService } from '../services/admin.service';
 import {CreateMembershipPlanDto} from "../../business/dtos/requests/CreateMembershipDto";
 
-
+@ApiTags('Admin User Management')
+@ApiBearerAuth('access-token')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.Admin, Role.SuperAdmin)
 @Controller('admin')
 export class AdminController {
     constructor(private readonly adminService: AdminService) {}
@@ -10,6 +19,11 @@ export class AdminController {
     @Get('getAllUsers')
     async getAllUsers() {
         return this.adminService.getAllUsers();
+    }
+
+    @Post('getNearbySalons')
+    async getNearbySalons(body:{longitude:number, latitude:number}) {
+        return this.adminService.getNearbySalons(body);
     }
 
     @Post('cancelSubscription')
@@ -70,20 +84,14 @@ export class AdminController {
         return this.adminService.getAllBusinesses();
     }
 
-    @Get('getPendingApplications')
-    async getPendingApplications() {
-        return this.adminService.getPendingApplications()
-    }
-
     @Post('suspendBusiness')
     async suspendBusiness(@Body() body:{ id: string }) {
         return this.adminService.suspendBusiness(body.id)
     }
 
-
-    @Post("findApplicationById")
-    async findApplicationById(@Body() body:{ id: string}) {
-        return this.adminService.findApplicationById(body.id);
+    @Post('unsuspendBusiness')
+    async unsuspendBusiness(@Body() body:{ id: string }) {
+        return this.adminService.unsuspendBusiness(body.id)
     }
 
     @Post('rejectApplication')
@@ -99,11 +107,6 @@ export class AdminController {
     @Post('approveApplication')
     async approveApplication(@Body() body:{ id: string }) {
         return this.adminService.approveApplication(body.id);
-    }
-
-    @Get('getAllBusinessApplications')
-    async getAllBusinessApplications() {
-        return this.adminService.getAllBusinessApplications();
     }
 
     @Post('suspend')

@@ -8,5 +8,6 @@ import { PlatformSettingsController } from './platform-settings.controller';
   imports: [TypeOrmModule.forFeature([PlatformSettingsEntity])],
   controllers: [PlatformSettingsController],
   providers: [PlatformSettingsService],
+  exports: [PlatformSettingsService],
 })
 export class PlatformSettingsModule {}

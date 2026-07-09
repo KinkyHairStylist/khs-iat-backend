@@ -8,9 +8,12 @@ import {
   Res,
   Get,
   UseGuards,
+  Patch,
+  Param,
+  Request,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import type { Request, Response } from 'express';
+import type { Response } from 'express';
 import { Session } from 'express-session';
 import { UserService } from '../services/user.service';
 import {
@@ -18,7 +21,7 @@ import {
   VerifyCodeDto,
   ResendCodeDto,
   SignUpDto,
-  LoginDto,
+  CustomerLoginDto,
   ResetPasswordStartDto,
   ResetPasswordVerifyDto,
   ResetPasswordFinishDto,
@@ -89,13 +92,16 @@ export class UserController {
     type: AuthResponseDto,
   })
   @UsePipes(new ValidationPipe())
-  async signup(@Body() dto: SignUpDto): Promise<AuthResponseDto> {
+  async signup(
+    @Request() req,
+    @Body() dto: SignUpDto,
+  ): Promise<AuthResponseDto> {
     return this.userService.signUp(dto);
   }
 
-   @Post('/auth/login')
+  @Post('/auth/login')
   @ApiOperation({ summary: 'Authenticate user and start session' })
-  @ApiBody({ type: LoginDto })
+  @ApiBody({ type: CustomerLoginDto })
   @ApiResponse({
     status: 200,
     description: 'Login successful',
@@ -103,7 +109,7 @@ export class UserController {
   })
   @UsePipes(new ValidationPipe())
   async login(
-    @Body() dto: LoginDto,
+    @Body() dto: CustomerLoginDto,
     @Req() req: RequestWithSession,
   ): Promise<AuthResponseDto> {
     const result = await this.userService.login(dto);
@@ -212,5 +218,10 @@ export class UserController {
   })
   async refreshTokens(@Req() req) {
     return this.userService.refreshTokens(req.user.refreshToken);
+  }
+
+  @Patch('/auth/updateUser/:id')
+  updateUser(@Param('id') id: string, @Body() dto: any) {
+    return this.userService.updateUser(id, dto);
   }
 }

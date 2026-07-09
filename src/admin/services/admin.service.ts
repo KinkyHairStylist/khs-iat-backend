@@ -4,7 +4,6 @@ import {Repository} from 'typeorm';
 import {EmailService} from "../../email/email.service";
 import {User} from "../../all_user_entities/user.entity";
 import {Business, BusinessStatus} from "../../business/entities/business.entity";
-import {BusinessApplication} from "../../business/entities/businessApplication.entity";
 import {ApplicationStatus} from "../../business/types/constants";
 import {Appointment, AppointmentStatus} from "../../business/entities/appointment.entity";
 import {Dispute, DisputeStatus} from "../../business/entities/dispute.entity";
@@ -15,6 +14,7 @@ import {GetSubscriptionDto} from "../../business/dtos/response/GetSubscriptionDt
 import {Status, Subscription} from "../../business/entities/subscription.entity";
 import {PaymentService} from "../payment/payment.service";
 import {Payment} from "../payment/entities/payment.entity";
+import {GetUserDto} from "../dtos/GetUserDto";
 
 
 @Injectable()
@@ -22,7 +22,6 @@ export class AdminService {
     constructor(
         @InjectRepository(User) private userRepo: Repository<User>,
         @InjectRepository(Business) private businessRepo: Repository<Business>,
-        @InjectRepository(BusinessApplication) private businessApplicationRepo:Repository<BusinessApplication>,
         @InjectRepository(Appointment) private appointmentRepo: Repository<Appointment>,
         @InjectRepository(Dispute) private disputeRepo: Repository<Dispute>,
         @InjectRepository(MembershipPlan) private membershipPlanRepo: Repository<MembershipPlan>,
@@ -34,8 +33,120 @@ export class AdminService {
 
     }
 
-    async getAllUsers() {
-        return this.userRepo.find();
+    async getNearbySalons(body: { latitude: number; longitude: number }) {
+        const userLat = body.latitude;
+        const userLng = body.longitude;
+
+        const radius = 15;
+
+        const businesses = await this.businessRepo
+            .createQueryBuilder('business')
+            .addSelect(`
+        (6371 * acos(
+          cos(radians(:userLat)) *
+          cos(radians(business.latitude)) *
+          cos(radians(business.longitude) - radians(:userLng)) +
+          sin(radians(:userLat)) *
+          sin(radians(business.latitude))
+        ))`, 'distance'
+            )
+            .having('distance <= :radius', { radius })
+            .setParameters({ userLat, userLng })
+            .orderBy('distance', 'ASC')
+            .getRawMany();
+
+        return businesses;
+    }
+
+    private getUserLocation(user: User): string {
+        const locationParts = [user.city, user.state, user.country]
+            .map((value) => value?.trim())
+            .filter((value): value is string => Boolean(value));
+
+        if (locationParts.length > 0) {
+            return locationParts.join(', ');
+        }
+
+        const primaryBusinessAddress = user.businesses?.find(
+            (business) => Boolean(business?.businessAddress),
+        )?.businessAddress;
+
+        if (primaryBusinessAddress?.trim()) {
+            return primaryBusinessAddress.trim();
+        }
+
+        const primaryAddress = user.addresses?.find(
+            (address) => Boolean(address?.fullAddress),
+        )?.fullAddress;
+
+        if (primaryAddress?.trim()) {
+            return primaryAddress.trim();
+        }
+
+        if (user.latitude && user.longitude) {
+            return `${Number(user.latitude).toFixed(4)}, ${Number(user.longitude).toFixed(4)}`;
+        }
+
+        return 'N/A';
+    }
+
+    private formatLoginActivity(activityValue?: string): string {
+        if (!activityValue) {
+            return 'Never logged in';
+        }
+
+        if (activityValue === 'just now') {
+            return 'Never logged in';
+        }
+
+        const parsed = new Date(activityValue);
+        if (Number.isNaN(parsed.getTime())) {
+            return 'Never logged in';
+        }
+
+        const diffMs = Date.now() - parsed.getTime();
+        if (diffMs < 60_000) {
+            return 'Just now';
+        }
+
+        const minutes = Math.floor(diffMs / 60_000);
+        if (minutes < 60) {
+            return `${minutes}m ago`;
+        }
+
+        const hours = Math.floor(minutes / 60);
+        if (hours < 24) {
+            return `${hours}h ago`;
+        }
+
+        const days = Math.floor(hours / 24);
+        if (days < 30) {
+            return `${days}d ago`;
+        }
+
+        return parsed.toLocaleDateString();
+    }
+
+    async getAllUsers(): Promise<GetUserDto[]> {
+        const users = await this.userRepo.find({
+            relations: ['businesses'],
+            order: { createdAt: 'DESC' },
+        });
+
+        return users.map((user) => ({
+            id: user.id,
+            name: `${user.firstName ?? ''} ${user.surname ?? ''}`.trim() || user.email,
+            initials: `${user.firstName?.[0] ?? ''}${user.surname?.[0] ?? ''}`.toUpperCase(),
+            location: this.getUserLocation(user),
+            contactEmail: user.email,
+            contactPhone: user.phoneNumber ?? 'N/A',
+            status: user.isSuspended ? 'Suspended' : user.isVerified ? 'Active' : 'Pending',
+            isVerified: user.isVerified,
+            joinDate: user.createdAt?.toISOString() ?? new Date().toISOString(),
+            activity: this.formatLoginActivity(user.activity),
+            bookings: user.booking ?? 0,
+            spent: user.spent ?? 0,
+        }));
     }
 
     async createMembershipPlan(createMembershipPlanDto: CreateMembershipPlanDto) {
@@ -131,6 +242,7 @@ export class AdminService {
         }
         appointment.date = body.date;
         appointment.time = body.time;
+        appointment.status = AppointmentStatus.RESCHEDULED;
 
         await this.emailService.sendEmail(appointment.client.email,
             `Appointment with ${appointment.business.businessName} `,
@@ -147,27 +259,36 @@ export class AdminService {
         }
 
         const payment = await this.paymentRepo.findOne({ where: { appointmentId } });
-        if (!payment) {
-            throw new Error("payment not found")
-        }
 
-        const refundObject = {
-            transactionId: payment.gatewayTransactionId,
-            amount: payment.amount,
-            refundType: "Appointment Cancellation",
-            reason: reason,
-        }
+        if (payment) {
+            const refundObject = {
+                transactionId: payment.gatewayTransactionId,
+                amount: payment.amount,
+                refundType: "Appointment Cancellation",
+                reason: reason,
+            }
 
-        await this.paymentService.refund(refundObject);
+            await this.paymentService.refund(refundObject);
+        }
 
         appointment.status = AppointmentStatus.CANCELLED;
-        this.appointmentRepo.save(appointment);
+        appointment.cancellationsNote = reason;
+        await this.appointmentRepo.save(appointment);
         return "done!"
     }
 
 
     async getAllBusinesses(){
-        return this.businessRepo.find();
+        const businesses = await this.businessRepo
+            .createQueryBuilder('business')
+            .leftJoinAndSelect('business.staff', 'staff')
+            .getMany();
+
+        // Map to include staff count
+        return businesses.map(business => ({
+            ...business,
+            staff: business.staff ? business.staff.length : 0
+        }));
     }
 
     async resolveDispute(id:string,resolutionNote:string){
@@ -179,19 +300,6 @@ export class AdminService {
         dispute.resolutionNotes = resolutionNote;
         return this.disputeRepo.save(dispute);
 
-    }
-
-    async getAllBusinessApplications(){
-        return this.businessApplicationRepo.find();
-    }
-
-    async getPendingApplications() {
-        return this.businessApplicationRepo.find({
-            where: { applicationStatus: ApplicationStatus.PENDING },
-        });
-    }
-    async findApplicationById(id: string) {
-        return this.businessApplicationRepo.findOne({ where: { id } });
     }
 
     async rejectApplication(id: string) {
@@ -283,6 +391,20 @@ export class AdminService {
 
         await this.businessRepo.save(business);
 
+        return { message: `Business has been suspended.` };
+    }
+
+    async unsuspendBusiness(id: string) {
+        const business = await this.businessRepo.findOne({ where: {id}})
+        if (!business) {
+            throw new BadRequestException('Business not found');
+        }
+
+        business.status = BusinessStatus.APPROVED;
+
+        await this.businessRepo.save(business);
+
+        return { message: `Business has been unsuspended.` };
     }
 
     async unsuspend(id: string) {

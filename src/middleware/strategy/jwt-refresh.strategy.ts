@@ -9,12 +9,17 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 @Injectable()
-export class JwtRefreshStrategy extends PassportStrategy(Strategy, 'jwt-refresh') {
+export class JwtRefreshStrategy extends PassportStrategy(
+  Strategy,
+  'jwt-refresh',
+) {
   constructor(private readonly userService: UserService) {
     const secret = process.env.JWT_REFRESH_SECRET;
 
     if (!secret) {
-      throw new Error('JWT_REFRESH_SECRET is not set in environment variables.');
+      throw new Error(
+        'JWT_REFRESH_SECRET is not set in environment variables.',
+      );
     }
 
     super({

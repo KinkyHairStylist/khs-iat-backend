@@ -5,7 +5,7 @@ export class CreateWithdrawalDto {
   businessName: string;
 
   @IsString()
-  bankDetails: string;
+  paymentMethodId: string;
 
   @IsNumber()
   amount: number;
@@ -13,4 +13,3 @@ export class CreateWithdrawalDto {
   @IsNumber()
   currentBalance: number;
 }
-

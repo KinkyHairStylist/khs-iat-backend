@@ -6,7 +6,7 @@ import { NotFoundException } from '@nestjs/common';
 
 import { Referral } from '../user_entities/referrals.entity';
 import { User } from '../../all_user_entities/user.entity';
-import { Booking } from '../user_entities/booking.entity';
+import { Appointment, AppointmentStatus } from 'src/business/entities/appointment.entity';
 
 @Injectable()
 export class ReferralService {
@@ -17,8 +17,8 @@ export class ReferralService {
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
 
-    @InjectRepository(Booking)
-    private readonly bookingRepository: Repository<Booking>,
+    @InjectRepository(Appointment)
+    private readonly appointmentRepository: Repository<Appointment>,
   ) {}
 
   // Generate unique referral code
@@ -95,10 +95,10 @@ export class ReferralService {
 
     // Count successful bookings from referred users
     const successfulBookings = referredUserIds.length
-      ? await this.bookingRepository.count({
+      ? await this.appointmentRepository.count({
           where: {
-            user: In(referredUserIds),
-            status: 'confirmed',
+            client: In(referredUserIds),
+            status: AppointmentStatus.CONFIRMED,
           },
         })
       : 0;

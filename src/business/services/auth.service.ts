@@ -18,10 +18,13 @@ import { VerifyPasswordOtpDto } from '../dtos/requests/VerifyPasswordOtpDto';
 import { PasswordUtil } from '../utils/password.util';
 import { OtpService } from './otp.service';
 import { Gender } from '../types/constants';
-import { VerifyResetTokenDto } from '../dtos/requests/VerifyResetTokenDto';
 import { RequestPhoneOtpDto } from '../dtos/requests/RequestPhoneOtpDto';
 import { VerifyPhoneOtpDto } from '../dtos/requests/VerifyPhoneOtpDto';
-
+import {Staff} from "../entities/staff.entity";
+import { Business } from '../entities/business.entity';
+import { BusinessService } from './business.service';
+import { getTokens } from '../../helpers/token.helper';
+import { CompanySize } from '../types/constants';
 
 export interface TokenPair {
   accessToken: string;
@@ -33,18 +36,23 @@ export class AuthService {
   constructor(
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
+    @InjectRepository(Staff)
+    private staffRepo: Repository<Staff>,
 
     @InjectRepository(RefreshToken)
     private readonly refreshTokenRepo: Repository<RefreshToken>,
 
+    @InjectRepository(Business)
+    private readonly businessRepo: Repository<Business>,
+
     private readonly jwtService: JwtService,
     private readonly passwordUtil: PasswordUtil,
     private readonly otpService: OtpService,
-
+    private readonly businessService: BusinessService,
   ) {}
 
   async register(createUserDto: CreateUserDto): Promise<TokenPair> {
-    const { email, password, phone, verificationToken } = createUserDto;
+    const { email, password, phoneNumber, verificationToken } = createUserDto;
 
     let verifiedEmail: string;
     let payload: { sub: string; email: string };
@@ -59,30 +67,29 @@ export class AuthService {
         );
       }
       verifiedEmail = payload.email;
-
     } catch (e) {
       throw new UnauthorizedException(
         `Invalid or expired verification token. ${e}`,
       );
     }
 
-    if (createUserDto.gender) {
-      const genderValue = createUserDto.gender.toUpperCase();
+    const processedDto = { ...createUserDto };
+    if (processedDto.gender) {
+      const genderValue = processedDto.gender.toUpperCase();
       if (!(genderValue in Gender)) {
         throw new BadRequestException(
-          `Invalid gender value: ${createUserDto.gender}`,
+          `Invalid gender value: ${processedDto.gender}`,
         );
       }
-      createUserDto.gender = Gender[genderValue as keyof typeof Gender];
+      processedDto.gender = Gender[genderValue as keyof typeof Gender] as any;
     }
 
-    await this.checkExistingUser(verifiedEmail, phone);
+    await this.checkExistingUser(verifiedEmail, phoneNumber);
     this.passwordUtil.validatePasswordStrength(password);
 
-    const user = await this.createUser(createUserDto);
+    const user = await this.createUser(processedDto);
 
-    // const user = await this.userRepo.save(newUser);
-    return this.getTokens(user.id, user.email);
+    return getTokens(this.jwtService, user.id, user.email);
   }
 
   async refreshTokens(
@@ -123,18 +130,24 @@ export class AuthService {
     }
 
     await this.refreshTokenRepo.delete(storedToken.id);
-    return this.getTokens(user.id, user.email);
+
+    return getTokens(this.jwtService, user.id, user.email);
   }
 
   async login(
     loginDto: LoginDto,
-  ): Promise<{ accessToken: string; refreshToken: string }> {
+  ): Promise<{ accessToken: string; refreshToken: string; message?: string; role?: any; settings?: any }> {
     const { email, password } = loginDto;
 
     const user = await this.userRepo.findOne({
       where: { email: email.toLowerCase() },
-      select: ['id', 'email', 'password', 'isVerified'],
     });
+
+    console.log('User found in login:', user);
+
+    if (!user) {
+      throw new UnauthorizedException('No user');
+    }
 
     if (!user || !user.password) {
       throw new UnauthorizedException('Invalid credentials.');
@@ -146,8 +159,25 @@ export class AuthService {
       );
     }
 
-    if(user.isSuspended){
-      throw new UnauthorizedException("user has been suspended")
+    if (user.isSuspended) {
+      throw new UnauthorizedException('user has been suspended');
+    }
+
+    let message: string | undefined;
+
+    // Check isBusiness field directly on user (merged from UserRole)
+    if (!user.isBusiness) {
+      message = 'This is not a business account. Kindly create a new business account.';
+      throw new UnauthorizedException(message);
+    }
+
+    const userBusiness = await this.businessRepo.findOne({
+      where: { ownerId: user.id },
+    });
+
+    if (!userBusiness) {
+      message = 'User does not own a business yet. Please create a business.';
+      throw new UnauthorizedException(message);
     }
 
     const passwordMatch = await this.passwordUtil.comparePassword(
@@ -158,28 +188,57 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials.');
     }
 
-
-    return this.getTokens(user.id, user.email);
+    const tokens = await getTokens(this.jwtService, user.id, user.email);
+    
+    // Return role information for frontend - create role object from user fields
+    const role = {
+      isSuperAdmin: user.isSuperAdmin,
+      isAdmin: user.isAdmin,
+      isBusiness: user.isBusiness,
+      isClient: user.isClient,
+      isStaff: user.isStaff,
+      isManager: user.isManager,
+      isBusinessAdmin: user.isBusinessAdmin,
+    };
+    
+    return { 
+      ...tokens, 
+      message,
+      role
+    };
   }
 
   private async createUser(createUserDto: CreateUserDto): Promise<User> {
-    const { password, ...rest } = createUserDto;
+    const { password, verificationToken, ...rest } = createUserDto;
     const hashedPassword = await this.passwordUtil.hashPassword(password);
 
-    // @ts-ignore
-    const newUser = this.userRepo.create({
-      ...rest,
-      password: hashedPassword,
-      isVerified: true,
-      suspensionHistory: ".",
-      isSuspended: false
-    });
+    try {
 
-    // @ts-ignore
-    return this.userRepo.save(newUser);
+      const newUser = this.userRepo.create({
+        ...(rest as Partial<User>),
+        password: hashedPassword,
+        isVerified: true,
+        suspensionHistory: '.',
+        isSuspended: false,
+        // Set role fields directly on user (merged from UserRole entity)
+        isBusiness: true,
+        isClient: false, // Business users are not regular clients
+      });
+
+      const savedUser = await this.userRepo.save(newUser);
+
+      return savedUser;
+      
+    } catch (error) {
+      console.error('Error creating user:', error);
+      throw new BadRequestException('Failed to create user. Please try again.');
+    }
   }
 
-  private async checkExistingUser(email: string, phoneNumber: string): Promise<void> {
+  private async checkExistingUser(
+    email: string,
+    phoneNumber: string,
+  ): Promise<void> {
     const existingUser = await this.userRepo.findOne({
       where: [{ email }, { phoneNumber }],
     });
@@ -200,34 +259,6 @@ export class AuthService {
     await this.userRepo.update(userId, { isVerified: true });
   }
 
-  async getTokens(
-    userId: string,
-    email: string,
-  ): Promise<{ accessToken: string; refreshToken: string }> {
-    const payload = { sub: userId, email };
-
-    const [accessToken, refreshToken] = await Promise.all([
-      this.jwtService.signAsync(payload, {
-        secret: process.env.JWT_ACCESS_SECRET,
-        expiresIn: '15m',
-      }),
-      this.jwtService.signAsync(payload, {
-        secret: process.env.JWT_ACCESS_SECRET,
-        expiresIn: '7d',
-      }),
-    ]);
-
-    const tokenHash = await this.passwordUtil.hashPassword(refreshToken);
-    await this.refreshTokenRepo.delete({ user: { id: userId } });
-
-    const newRefreshToken = this.refreshTokenRepo.create({
-      user: { id: userId },
-      tokenHash,
-    });
-    await this.refreshTokenRepo.save(newRefreshToken);
-
-    return { accessToken, refreshToken };
-  }
 
   async requestPasswordReset(
     forgotPasswordDto: ForgotPasswordDto,
@@ -325,7 +356,6 @@ export class AuthService {
     };
   }
 
-
   async requestPhoneOtp(requestPhoneOtpDto: RequestPhoneOtpDto) {
     const { phone } = requestPhoneOtpDto;
 
@@ -341,7 +371,10 @@ export class AuthService {
   async verifyPhoneNumber(verifyPhoneOtpDto: VerifyPhoneOtpDto) {
     const { phoneNumber, otp } = verifyPhoneOtpDto;
 
-    const isValid = await this.otpService.verifyPhoneOtpService(phoneNumber, otp);
+    const isValid = await this.otpService.verifyPhoneOtpService(
+      phoneNumber,
+      otp,
+    );
     if (!isValid) {
       throw new BadRequestException('Invalid or expired OTP.');
     }
@@ -359,8 +392,7 @@ export class AuthService {
     };
   }
 
-
-async findOneById(id: string): Promise<User | null> {
+  async findOneById(id: string): Promise<User | null> {
     return this.userRepo.findOne({ where: { id } });
   }
 
@@ -370,4 +402,5 @@ async findOneById(id: string): Promise<User | null> {
       select: ['id', 'email', 'password', 'isVerified', 'phoneNumber'],
     });
   }
+
 }

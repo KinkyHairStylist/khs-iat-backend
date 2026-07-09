@@ -1,10 +1,23 @@
-import { Controller, Post, Body, Get, Param, Patch } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, Patch, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+
+import { Role } from 'src/middleware/role.enum';
+import { RolesGuard } from 'src/middleware/roles.guard';
+import { Roles } from 'src/middleware/roles.decorator';
 import { BookingService } from '../services/booking.service';
 import { CreateBookingDto } from '../dtos/create-booking.dto';
+import { ConfirmBookingDto } from '../dtos/confirm-booking.dto';
+import { RateBusinessDto } from '../dtos/rate-business.dto';
+import { CancelBookingDto } from '../dtos/cancel-booking.dto';
+import { GetUser } from 'src/middleware/get-user.decorator';
+import { User } from 'src/all_user_entities/user.entity';
+import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
 
 @ApiTags('Bookings')
 @ApiBearerAuth('access-token')
+//  @UseGuards(JwtAuthGuard, RolesGuard)
+ @UseGuards(JwtAuthGuard)
+// @Roles(Role.Client)
 @Controller('/bookings')
 export class BookingController {
   constructor(private bookingService: BookingService) {}
@@ -14,26 +27,51 @@ export class BookingController {
   @ApiOperation({ summary: 'Create a new booking' })
   @ApiResponse({ status: 201, description: 'The booking has been successfully created.' })
   @ApiBody({ type: CreateBookingDto })
-  async createBooking(@Body() createBookingDto: CreateBookingDto) {
-    return this.bookingService.createBooking(createBookingDto);
+  async createBooking(@Body() createBookingDto: CreateBookingDto, @GetUser() user: User) {
+    return this.bookingService.createBooking(createBookingDto, user);
   }
 
   // Confirm a booking
   @Post('confirm')
-  @ApiOperation({ summary: 'Confirm a booking' })
+  @ApiOperation({ summary: 'Confirm a booking with payment options' })
+  @ApiBody({ type: ConfirmBookingDto })
+  async confirmBooking(@Body() confirmBookingDto: ConfirmBookingDto, @GetUser() user: User) {
+    return this.bookingService.confirmBooking(confirmBookingDto, user);
+  }
+
+  // Complete booking payment (after Paystack callback)
+  @Post('complete')
+  @ApiOperation({ summary: 'Complete booking payment after Paystack callback' })
   @ApiBody({
     schema: {
       type: 'object',
       properties: {
-        orderId: { type: 'string', example: '12345' },
+        reference: { type: 'string', example: 'BKG-1739812345678-123456' },
       },
     },
   })
-  async confirmBooking(@Body('orderId') orderId: string) {
-    return this.bookingService.confirmBooking(orderId);
+  @ApiResponse({ status: 200, description: 'Booking completed successfully' })
+  async completeBooking(@Body('reference') reference: string) {
+    return this.bookingService.completeBooking(reference);
   }
 
-  // Get user bookings
+  // Get bookings for the authenticated user
+  @Get('me')
+  @ApiOperation({ summary: 'Get all bookings for the authenticated user' })
+  @ApiResponse({ status: 200, description: 'Bookings retrieved successfully' })
+  async getMyBookings(@GetUser() user: User) {
+    return this.bookingService.getUserBookings(user.id);
+  }
+
+  // Get booking fees
+  @Get('fees')
+  @ApiOperation({ summary: 'Get platform booking fees' })
+  @ApiResponse({ status: 200, description: 'Booking fees retrieved successfully' })
+  async getBookingFees() {
+    return this.bookingService.getBookingFees();
+  }
+
+  // Get user bookings (admin use - secured by roles)
   @Get('user/:userId')
   @ApiOperation({ summary: 'Get all bookings for a user' })
   async getUserBookings(@Param('userId') userId: string) {
@@ -41,21 +79,45 @@ export class BookingController {
   }
 
   // Get single booking details
-  @Get(':id')
+  @Get(':orderId')
   @ApiOperation({ summary: 'Get single booking details by ID' })
-  async getBookingById(@Param('id') id: number) {
-    return this.bookingService.getBookingById(id);
+  async getBookingById(@Param('orderId') orderId: string) {
+    return this.bookingService.getBookingById(orderId);
   }
 
   // Cancel booking
-  @Patch(':id/cancel')
-  @ApiOperation({ summary: 'Cancel a booking' })
-  async cancelBooking(@Param('id') id: number) {
-    return this.bookingService.cancelBooking(id);
+  @Patch(':orderId/cancel')
+  @ApiOperation({ summary: 'Cancel a booking or specific services within a booking' })
+  @ApiBody({ type: CancelBookingDto })
+  @ApiResponse({ status: 200, description: 'Booking cancelled successfully' })
+  async cancelBooking(@Param('orderId') orderId: string, @Body() cancelBookingDto: CancelBookingDto) {
+    return this.bookingService.cancelBooking(
+      orderId,
+      cancelBookingDto.cancellationsNote,
+      cancelBookingDto.acceptedTerms,
+      cancelBookingDto.serviceIds,
+    );
+  }
+
+  // Restore cancelled booking
+  @Patch(':orderId/restore')
+  @ApiOperation({ summary: 'Restore a cancelled booking' })
+  @ApiResponse({ status: 200, description: 'Booking restored successfully' })
+  async restoreBooking(@Param('orderId') orderId: string) {
+    return this.bookingService.restoreBooking(orderId);
+  }
+
+  // Rate booking business
+  @Post(':orderId/rate')
+  @ApiOperation({ summary: 'Rate a business for a specific booking' })
+  @ApiBody({ type: RateBusinessDto })
+  @ApiResponse({ status: 201, description: 'Business rated successfully' })
+  async rateBusiness(@Param('orderId') orderId: string, @Body() rateBusinessDto: RateBusinessDto, @GetUser() user: User) {
+    return this.bookingService.rateBusiness(orderId, rateBusinessDto.rating, rateBusinessDto.comment, user);
   }
 
   //  Reschedule booking
-  @Patch(':id/reschedule')
+  @Patch(':orderId/reschedule')
   @ApiOperation({ summary: 'Reschedule a booking' })
   @ApiBody({
     schema: {
@@ -67,11 +129,11 @@ export class BookingController {
     },
   })
   async rescheduleBooking(
-    @Param('id') id: number,
+    @Param('orderId') orderId: string,
     @Body('newDate') newDate: string,
     @Body('newTime') newTime: string,
   ) {
-    return this.bookingService.rescheduleBooking(id, new Date(newDate), newTime);
+    return this.bookingService.rescheduleBooking(orderId, new Date(newDate), newTime);
   }
 
   // (Existing) Get salon time slots (static example)

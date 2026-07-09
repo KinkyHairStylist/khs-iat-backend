@@ -1,21 +1,44 @@
-import { Controller, Get, Param, Patch, Delete, Body, Post } from '@nestjs/common';
+import { Controller, Get, Param, Patch, Delete, Body, UseGuards, Post } from '@nestjs/common';
 import { ModerationService } from './moderation.service';
 import { ModerationSettings } from './entities/moderation-settings.entity';
+import {
+  ApiBearerAuth,
+  ApiTags,
+} from '@nestjs/swagger';
 
-@Controller('moderation')
+import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
+import { Roles } from 'src/middleware/roles.decorator';
+import { Role } from 'src/middleware/role.enum';
+import { RolesGuard } from 'src/middleware/roles.guard';
+
+@ApiTags('Admin Moderation')
+@ApiBearerAuth('access-token')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.Admin, Role.SuperAdmin)
+@Controller('admin/moderation')
 export class ModerationController {
   constructor(private readonly moderationService: ModerationService) {}
 
   // 1️⃣ Get all flagged content
+  @Get('stats')
+  async getReportStats() {
+    const stats = await this.moderationService.getReportStats();
+
+    return {
+      message: 'Report statistics retrieved successfully',
+      data: stats,
+    };
+  }
+
   @Get('flagged')
   getFlaggedContent() {
     return this.moderationService.getFlaggedContent();
   }
 
   @Post('report')
-async createReport(@Body() body: any) {
-  return this.moderationService.createReport(body);
-}
+  async createReport(@Body() body: any) {
+    return this.moderationService.createReport(body);
+  }
 
 
   // 2️⃣ Get all user reviews

@@ -138,7 +138,7 @@ export class OtpService {
       { email },
       {
         secret: process.env.JWT_ACCESS_SECRET,
-        expiresIn: '5m',
+        expiresIn: '20m',
       },
     );
 

@@ -1,5 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsUUID, IsNotEmpty } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsUUID, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class SubscribeMembershipDto {
   @ApiProperty({
@@ -9,4 +9,20 @@ export class SubscribeMembershipDto {
   @IsUUID()
   @IsNotEmpty()
   tierId: string;
+
+  @ApiPropertyOptional({
+    description: 'User card ID used to make the payment',
+    example: 'b5a4b2a0-1a9c-4c2f-b3a4-73a1b5ad5f87',
+  })
+  @IsUUID()
+  @IsOptional()
+  cardId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Gift card code to redeem for payment',
+    example: '8G3X92DKQ1',
+  })
+  @IsString()
+  @IsOptional()
+  giftCard?: string;
 }

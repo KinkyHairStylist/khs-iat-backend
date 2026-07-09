@@ -11,15 +11,7 @@ export class CreateBookingDto {
   salonId: string;
 
   @ApiProperty({
-    example: 'bbf9f0a9-b83e-418b-8f8c-bb06f547b1f9',
-    description: 'The ID of the user',
-  })
-  @IsUUID()
-  @IsNotEmpty()
-  userId: string;
-
-  @ApiProperty({
-    example: [1, 2, 3],
+    example: ["bbf9f0a9-b83e-418b-8f8c-bb06f547b1f9", "bbf9f0a9-b83e-418b-8f8c-bb06f547b1f9", "bbf9f0a9-b83e-418b-8f8c-bb06f547b1f9"],
     description: 'An array of service IDs',
   })
   @IsArray()
@@ -32,7 +24,7 @@ export class CreateBookingDto {
   })
   @IsDateString()
   @IsNotEmpty()
-  date: Date;
+  date: string;
 
   @ApiProperty({
     example: '10:00 AM',

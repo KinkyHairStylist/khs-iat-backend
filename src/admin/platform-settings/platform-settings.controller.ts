@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Patch } from '@nestjs/common';
+import { Body, Controller, Get, Patch, UseGuards } from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiTags,
+} from '@nestjs/swagger';
+
+import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
+import { Roles } from 'src/middleware/roles.decorator';
+import { Role } from 'src/middleware/role.enum';
+import { RolesGuard } from 'src/middleware/roles.guard';
 import { PlatformSettingsService } from './platform-settings.service';
 import {
   UpdateGeneralSettingsDto,
@@ -8,7 +17,11 @@ import {
   UpdateIntegrationsSettingsDto,
 } from './DTOs/platform-settings.dto';
 
-@Controller('platform-settings')
+@ApiTags('Admin Withdrawals')
+@ApiBearerAuth('access-token')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.Admin, Role.SuperAdmin)
+@Controller('admin/platform-settings')
 export class PlatformSettingsController {
   constructor(private readonly service: PlatformSettingsService) {}
 

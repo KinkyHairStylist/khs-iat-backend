@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, BeforeInsert } from 'typeorm';
 
 @Entity()
 export class ModerationSettings {
@@ -8,16 +8,15 @@ export class ModerationSettings {
   @Column('simple-array')
   bannedWords: string[];
 
-  @Column({ default:true })
+  @Column({ default: true })
   Reviews: boolean;
 
-  @Column({ default:true })
+  @Column({ default: true })
   UserProfile: boolean;
 
- @Column({ type: 'boolean', default: false })
-  businessProfile:  boolean;
+  @Column({ type: 'boolean', default: false })
+  businessProfile: boolean;
 
-@Column({ type: 'boolean', default: false })
-images: boolean;
-
+  @Column({ type: 'boolean', default: false })
+  images: boolean;
 }

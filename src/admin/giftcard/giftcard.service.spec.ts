@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { GiftcardService } from './giftcard.service';
+import { GiftcardService } from './admin_giftcard.service';
 
 describe('GiftcardService', () => {
   let service: GiftcardService;

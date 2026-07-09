@@ -1,5 +1,14 @@
-import { IsEmail, IsString, IsNotEmpty, Matches, IsOptional } from 'class-validator';
+import {
+  IsEmail,
+  IsString,
+  IsNotEmpty,
+  Matches,
+  IsOptional,
+  IsEnum,
+  IsNumber
+} from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
+import { Role } from '../../middleware/role.enum';
 
 /**
  * @description DTO for initiating signup or verification process.
@@ -118,11 +127,30 @@ export class SignUpDto {
   @IsString()
   @IsOptional()
   referralCode?: string;
+
+  // 📍 Location fields
+  @ApiProperty({
+    example: 6.5244,
+    description: 'User latitude (optional)',
+    required: false,
+  })
+  @IsNumber()
+  @IsOptional()
+  latitude?: number;
+
+  @ApiProperty({
+    example: 3.3792,
+    description: 'User longitude (optional)',
+    required: false,
+  })
+  @IsNumber()
+  @IsOptional()
+  longitude?: number;
 }
 /**
  * @description DTO for user login.
  */
-export class LoginDto {
+export class CustomerLoginDto {
   @ApiProperty({
     example: 'jane.doe@example.com',
     description: 'The email address of the user',
@@ -192,10 +220,13 @@ export class ResetPasswordFinishDto {
   })
   @IsString()
   @IsNotEmpty()
-  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/, {
-    message:
-      'Password must contain at least one lowercase letter, one uppercase letter, one numeric digit, and one special character, and must be at least 8 characters long.',
-  })
+  @Matches(
+    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/,
+    {
+      message:
+        'Password must contain at least one lowercase letter, one uppercase letter, one numeric digit, and one special character, and must be at least 8 characters long.',
+    },
+  )
   newPassword: string;
 
   @ApiProperty({
