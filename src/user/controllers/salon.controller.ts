@@ -35,6 +35,7 @@ export class SalonController {
     example: 'Sydney',
   })
   @ApiQuery({ name: 'minRating', required: false, type: Number, example: 4.5 })
+  @ApiQuery({ name: 'isLuxury', required: false, type: Boolean, example: true })
   @ApiQuery({
     name: 'services',
     required: false,
@@ -59,6 +60,7 @@ export class SalonController {
       search: query.search || '',
       location: query.location || '',
       minRating: parseFloat(query.minRating) || 0,
+      isLuxury: query.isLuxury === 'true',
       services: Array.isArray(query.services)
         ? query.services
         : query.services
@@ -91,17 +93,15 @@ export class SalonController {
   async getServicesByBusinessId(@Param('businessId') businessId: string) {
     return this.salonService.getServicesByBusinessId(businessId);
   }
-  
+
   @Public()
   @Get(':id')
-  @ApiOperation({ summary: 'Get business by ID with services & available times' })
+  @ApiOperation({
+    summary: 'Get business by ID with services & available times',
+  })
   @ApiResponse({ status: 200, description: 'Return business details' })
   @ApiResponse({ status: 404, description: 'Business not found' })
-  async getBusiness(
-    @Param('id') id: string
-  ) {
+  async getBusiness(@Param('id') id: string) {
     return this.salonService.getBusinessById(id);
   }
-
-
 }
