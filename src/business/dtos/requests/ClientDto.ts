@@ -9,6 +9,7 @@ import {
   MinLength,
   IsNumber,
   Min,
+  IsIn,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ClientSource, Pronouns, ClientType } from 'src/business/entities/client.entity';
@@ -312,6 +313,7 @@ export class ClientFiltersDto {
   clientType?: ClientType;
 
   @IsOptional()
+  @IsIn(['createdAt', 'firstName', 'lastName', 'email', 'phone', 'updatedAt'])
   sortBy?: string;
 
   @IsOptional()
