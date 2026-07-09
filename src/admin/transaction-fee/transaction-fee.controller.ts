@@ -16,7 +16,7 @@ import { User } from 'src/all_user_entities/user.entity';
 @ApiTags('Admin All Transactions')
 @ApiBearerAuth('access-token')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.Admin, Role.SuperAdmin)
+@Roles(Role.Staff)
 @Controller('admin/transaction-fee')
 export class TransactionFeeController {
   constructor(private readonly feeService: TransactionFeeService) {}

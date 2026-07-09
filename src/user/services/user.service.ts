@@ -271,7 +271,7 @@ export class UserService {
     // Generate referral code for the new user
     user.referralCode = await this.referralService.ensureReferralCode(user.id);
 
-    // isClient defaults to true, so no need to set it explicitly
+    // isCustomer defaults to true, so no need to set it explicitly
 
     await this.userRepository.save(user);
 
@@ -510,8 +510,7 @@ export class UserService {
         message: 'User updated successfully',
       };
     } catch (error) {
-      console.log('Update user error:', error);
-      return {
+            return {
         success: false,
         message: 'Failed to update user',
         error: error.message,

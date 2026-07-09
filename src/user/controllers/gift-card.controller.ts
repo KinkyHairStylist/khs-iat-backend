@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, UseGuards, Query } from '@nestjs/common';
+﻿import { Controller, Post, Body, Get, UseGuards, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 
 import { RolesGuard } from 'src/middleware/roles.guard';
@@ -13,7 +13,7 @@ import { Role } from 'src/middleware/role.enum';
 @ApiTags('Customer Card and Gift Cards')
 @ApiBearerAuth('access-token')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.Client)
+@Roles(Role.Customer)
 @Controller('users/gift-cards')
 export class GiftCardController {
   constructor(private readonly giftCardService: GiftCardService) {}

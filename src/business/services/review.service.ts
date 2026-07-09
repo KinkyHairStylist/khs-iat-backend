@@ -97,7 +97,6 @@ export class ReviewService {
         message: 'Client reviews retrieved successfully',
       };
     } catch (error) {
-      console.log('Get clients review error:', error);
       return {
         success: false,
         error: error.message,
@@ -167,7 +166,6 @@ export class ReviewService {
         message: 'Client review details retrieved successfully',
       };
     } catch (error) {
-      console.log('Get client review details error:', error);
       return {
         success: false,
         error: error.message,
@@ -247,7 +245,6 @@ export class ReviewService {
         message: 'Client review updated with response successfully',
       };
     } catch (error) {
-      console.log('submit review response error:', error);
       return {
         success: false,
         error: error.message,
@@ -267,7 +264,6 @@ export class ReviewService {
         message: 'Client review created successfully',
       };
     } catch (error) {
-      console.log('Create client review error:', error);
       return {
         success: false,
         error: error.message,
@@ -336,7 +332,5 @@ Kinky Hair Stylist Team`;
     };
 
     const [response] = await sgMail.send(msg);
-    // console.log('SendGrid Response Status:', response.statusCode);
-    // console.log('SendGrid Headers:', response.headers);
   }
 }

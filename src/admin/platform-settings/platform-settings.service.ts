@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PlatformSettingsEntity } from './entities/platform-settings.entity';
@@ -9,9 +9,17 @@ import {
   UpdateFeaturesSettingsDto,
   UpdateIntegrationsSettingsDto,
 } from './DTOs/platform-settings.dto';
+import {
+  encrypt,
+  decrypt,
+  maskSecret,
+  looksMasked,
+} from './utils/settings-encryption.util';
 
 @Injectable()
 export class PlatformSettingsService {
+  private readonly logger = new Logger(PlatformSettingsService.name);
+
   constructor(
     @InjectRepository(PlatformSettingsEntity)
     private readonly repo: Repository<PlatformSettingsEntity>,
@@ -25,7 +33,7 @@ export class PlatformSettingsService {
       platformUrl: 'https://kinkyhairstylist.com',
       platformDescription: 'Hair styling platform',
       supportEmail: 'support@kinkyhairstylist.com',
-      contactPhone: '',
+      contactPhone: '08099823810',
       userRegistration: true,
       businessRegistration: true,
       maintenanceMode: false,
@@ -78,14 +86,41 @@ export class PlatformSettingsService {
     return settings;
   }
 
-  /** Fetch settings or create default if none found */
+  /** Fetch settings or create default if none found. Backfills any JSONB
+   * column that was persisted as an empty {} before the full default structure
+   * was established — prevents TypeError when accessing nested fields. */
   private async getSettings() {
     let settings = await this.repo.findOne({ where: {} });
     if (!settings) {
-      // Create default settings if none exist
       settings = this.getDefaultSettings();
-      settings = await this.repo.save(settings);
+      return this.repo.save(settings);
     }
+
+    const defaults = this.getDefaultSettings();
+    let dirty = false;
+
+    if (!settings.general?.platformName) {
+      settings.general = { ...defaults.general, ...settings.general };
+      dirty = true;
+    }
+    if (!settings.notifications?.email) {
+      settings.notifications = defaults.notifications;
+      dirty = true;
+    }
+    if (!settings.payments?.methods) {
+      settings.payments = { ...defaults.payments, ...settings.payments };
+      dirty = true;
+    }
+    if (!settings.features?.user) {
+      settings.features = defaults.features;
+      dirty = true;
+    }
+    if (!settings.integrations?.paymentGateways) {
+      settings.integrations = defaults.integrations;
+      dirty = true;
+    }
+
+    if (dirty) settings = await this.repo.save(settings);
     return settings;
   }
 
@@ -148,42 +183,138 @@ export class PlatformSettingsService {
   }
 
   /** ---------------- INTEGRATIONS ---------------- */
+
+  /**
+   * Decrypts a stored integration key for internal server use.
+   * Returns '' for an empty stored value.
+   *
+   * During the rollout window, existing rows may still hold plaintext keys
+   * saved before this fix shipped (DEV-024 only encrypts going forward — it
+   * doesn't retroactively migrate old rows). If decrypt() fails because the
+   * stored value isn't actually ciphertext, we fall back to treating it as
+   * legacy plaintext so the platform doesn't break, but we log a warning so
+   * it's visible which rows still need re-saving through the admin UI to
+   * get encrypted.
+   */
+  private decryptStoredKey(stored: string, fieldName: string): string {
+    if (!stored) return '';
+    try {
+      return decrypt(stored);
+    } catch {
+      this.logger.warn(
+        `Integration key "${fieldName}" is not in encrypted form (likely saved ` +
+          `before DEV-024 shipped). Treating as legacy plaintext — re-save it ` +
+          `through the admin UI to encrypt it.`,
+      );
+      return stored;
+    }
+  }
+
+  /**
+   * Decides what to store for one integration key field given the incoming
+   * DTO value and the existing stored (encrypted) value:
+   *   - undefined / empty string -> field wasn't meaningfully changed, keep
+   *     the existing stored value untouched.
+   *   - looks like our own mask (e.g. "••••••••1234") -> the admin UI echoed
+   *     back the masked placeholder unchanged, not a real new key, keep as-is.
+   *   - anything else -> a real new secret was typed, encrypt and store it.
+   */
+  private resolveKeyForStorage(
+    incoming: string | undefined,
+    existingStored: string,
+  ): string {
+    if (!incoming) return existingStored;
+    if (looksMasked(incoming)) return existingStored;
+    return encrypt(incoming);
+  }
+
   async getIntegrations() {
     const s = await this.getSettings();
-    return s.integrations;
+    const def = this.getDefaultSettings().integrations;
+
+    // Use optional chaining + defaults so partial/legacy DB rows never throw
+    const pg = s.integrations?.paymentGateways ?? def.paymentGateways;
+    const comm = s.integrations?.communication ?? def.communication;
+    const stripe = pg.stripe ?? def.paymentGateways.stripe;
+    const paypal = pg.paypal ?? def.paymentGateways.paypal;
+    const twilio = comm.twilio ?? def.communication.twilio;
+    const sendgrid = comm.sendgrid ?? def.communication.sendgrid;
+
+    return {
+      paymentGateways: {
+        stripe: {
+          ...stripe,
+          key: maskSecret(this.decryptStoredKey(stripe.key ?? '', 'stripe')),
+        },
+        paypal: {
+          ...paypal,
+          key: maskSecret(this.decryptStoredKey(paypal.key ?? '', 'paypal')),
+        },
+      },
+      communication: {
+        twilio: {
+          ...twilio,
+          key: maskSecret(this.decryptStoredKey(twilio.key ?? '', 'twilio')),
+        },
+        sendgrid: {
+          ...sendgrid,
+          key: maskSecret(this.decryptStoredKey(sendgrid.key ?? '', 'sendgrid')),
+        },
+      },
+    };
   }
 
   async updateIntegrations(dto: UpdateIntegrationsSettingsDto) {
-  const s = await this.getSettings();
+    const s = await this.getSettings();
+    const def = this.getDefaultSettings().integrations;
 
-  s.integrations = {
-    paymentGateways: {
-      stripe: {
-        enabled: dto.paymentGateways?.stripe?.enabled ?? s.integrations.paymentGateways.stripe.enabled,
-        key: dto.paymentGateways?.stripe?.key ?? s.integrations.paymentGateways.stripe.key,
-        description: dto.paymentGateways?.stripe?.description ?? s.integrations.paymentGateways.stripe.description,
-      },
-      paypal: {
-        enabled: dto.paymentGateways?.paypal?.enabled ?? s.integrations.paymentGateways.paypal.enabled,
-        key: dto.paymentGateways?.paypal?.key ?? s.integrations.paymentGateways.paypal.key,
-        description: dto.paymentGateways?.paypal?.description ?? s.integrations.paymentGateways.paypal.description,
-      },
-    },
-    communication: {
-      twilio: {
-        enabled: dto.communication?.twilio?.enabled ?? s.integrations.communication.twilio.enabled,
-        key: dto.communication?.twilio?.key ?? s.integrations.communication.twilio.key,
-        description: dto.communication?.twilio?.description ?? s.integrations.communication.twilio.description,
-      },
-      sendgrid: {
-        enabled: dto.communication?.sendgrid?.enabled ?? s.integrations.communication.sendgrid.enabled,
-        key: dto.communication?.sendgrid?.key ?? s.integrations.communication.sendgrid.key,
-        description: dto.communication?.sendgrid?.description ?? s.integrations.communication.sendgrid.description,
-      },
-    },
-  };
+    // Resolve existing stored values with defaults to guard against partial rows
+    const pg = s.integrations?.paymentGateways ?? def.paymentGateways;
+    const comm = s.integrations?.communication ?? def.communication;
+    const existingStripe = pg.stripe ?? def.paymentGateways.stripe;
+    const existingPaypal = pg.paypal ?? def.paymentGateways.paypal;
+    const existingTwilio = comm.twilio ?? def.communication.twilio;
+    const existingSendgrid = comm.sendgrid ?? def.communication.sendgrid;
 
-  return this.repo.save(s);
-}
+    s.integrations = {
+      paymentGateways: {
+        stripe: {
+          enabled: dto.paymentGateways?.stripe?.enabled ?? existingStripe.enabled,
+          key: this.resolveKeyForStorage(
+            dto.paymentGateways?.stripe?.key,
+            existingStripe.key ?? '',
+          ),
+          description: dto.paymentGateways?.stripe?.description ?? existingStripe.description,
+        },
+        paypal: {
+          enabled: dto.paymentGateways?.paypal?.enabled ?? existingPaypal.enabled,
+          key: this.resolveKeyForStorage(
+            dto.paymentGateways?.paypal?.key,
+            existingPaypal.key ?? '',
+          ),
+          description: dto.paymentGateways?.paypal?.description ?? existingPaypal.description,
+        },
+      },
+      communication: {
+        twilio: {
+          enabled: dto.communication?.twilio?.enabled ?? existingTwilio.enabled,
+          key: this.resolveKeyForStorage(
+            dto.communication?.twilio?.key,
+            existingTwilio.key ?? '',
+          ),
+          description: dto.communication?.twilio?.description ?? existingTwilio.description,
+        },
+        sendgrid: {
+          enabled: dto.communication?.sendgrid?.enabled ?? existingSendgrid.enabled,
+          key: this.resolveKeyForStorage(
+            dto.communication?.sendgrid?.key,
+            existingSendgrid.key ?? '',
+          ),
+          description: dto.communication?.sendgrid?.description ?? existingSendgrid.description,
+        },
+      },
+    };
 
+    return this.repo.save(s);
+  }
 }

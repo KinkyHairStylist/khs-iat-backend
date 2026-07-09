@@ -58,8 +58,7 @@ export class CustomMessageService {
         message: 'Message sent successfully',
       };
     } catch (error) {
-      console.log('ERROR MSG', error);
-      return {
+            return {
         success: false,
         error: error.message,
         message: 'Failed to send reminder',

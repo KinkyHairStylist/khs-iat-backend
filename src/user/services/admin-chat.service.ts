@@ -91,12 +91,8 @@ export class AdminChatService {
 
   // Get all admins
   async getAllAdmins(): Promise<AdminDto[]> {
-    // Use role fields directly from user entity (merged from UserRole)
     const users = await this.userRepo.find({
-      where: [
-        { isAdmin: true } as any,
-        { isSuperAdmin: true } as any,
-      ],
+      where: { isStaff: true },
     });
 
     const adminDtos: AdminDto[] = [];
@@ -155,13 +151,11 @@ export class AdminChatService {
     adminId: string
   ): Promise<AdminChatMessageResponseDto[]> {
 
-    // Verify admin exists and is actually an admin - use role fields directly from user
     const adminUser = await this.userRepo
       .createQueryBuilder('user')
-      .where('user.id = :adminId AND (user.isAdmin = :isAdmin OR user.isSuperAdmin = :isSuperAdmin)', {
+      .where('user.id = :adminId AND user.isStaff = :isStaff', {
         adminId,
-        isAdmin: true,
-        isSuperAdmin: true
+        isStaff: true,
       })
       .getOne();
 

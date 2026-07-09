@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
-
 import { EmailModule } from './email/email.module';
 import { BusinessModule } from './business/business.module';
 import { AdminModule } from './admin/admin.module';
@@ -12,6 +11,7 @@ import { TransactionFeeModule } from './admin/transaction-fee/transaction-fee.mo
 import { WithdrawalModule } from './admin/withdrawal/withdrawal.module';
 import { WalletModule } from './admin/wallet/wallet.module';
 import { SalonModule } from './user/modules/salon.module';
+import { BookingModule } from './user/modules/booking.module';
 import { BusinessServicesModule } from './user/modules/business-services.module';
 import { FavoriteServiceModule } from './user/modules/favorite-service.module';
 
@@ -19,15 +19,16 @@ import { AppService } from './app.service';
 import { AppController } from './app.controller';
 import { typeOrmConfig as testTypeOrmConfig } from './config/database.test';
 import { typeOrmConfig } from './config/database';
-import { AuthMiddleware } from './middleware/anth.middleware';
+import { JwtAuthGuard } from './middleware/jwt-auth.guard';
 import { ReferralModule } from './user/modules/referral.module';
 import { MembershipModule } from './user/modules/membership-tier.module';
 import { CardModule } from './user/modules/card.module';
-// import { ModerationModule } from './admin/moderation/moderation.module';
 import { ModerationModule } from './admin/moderation/moderation.module';
 import { ChatModule } from './admin/live-chat/chat.module';
 import { PlatformSettingsModule } from './admin/platform-settings/platform-settings.module';
 import { NotificationSettingsModule } from './user/modules/notification-settings.module';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 
 import { ClientModule } from './business/client.module';
 import { UserModule } from './user/modules/user.module';
@@ -46,6 +47,7 @@ import { BusinessSettingsModule } from './business/business-settings.module';
 import { GoogleCalendarModule } from './integration/google-calendar.module';
 import { MailchimpModule } from './integration/mail-chimp.module';
 import { ZohoBooksModule } from './integration/zohobooks.module';
+import { LandingModule } from './landing/landing.module';
 
 @Module({
   imports: [
@@ -53,7 +55,9 @@ import { ZohoBooksModule } from './integration/zohobooks.module';
       isGlobal: true,
     }),
     TypeOrmModule.forRoot(
-      process.env.NODE_ENV === 'test' ? testTypeOrmConfig : typeOrmConfig,
+      process.env.NODE_ENV === 'test'
+        ? { ...testTypeOrmConfig, autoLoadEntities: true }
+        : { ...typeOrmConfig, autoLoadEntities: true },
     ),
     JwtModule.registerAsync({
       global: true, // Make JwtModule globally available
@@ -64,6 +68,12 @@ import { ZohoBooksModule } from './integration/zohobooks.module';
       }),
       inject: [ConfigService],
     }),
+    ThrottlerModule.forRoot([
+      {
+        ttl: 30_000, // 30 seconds
+        limit: 10, // 20 requests per minute
+      },
+    ]),
 
     EmailModule,
     BusinessModule,
@@ -83,6 +93,7 @@ import { ZohoBooksModule } from './integration/zohobooks.module';
     WebhookModule,
     UserModule,
     SalonModule,
+    BookingModule,
     BusinessServicesModule,
     FavoriteServiceModule,
     ReferralModule,
@@ -100,8 +111,19 @@ import { ZohoBooksModule } from './integration/zohobooks.module';
     GoogleCalendarModule,
     MailchimpModule,
     ZohoBooksModule,
+    LandingModule,
   ],
   controllers: [AppController],
-  providers: [AppService, AuthMiddleware],
+  providers: [
+    AppService,
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+  ],
 })
 export class AppModule {}

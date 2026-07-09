@@ -1,4 +1,4 @@
-import {
+﻿import {
   Controller,
   Get,
   Post,
@@ -32,13 +32,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Business } from '../entities/business.entity';
 import { Repository } from 'typeorm';
 import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
+import { RolesGuard } from 'src/middleware/roles.guard';
 import { Roles } from 'src/middleware/roles.decorator';
 import { Role } from 'src/middleware/role.enum';
 
 @ApiTags('Business Gift Cards')
 @ApiBearerAuth('access-token')
-// @UseGuards(JwtAuthGuard, RolesGuard)
-// @Roles(Role.Business, Role.SuperAdmin)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.Merchant, Role.Staff)
 @Controller('business-gift-cards')
 export class BusinessGiftCardsController {
   constructor(

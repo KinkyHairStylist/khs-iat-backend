@@ -1,4 +1,10 @@
-import { Module, MiddlewareConsumer, forwardRef, NestModule } from '@nestjs/common';
+import {
+  Global,
+  Module,
+  MiddlewareConsumer,
+  forwardRef,
+  NestModule,
+} from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
 
@@ -30,6 +36,7 @@ import { JwtRefreshStrategy } from '../../middleware/strategy/jwt-refresh.strate
 import { EmailModule } from '../../email/email.module';
 import { ReferralModule } from './referral.module';
 import { PhoneVerificationModule } from './phone-verification.module';
+import { PhoneVerification } from 'src/business/entities/phone-verification.entity';
 import { CloudinaryModule } from './cloudinary.module';
 import { PreferencesModule } from './preferences.module';
 import { PasswordUtil } from 'src/business/utils/password.util';
@@ -39,6 +46,7 @@ import { BusinessWalletModule } from 'src/business/wallet.module';
 import { PlatformSettingsModule } from '../../admin/platform-settings/platform-settings.module';
 import { AdminChatModule } from './admin-chat.module';
 
+@Global()
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -50,6 +58,7 @@ import { AdminChatModule } from './admin-chat.module';
       Transaction,
       Refund,
       UserAddress,
+      PhoneVerification,
     ]),
     forwardRef(() => BusinessModule),
     BusinessWalletModule,

@@ -20,7 +20,7 @@ import {
 @ApiTags('Admin Withdrawals')
 @ApiBearerAuth('access-token')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.Admin, Role.SuperAdmin)
+@Roles(Role.Staff)
 @Controller('admin/platform-settings')
 export class PlatformSettingsController {
   constructor(private readonly service: PlatformSettingsService) {}

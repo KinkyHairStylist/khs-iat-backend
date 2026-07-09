@@ -4,7 +4,7 @@ import { ApiBearerAuth } from '@nestjs/swagger';
 
 import { MembershipTierService } from '../services/membership-tier.service';
 import { RolesGuard } from 'src/middleware/roles.guard';
-import { JwtAuthGuard } from 'src/business/middlewares/guards/jwt-auth.guard';
+import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
 
 @ApiTags('Membership')
 @Controller('membership')

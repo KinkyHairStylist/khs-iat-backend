@@ -1,4 +1,4 @@
-import {
+﻿import {
   Body,
   Controller,
   Delete,
@@ -23,7 +23,7 @@ import { UpdateBusinessOwnerSettingsDto } from 'src/business/dtos/requests/Busin
 @ApiTags('ZohoBooks')
 @ApiBearerAuth('access-token')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.Business, Role.SuperAdmin)
+@Roles(Role.Merchant, Role.Staff)
 @Controller('zohobooks')
 export class ZohoBooksController {
   constructor(private readonly zohoBooksService: ZohoBooksService) {}
