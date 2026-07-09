@@ -143,8 +143,6 @@ export class AuthService {
       where: { email: email.toLowerCase() },
     });
 
-    console.log('User found in login:', user);
-
     if (!user) {
       throw new UnauthorizedException('No user');
     }
@@ -165,8 +163,7 @@ export class AuthService {
 
     let message: string | undefined;
 
-    // Check isBusiness field directly on user (merged from UserRole)
-    if (!user.isBusiness) {
+    if (!user.isMerchant) {
       message = 'This is not a business account. Kindly create a new business account.';
       throw new UnauthorizedException(message);
     }
@@ -190,15 +187,10 @@ export class AuthService {
 
     const tokens = await getTokens(this.jwtService, user.id, user.email);
     
-    // Return role information for frontend - create role object from user fields
     const role = {
-      isSuperAdmin: user.isSuperAdmin,
-      isAdmin: user.isAdmin,
-      isBusiness: user.isBusiness,
-      isClient: user.isClient,
       isStaff: user.isStaff,
-      isManager: user.isManager,
-      isBusinessAdmin: user.isBusinessAdmin,
+      isMerchant: user.isMerchant,
+      isCustomer: user.isCustomer,
     };
     
     return { 
@@ -220,9 +212,9 @@ export class AuthService {
         isVerified: true,
         suspensionHistory: '.',
         isSuspended: false,
-        // Set role fields directly on user (merged from UserRole entity)
-        isBusiness: true,
-        isClient: false, // Business users are not regular clients
+        isMerchant: true,
+        isCustomer: false,
+        isStaff: false,
       });
 
       const savedUser = await this.userRepo.save(newUser);
@@ -270,7 +262,6 @@ export class AuthService {
     });
 
     if (!user) {
-      console.log(`Password reset requested for non-existent email: ${email}`);
       return {
         message:
           'If a user with that email exists, an OTP code has been sent to their email.',
@@ -360,11 +351,18 @@ export class AuthService {
     const { phone } = requestPhoneOtpDto;
 
     const otp = await this.otpService.generatePhoneOtp(phone);
-    await this.otpService.sendPhoneSmsOtp(phone, otp);
+    const deliveryResult = await this.otpService.sendPhoneSmsOtp(phone, otp);
 
     return {
-      message: 'OTP sent successfully to your phone number.',
+      message: deliveryResult.fallbackMode
+        ? 'OTP generated successfully. Check the server logs for the code in local/dev mode.'
+        : 'OTP sent successfully to your phone number.',
       phone,
+      ...(deliveryResult.fallbackMode &&
+      process.env.NODE_ENV !== 'production' &&
+      deliveryResult.otp
+        ? { otp: deliveryResult.otp }
+        : {}),
     };
   }
 

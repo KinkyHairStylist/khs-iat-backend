@@ -10,6 +10,7 @@ import {
   Get,
   Patch,
 } from '@nestjs/common';
+import { Public } from 'src/business/middlewares/public.decorator';
 import { WebhookService } from '../services/webhook.service';
 
 @Controller('webhook')
@@ -28,6 +29,7 @@ export class WebhookController {
    *
    * Example webhook URL: https://your-domain.com/webhooks/paypal
    */
+  @Public()
   @Post('/paypal')
   @HttpCode(HttpStatus.OK)
   async handlePayPalWebhook(
@@ -52,6 +54,7 @@ export class WebhookController {
     }
   }
 
+  @Public()
   @Post('/paystack')
   @HttpCode(HttpStatus.OK)
   async handlePaystackWebhook(
@@ -74,8 +77,7 @@ export class WebhookController {
         message: result.message,
       };
     } catch (error) {
-      console.log('WEBHOOK ERROR:', error);
-      this.logger.error('Error processing PayStack webhook', error);
+            this.logger.error('Error processing PayStack webhook', error);
 
       // Still return 200 to prevent PayStack from retrying
       return {

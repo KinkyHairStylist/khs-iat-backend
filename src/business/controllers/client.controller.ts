@@ -1,4 +1,4 @@
-import {
+﻿import {
   Controller,
   Post,
   Get,
@@ -37,13 +37,14 @@ import {
 import { ClientSettingsService } from '../services/client-settings.service';
 import { Roles } from 'src/middleware/roles.decorator';
 import { JwtAuthGuard } from '../../middleware/jwt-auth.guard';
+import { RolesGuard } from 'src/middleware/roles.guard';
 import { Role } from 'src/middleware/role.enum';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
 @ApiTags('Business Clients')
 @ApiBearerAuth('access-token')
-// @UseGuards(JwtAuthGuard, RolesGuard)
-// @Roles(Role.Business, Role.SuperAdmin)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.Merchant, Role.Staff)
 @Controller('clients')
 @UsePipes(new ValidationPipe({ transform: true }))
 export class ClientController {
@@ -426,7 +427,7 @@ export class ClientController {
 
       throw new HttpException(
         {
-          message: combinedMessage, // ✅ FINAL message shown to the user
+          message: combinedMessage, // âœ… FINAL message shown to the user
           errors: failedResults.map((r) => ({
             message: r.message,
             error: r.error,
@@ -669,7 +670,7 @@ export class ClientController {
 
       throw new HttpException(
         {
-          message: combinedMessage, // ✅ FINAL message shown to the user
+          message: combinedMessage, // âœ… FINAL message shown to the user
           errors: failedResults.map((r) => ({
             message: r.message,
             error: r.error,
@@ -803,6 +804,8 @@ export class ClientController {
   async getEmergencyContacts(
     @Request() req,
     @Param('clientId') clientId: string,
+    @Query('page') page = 1,
+    @Query('limit') limit = 10,
   ) {
     const ownerId = req.user._id || req.user.userId;
     if (!ownerId) {
@@ -815,6 +818,8 @@ export class ClientController {
     const result = await this.emergencyContactService.getEmergencyContacts(
       clientId,
       ownerId,
+      Number(page),
+      Number(limit),
     );
 
     if (!result.success) {

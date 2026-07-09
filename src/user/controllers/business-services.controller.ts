@@ -7,6 +7,7 @@ import {
   UseInterceptors,
   ClassSerializerInterceptor,
 } from '@nestjs/common';
+import { Public } from 'src/business/middlewares/public.decorator';
 import {
   ApiTags,
   ApiOperation,
@@ -32,6 +33,7 @@ export class BusinessServicesController {
    * Fetch all services across all businesses (public, no auth required).
    * GET /business/services
    */
+  @Public()
   @Get('services')
   @ApiOperation({ summary: 'Get all services across all businesses with pagination (public)' })
   @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
@@ -52,6 +54,7 @@ export class BusinessServicesController {
    * Fetch all services offered by a specific business.
    * GET /business/:businessId/services
    */
+  @Public()
   @Get(':businessId/services')
   @ApiOperation({ summary: 'Get all services offered by a business' })
   @ApiParam({

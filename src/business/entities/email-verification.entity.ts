@@ -10,27 +10,27 @@ import {
 @Entity('email_verifications')
 export class EmailVerification {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Index({ unique: true })
   @Column({ unique: true })
-  email: string;
+  email!: string;
 
-  @Column({ length: 6 })
+  @Column({ length: 64 })
   otp: string;
 
   @Column({ type: 'timestamptz' })
-  expiresAt: Date;
+  expiresAt!: Date;
 
   @Column({ default: 0 })
-  trials: number;
+  trials!: number;
 
   @Column({ default: 5 })
-  maxTrials: number;
+  maxTrials!: number;
 
   @CreateDateColumn()
-  createdAt: Date;
+  createdAt!: Date;
 
   @UpdateDateColumn()
-  updatedAt: Date;
+  updatedAt!: Date;
 }
