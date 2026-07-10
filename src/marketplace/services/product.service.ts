@@ -10,10 +10,7 @@ import { CreateProductDto, ProductFiltersDto } from '../dto/marketplace.dto';
 import { SkuGeneratorService } from './sku-generator.service';
 import { ApiResponse } from 'src/business/types/client.types';
 import { InventoryService } from './inventory.service';
-import {
-  BusinessCloudinaryService,
-  FileUpload,
-} from 'src/business/services/business-cloudinary.service';
+import { BusinessCloudinaryService } from 'src/business/services/business-cloudinary.service';
 import { Business } from 'src/business/entities/business.entity';
 
 @Injectable()
@@ -28,13 +25,10 @@ export class ProductService {
     private readonly businessCloudinaryService: BusinessCloudinaryService,
   ) {}
 
-  /**
-   * Create a new product
-   */
   async createProduct(
     createProductDto: CreateProductDto,
     ownerId: string,
-    bodyproductImage: FileUpload,
+    productImageBase64: string,
   ): Promise<Product> {
     const business = await this.businessRepo.findOne({
       where: { ownerId },
@@ -42,18 +36,16 @@ export class ProductService {
     if (!business) {
       throw new BadRequestException(`No business found for this user`);
     }
-    // Check if product already exists
+
     const existingProduct = await this.productRepository.findOne({
       where: { sku: createProductDto.sku },
     });
-
     if (existingProduct) {
       throw new BadRequestException(
         `Product with SKU ${existingProduct.sku} already exists`,
       );
     }
 
-    // 2. Ensure inventory exists and get current categories
     const platformInventory =
       await this.inventoryService.ensureInventoryExists();
 
@@ -63,31 +55,26 @@ export class ProductService {
       );
     }
 
-    // create sku
     const sku = await this.skuGeneratorService.generateSku(
       createProductDto.category,
       business.businessName,
       business.id,
     );
 
-    // Validate SKU format
     if (!this.skuGeneratorService.validateSku(sku)) {
       throw new BadRequestException(
         'SKU must be 8-30 characters, alphanumeric with hyphens only',
       );
     }
 
-    // Product image upload
-    let productImage;
-
     const folderPath = `KHS/business/${business.businessName}/products/${createProductDto.productName}`;
 
+    let productImage: string;
     try {
-      const { imageUrl } = await this.businessCloudinaryService.uploadImage(
-        bodyproductImage,
+      const { imageUrl } = await this.businessCloudinaryService.uploadImageFromBase64(
+        productImageBase64,
         folderPath,
       );
-
       productImage = imageUrl;
     } catch (error) {
       throw new BadRequestException(
@@ -95,7 +82,6 @@ export class ProductService {
       );
     }
 
-    // Create product
     const product = this.productRepository.create({
       ...createProductDto,
       businessId: business.id,
@@ -108,7 +94,7 @@ export class ProductService {
 
     const productWithBusiness = await this.productRepository.findOne({
       where: { id: savedProduct.id },
-      relations: ['business'], // <-- THIS loads the business relation
+      relations: ['business'],
     });
 
     if (!productWithBusiness) {
@@ -118,9 +104,6 @@ export class ProductService {
     return productWithBusiness;
   }
 
-  /**
-   * Get a single product by ID
-   */
   async getProduct(productId: string): Promise<Product> {
     const product = await this.productRepository.findOne({
       where: { id: productId },
@@ -133,9 +116,6 @@ export class ProductService {
     return product;
   }
 
-  /**
-   * Get product list with filtering and pagination
-   */
   async getProductList(filters: ProductFiltersDto) {
     const {
       search,
@@ -150,13 +130,8 @@ export class ProductService {
 
     const queryBuilder = this.productRepository.createQueryBuilder('product');
 
-    /* --------- RELATIONS ---------- */
     queryBuilder.leftJoinAndSelect('product.business', 'business');
 
-    /* --------- FILTERS ---------- */
-    // if (category) {
-    //   queryBuilder.andWhere('product.category = :category', { category });
-    // }
     if (category && category !== 'all') {
       queryBuilder.andWhere('product.category = :category', { category });
     }
@@ -173,8 +148,8 @@ export class ProductService {
 
     if (search) {
       queryBuilder.andWhere(
-        `(product.productName ILIKE :searchTerm 
-        OR product.sku ILIKE :searchTerm 
+        `(product.productName ILIKE :searchTerm
+        OR product.sku ILIKE :searchTerm
         OR product.description ILIKE :searchTerm
         OR CAST(product.sellingPrice AS TEXT) ILIKE :searchTerm
       )`,
@@ -182,24 +157,18 @@ export class ProductService {
       );
     }
 
-    /* --------- SORTING (APPLIED ONCE!) ---------- */
-
     if (typeof sellingPrice === 'number') {
-      // If filtering by price → always highest to lowest
       queryBuilder.orderBy('product.sellingPrice', 'DESC');
     } else {
-      // Otherwise follow user-defined sortBy and sortOrder
       queryBuilder.orderBy(
         `product.${sortBy}`,
         sortOrder.toUpperCase() as 'ASC' | 'DESC',
       );
     }
 
-    /* --------- PAGINATION ---------- */
     const skip = (page - 1) * limit;
     queryBuilder.skip(skip).take(limit);
 
-    /* --------- EXECUTE ---------- */
     const [products, total] = await queryBuilder.getManyAndCount();
 
     const totalPages = Math.ceil(total / limit);
@@ -219,9 +188,6 @@ export class ProductService {
     };
   }
 
-  /**
-   * Get low stock products
-   */
   async getLowStockProducts(filters: {
     businessId?: string;
     page?: number;
@@ -234,16 +200,13 @@ export class ProductService {
       .where('product.stockQuantity <= product.lowStockThreshold')
       .andWhere('product.isActive = :isActive', { isActive: true });
 
-    // Filter by business if provided
     if (businessId) {
       queryBuilder.andWhere('product.businessId = :businessId', { businessId });
     }
 
-    // Pagination
     const skip = (page - 1) * limit;
     queryBuilder.skip(skip).take(limit);
 
-    // Order by stock quantity (lowest first)
     queryBuilder.orderBy('product.stockQuantity', 'ASC');
 
     const [products, total] = await queryBuilder.getManyAndCount();
@@ -277,13 +240,8 @@ export class ProductService {
       ];
       const missingFields = requiredFields.filter((field) => {
         const value = productData[field];
-
-        // Missing entirely, null, undefined
         if (value === undefined || value === null) return true;
-
-        // If value is a string, check after trimming
         if (typeof value === 'string' && value.trim() === '') return true;
-
         return false;
       });
 
@@ -295,7 +253,6 @@ export class ProductService {
         };
       }
 
-      // Validate uploaded image
       const uploadedImage = files?.productImage;
 
       if (!uploadedImage) {
@@ -333,7 +290,7 @@ export class ProductService {
           };
         }
 
-        const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 2 MB
+        const MAX_SIZE_BYTES = 10 * 1024 * 1024;
         if (uploadedImage.size > MAX_SIZE_BYTES) {
           return {
             success: false,

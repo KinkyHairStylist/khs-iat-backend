@@ -1,4 +1,10 @@
-import { Module, MiddlewareConsumer, forwardRef, NestModule } from '@nestjs/common';
+import {
+  Global,
+  Module,
+  MiddlewareConsumer,
+  forwardRef,
+  NestModule,
+} from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
 
@@ -40,6 +46,7 @@ import { BusinessWalletModule } from 'src/business/wallet.module';
 import { PlatformSettingsModule } from '../../admin/platform-settings/platform-settings.module';
 import { AdminChatModule } from './admin-chat.module';
 
+@Global()
 @Module({
   imports: [
     TypeOrmModule.forFeature([

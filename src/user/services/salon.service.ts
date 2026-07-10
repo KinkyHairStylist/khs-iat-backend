@@ -3,7 +3,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { Service } from 'src/business/entities/service.entity';
-import { Business, BusinessStatus } from 'src/business/entities/business.entity';
+import {
+  Business,
+  BusinessStatus,
+} from 'src/business/entities/business.entity';
 
 @Injectable()
 export class SalonService {
@@ -15,108 +18,130 @@ export class SalonService {
   ) {}
 
   async findAll(options: {
-  page?: number;
-  limit?: number;
-  search?: string;
-  location?: string;
-  minRating?: number;
-  services?: string[];
-  sortBy?: 'bestMatch' | 'topRated' | 'distance';
-  lat?: number;
-  lng?: number;
-  category?: string;
-}): Promise<{ data: Business[]; total: number; page: number; limit: number }> {
-  const {
-    page = 1,
-    limit = 10,
-    search = '',
-    location = '',
-    minRating = 0,
-    services = [],
-    sortBy = 'bestMatch',
-    lat,
-    lng,
-    category,
-  } = options;
+    page?: number;
+    limit?: number;
+    search?: string;
+    location?: string;
+    minRating?: number;
+    isLuxury?: boolean;
+    services?: string[];
+    sortBy?: 'bestMatch' | 'topRated' | 'distance';
+    lat?: number;
+    lng?: number;
+    category?: string;
+  }): Promise<{
+    data: Business[];
+    total: number;
+    page: number;
+    limit: number;
+  }> {
+    const {
+      page = 1,
+      limit = 10,
+      search = '',
+      location = '',
+      minRating = 0,
+      isLuxury,
+      services = [],
+      sortBy = 'bestMatch',
+      lat,
+      lng,
+      category,
+    } = options;
 
-  let query = this.businessRepository
-    .createQueryBuilder('business')
-    .where('business.status = :status', { status: BusinessStatus.APPROVED });
+    let query = this.businessRepository
+      .createQueryBuilder('business')
+      .where('business.status = :status', { status: BusinessStatus.APPROVED });
 
-  // Search by business name or description
-  if (search) {
-    query = query.andWhere(
-      '(LOWER(business.businessName) LIKE LOWER(:search) OR LOWER(business.description) LIKE LOWER(:search))',
-      { search: `%${search}%` },
-    );
-  }
+    // Search by business name or description
+    if (search) {
+      query = query.andWhere(
+        '(LOWER(business.businessName) LIKE LOWER(:search) OR LOWER(business.description) LIKE LOWER(:search))',
+        { search: `%${search}%` },
+      );
+    }
 
-  // Filter by location (businessAddress)
-  if (location) {
-    query = query.andWhere('LOWER(business.businessAddress) LIKE LOWER(:location)', {
-      location: `%${location}%`,
-    });
-  }
+    // Filter by location (businessAddress)
+    if (location) {
+      query = query.andWhere(
+        'LOWER(business.businessAddress) LIKE LOWER(:location)',
+        {
+          location: `%${location}%`,
+        },
+      );
+    }
 
-  // Filter by category
-  if (category && category !== 'All Categories') {
-    query = query.andWhere('business.category = :category', { category });
-  }
+    // Filter by category
+    if (category && category !== 'All Categories') {
+      query = query.andWhere('business.category = :category', { category });
+    }
 
-  // Filter by minimum rating
-  if (minRating > 0) {
-    query = query.andWhere('business.performance->>\'rating\' >= :minRating', { minRating });
-  }
-
-  // Filter by services (array in text column)
-  if (services.length > 0) {
-    services.forEach((service, index) => {
-      query = query.andWhere(`:service${index} = ANY(business.services)`, {
-        [`service${index}`]: service,
+    // Filter by minimum rating
+    if (minRating > 0) {
+      query = query.andWhere("business.performance->>'rating' >= :minRating", {
+        minRating,
       });
-    });
-  }
+    }
 
-  // Apply sorting
-  switch (sortBy) {
-    case 'topRated':
-      query = query
-        .orderBy("CAST(business.performance->>'rating' AS FLOAT)", 'DESC')
-        .addOrderBy('business.revenue', 'DESC');
-      break;
+    // Filter by luxury flag
+    // Filter by luxury: either admin-curated OR naturally high-rated (4.5+)
+    if (isLuxury) {
+      query = query.andWhere(
+        "(business.isLuxury = true OR CAST(business.performance->>'rating' AS FLOAT) >= 4.5)",
+      );
+    }
+    // Filter by services (array in text column)
+    if (services.length > 0) {
+      services.forEach((service, index) => {
+        query = query.andWhere(`:service${index} = ANY(business.services)`, {
+          [`service${index}`]: service,
+        });
+      });
+    }
 
-    case 'distance':
-      if (lat && lng) {
+    // Apply sorting
+    switch (sortBy) {
+      case 'topRated':
         query = query
-          .addSelect(
-            `ROUND((6371 * ACOS(COS(RADIANS(${lat})) * COS(RADIANS(business.latitude)) * COS(RADIANS(business.longitude) - RADIANS(${lng})) + SIN(RADIANS(${lat})) * SIN(RADIANS(business.latitude))))::numeric, 2)`,
-            'distance',
-          )
-          .orderBy('distance', 'ASC');
-      }
-      break;
+          .orderBy("CAST(business.performance->>'rating' AS FLOAT)", 'DESC')
+          .addOrderBy('business.revenue', 'DESC');
+        break;
 
-    case 'bestMatch':
-    default:
-      query = query
-        .orderBy("CAST(business.performance->>'rating' AS FLOAT)", 'DESC')
-        .addOrderBy('business.createdAt', 'DESC');
-      break;
+      case 'distance':
+        if (lat && lng) {
+          query = query
+            .addSelect(
+              `ROUND((6371 * ACOS(COS(RADIANS(${lat})) * COS(RADIANS(business.latitude)) * COS(RADIANS(business.longitude) - RADIANS(${lng})) + SIN(RADIANS(${lat})) * SIN(RADIANS(business.latitude))))::numeric, 2)`,
+              'distance',
+            )
+            .orderBy('distance', 'ASC');
+        }
+        break;
+
+      case 'bestMatch':
+      default:
+        query = query
+          .orderBy("CAST(business.performance->>'rating' AS FLOAT)", 'DESC')
+          .addOrderBy('business.createdAt', 'DESC');
+        break;
+    }
+
+    // Pagination
+    const offset = (page - 1) * limit;
+    const [data, total] = await query
+      .skip(offset)
+      .take(limit)
+      .getManyAndCount();
+
+    // Load services separately to avoid join issues with pagination
+    for (const business of data) {
+      business.serviceList = await this.serviceRepo.find({
+        where: { business: { id: business.id } },
+      });
+    }
+
+    return { data, total, page, limit };
   }
-
-  // Pagination
-  const offset = (page - 1) * limit;
-  const [data, total] = await query.skip(offset).take(limit).getManyAndCount();
-
-  // Load services separately to avoid join issues with pagination
-  for (const business of data) {
-    business.serviceList = await this.serviceRepo.find({
-      where: { business: { id: business.id } },
-    });
-  }
-
-  return { data, total, page, limit };
-}
 
   async getServices(category?: string) {
     const query = this.serviceRepo.createQueryBuilder('service');
@@ -131,9 +156,7 @@ export class SalonService {
   async getBusinessById(id: string) {
     const business = await this.businessRepository.findOne({
       where: { id, status: BusinessStatus.APPROVED },
-      relations: [
-        'serviceList'
-      ],
+      relations: ['serviceList'],
     });
 
     if (!business) {
@@ -149,5 +172,4 @@ export class SalonService {
       relations: ['business'],
     });
   }
-
 }
