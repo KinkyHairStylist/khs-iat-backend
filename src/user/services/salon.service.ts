@@ -78,16 +78,17 @@ export class SalonService {
 
     // Filter by minimum rating
     if (minRating > 0) {
-      query = query.andWhere("business.performance->>'rating' >= :minRating", {
-        minRating,
-      });
+      query = query.andWhere(
+        "COALESCE((business.performance->>'rating')::FLOAT, 0) >= :minRating",
+        { minRating },
+      );
     }
 
     // Filter by luxury flag
     // Filter by luxury: either admin-curated OR naturally high-rated (4.5+)
     if (isLuxury) {
       query = query.andWhere(
-        "(business.isLuxury = true OR CAST(business.performance->>'rating' AS FLOAT) >= 4.5)",
+        "(business.isLuxury = true OR COALESCE((business.performance->>'rating')::FLOAT, 0) >= 4.5)",
       );
     }
     // Filter by services (array in text column)
@@ -103,7 +104,7 @@ export class SalonService {
     switch (sortBy) {
       case 'topRated':
         query = query
-          .orderBy("CAST(business.performance->>'rating' AS FLOAT)", 'DESC')
+          .orderBy("COALESCE((business.performance->>'rating')::FLOAT, 0)", 'DESC')
           .addOrderBy('business.revenue', 'DESC');
         break;
 
@@ -121,7 +122,7 @@ export class SalonService {
       case 'bestMatch':
       default:
         query = query
-          .orderBy("CAST(business.performance->>'rating' AS FLOAT)", 'DESC')
+          .orderBy("COALESCE((business.performance->>'rating')::FLOAT, 0)", 'DESC')
           .addOrderBy('business.createdAt', 'DESC');
         break;
     }

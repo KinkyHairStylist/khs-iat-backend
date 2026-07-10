@@ -28,7 +28,7 @@ export class BusinessRepository {
         'business.businessAddress',
         'business.latitude',
         'business.longitude',
-        "CAST(business.performance->>'rating' AS FLOAT) AS rating",
+        "COALESCE((business.performance->>'rating')::FLOAT, 0) AS rating",
         'business.services',
         'ROUND(6371 * ACOS(COS(RADIANS(:lat)) * COS(RADIANS(business.latitude)) * COS(RADIANS(business.longitude) - RADIANS(:lng)) + SIN(RADIANS(:lat)) * SIN(RADIANS(business.latitude))), 2) AS distance',
       ])

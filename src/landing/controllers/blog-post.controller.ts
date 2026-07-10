@@ -15,6 +15,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiConsumes } from '@nestjs/swagg
 import { BlogPostService } from '../services/blog-post.service';
 import { CreateBlogPostDto, UpdateBlogPostDto } from '../dtos/blog-post.dto';
 import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
+import { Public } from 'src/business/middlewares/public.decorator';
 import { CloudinaryService } from 'src/user/services/cloudinary.service';
 import { fileUploadOptions } from 'src/middleware/file-upload.middleware';
 
@@ -27,6 +28,7 @@ export class BlogPostController {
   ) {}
 
   @Get()
+  @Public()
   @ApiOperation({ summary: 'Get all published blog posts (public)' })
   findPublished() {
     return this.blogPostService.findPublished();
@@ -41,6 +43,7 @@ export class BlogPostController {
   }
 
   @Get(':slug')
+  @Public()
   @ApiOperation({ summary: 'Get a published blog post by slug (public)' })
   findBySlug(@Param('slug') slug: string) {
     return this.blogPostService.findBySlug(slug);

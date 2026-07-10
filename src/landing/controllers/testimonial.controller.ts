@@ -12,6 +12,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { TestimonialService } from '../services/testimonial.service';
 import { CreateTestimonialDto, UpdateTestimonialDto } from '../dtos/testimonial.dto';
 import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
+import { Public } from 'src/business/middlewares/public.decorator';
 
 @ApiTags('Landing - Testimonials')
 @Controller('landing/testimonials')
@@ -19,12 +20,14 @@ export class TestimonialController {
   constructor(private readonly testimonialService: TestimonialService) {}
 
   @Post()
+  @Public()
   @ApiOperation({ summary: 'Submit a testimonial (public)' })
   create(@Body() dto: CreateTestimonialDto) {
     return this.testimonialService.create(dto);
   }
 
   @Get()
+  @Public()
   @ApiOperation({ summary: 'Get all approved testimonials (public)' })
   findApproved() {
     return this.testimonialService.findApproved();

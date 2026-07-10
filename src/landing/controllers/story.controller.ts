@@ -15,6 +15,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiConsumes } from '@nestjs/swagg
 import { StoryService } from '../services/story.service';
 import { CreateStoryDto, UpdateStoryDto } from '../dtos/story.dto';
 import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
+import { Public } from 'src/business/middlewares/public.decorator';
 import { CloudinaryService } from 'src/user/services/cloudinary.service';
 import { fileUploadOptions } from 'src/middleware/file-upload.middleware';
 
@@ -27,6 +28,7 @@ export class StoryController {
   ) {}
 
   @Get()
+  @Public()
   @ApiOperation({ summary: 'Get all published stories (public)' })
   findPublished() {
     return this.storyService.findPublished();
