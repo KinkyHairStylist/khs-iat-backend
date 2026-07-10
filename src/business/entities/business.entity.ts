@@ -85,7 +85,7 @@ export class Business {
   @Column({ nullable: true })
   businessAddress: string;
 
-  @Column({ type: 'simple-array', nullable: true })
+  @Column({ type: 'jsonb', nullable: true })
   businessImage?: string[];
 
   @Column({ type: 'float', nullable: true })
