@@ -442,7 +442,7 @@ export class AdminService {
       throw new BadRequestException('Business not found');
     }
 
-    business.isLuxury = true;
+    business.luxuryOverride = true;
 
     await this.businessRepo.save(business);
 
@@ -455,7 +455,7 @@ export class AdminService {
       throw new BadRequestException('Business not found');
     }
 
-    business.isLuxury = false;
+    business.luxuryOverride = false;
 
     await this.businessRepo.save(business);
 
