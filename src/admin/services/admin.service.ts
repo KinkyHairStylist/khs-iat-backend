@@ -6,6 +6,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { EmailService } from '../../email/email.service';
+import { invalidateCache } from '../../cache/cache.interceptor';
 import { User } from '../../all_user_entities/user.entity';
 import {
   Business,
@@ -445,6 +446,7 @@ export class AdminService {
     business.luxuryOverride = true;
 
     await this.businessRepo.save(business);
+    await invalidateCache('/api/salons');
 
     return { message: `Business has been marked as luxury.` };
   }
@@ -458,6 +460,7 @@ export class AdminService {
     business.luxuryOverride = false;
 
     await this.businessRepo.save(business);
+    await invalidateCache('/api/salons');
 
     return { message: `Business has been removed from luxury.` };
   }
