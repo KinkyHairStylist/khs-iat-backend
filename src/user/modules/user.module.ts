@@ -4,6 +4,7 @@ import {
   MiddlewareConsumer,
   forwardRef,
   NestModule,
+  RequestMethod,
 } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
@@ -96,6 +97,9 @@ import { AdminChatModule } from './admin-chat.module';
 })
 export class UserModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(EmailValidationMiddleware).forRoutes(UserController);
+    consumer
+      .apply(EmailValidationMiddleware)
+      .exclude({ path: 'api/auth/refresh-token', method: RequestMethod.POST })
+      .forRoutes(UserController);
   }
 }
