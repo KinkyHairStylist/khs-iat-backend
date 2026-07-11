@@ -84,11 +84,14 @@ export class SalonService {
       );
     }
 
-    // Filter by luxury flag
-    // Filter by luxury: either admin-curated OR naturally high-rated (4.5+)
+    // Filter by luxury flag.
+    // Admin decision (luxuryOverride) always wins in either direction.
+    // If the admin hasn't made a decision (luxuryOverride IS NULL),
+    // fall back to automatic rating-based qualification (4.5+).
     if (isLuxury) {
       query = query.andWhere(
-        "(business.isLuxury = true OR COALESCE((business.performance->>'rating')::FLOAT, 0) >= 4.5)",
+        `("business"."luxuryOverride" = true OR
+            ("business"."luxuryOverride" IS NULL AND COALESCE((business.performance->>'rating')::FLOAT, 0) >= 4.5))`,
       );
     }
     // Filter by services (array in text column)

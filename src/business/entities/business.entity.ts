@@ -122,6 +122,9 @@ export class Business {
   @Column({ type: 'boolean', default: false })
   isLuxury: boolean;
 
+  @Column({ type: 'boolean', nullable: true, default: null })
+  luxuryOverride: boolean | null;
+
   @Column({ type: 'float', default: 0 })
   revenue: number;
 

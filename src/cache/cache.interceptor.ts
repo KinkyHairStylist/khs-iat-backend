@@ -120,11 +120,47 @@ export class CacheInterceptor implements NestInterceptor {
 
   private generateCacheKey(request: any): string {
     const { method, originalUrl, query } = request;
+    const path = originalUrl.split('?')[0];
     const sortedQuery = Object.keys(query)
       .sort()
       .map((key) => `${key}=${query[key]}`)
       .join('&');
     const key = `${method}:${originalUrl}?${sortedQuery}`;
-    return crypto.createHash('md5').update(key).digest('hex');
+    const hash = crypto.createHash('md5').update(key).digest('hex');
+    // Keep the plain method+path visible (unhashed) so invalidateCache()
+    // can pattern-match and clear every cached query-variant of a given
+    // route, without needing to know every exact query string that was cached.
+    return `${method}:${path}:${hash}`;
+  }
+}
+
+/**
+ * Deletes every cached entry for a given route path, regardless of which
+ * query-string variant was cached. Used to bust stale responses immediately
+ * after a mutation that should invalidate them (e.g. an admin marking a
+ * business as luxury), rather than waiting out the full CACHE_TTL_SECONDS.
+ */
+export async function invalidateCache(pathPrefix: string): Promise<void> {
+  try {
+    const pattern = `*:${pathPrefix}*`;
+    const stream = redisClient.scanStream({ match: pattern, count: 100 });
+    const keysToDelete: string[] = [];
+
+    for await (const keys of stream) {
+      keysToDelete.push(...keys);
+    }
+
+    if (keysToDelete.length > 0) {
+      await redisClient.unlink(...keysToDelete);
+      logger.log(
+        `Invalidated ${keysToDelete.length} cache key(s) matching ${pathPrefix}`,
+        'CacheInterceptor',
+      );
+    }
+  } catch (err) {
+    logger.warn(
+      `Cache invalidation failed for ${pathPrefix}: ${(err as Error).message}`,
+      'CacheInterceptor',
+    );
   }
 }
