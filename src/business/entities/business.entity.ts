@@ -85,7 +85,7 @@ export class Business {
   @Column({ nullable: true })
   businessAddress: string;
 
-  @Column({ type: 'simple-array', nullable: true })
+  @Column({ type: 'jsonb', nullable: true })
   businessImage?: string[];
 
   @Column({ type: 'float', nullable: true })
@@ -121,6 +121,9 @@ export class Business {
 
   @Column({ type: 'boolean', default: false })
   isLuxury: boolean;
+
+  @Column({ type: 'boolean', nullable: true, default: null })
+  luxuryOverride: boolean | null;
 
   @Column({ type: 'float', default: 0 })
   revenue: number;

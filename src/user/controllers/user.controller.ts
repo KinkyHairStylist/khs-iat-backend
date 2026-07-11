@@ -231,8 +231,9 @@ export class UserController {
   }
 
   @Post('/auth/refresh-token')
+  @Public()
   @RefreshRateLimit()
-  @UseGuards(AuthGuard('access-token'))
+  @UseGuards(AuthGuard('jwt-refresh'))
   @ApiOperation({ summary: 'Refresh authentication tokens' })
   @ApiBody({ type: RefreshTokenDto })
   @ApiResponse({

@@ -21,7 +21,7 @@ export class EmailValidationMiddleware implements NestMiddleware {
       params?.emailAddress;
 
     if (!email) {
-      throw new BadRequestException('Email is required');
+      return next();
     }
 
     if (typeof email !== 'string' || !this.emailRegex.test(email.trim())) {

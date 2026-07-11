@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -33,6 +34,8 @@ export interface TokenPair {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
@@ -222,7 +225,7 @@ export class AuthService {
       return savedUser;
       
     } catch (error) {
-      console.error('Error creating user:', error);
+      this.logger.error('Error creating user', error instanceof Error ? error.message : 'unknown error');
       throw new BadRequestException('Failed to create user. Please try again.');
     }
   }
@@ -271,7 +274,7 @@ export class AuthService {
     try {
       await this.otpService.requestOtpForPasswordReset(email);
     } catch (error) {
-      console.error(`Failed to generate/send OTP for ${email}:`, error);
+      this.logger.error('Failed to generate/send OTP for password reset', error instanceof Error ? error.message : 'unknown error');
     }
 
     return {

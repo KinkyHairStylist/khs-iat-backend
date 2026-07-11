@@ -12,6 +12,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { LandingStatService } from '../services/landing-stat.service';
 import { CreateLandingStatDto, UpdateLandingStatDto } from '../dtos/landing-stat.dto';
 import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
+import { Public } from 'src/business/middlewares/public.decorator';
 
 @ApiTags('Landing - Statistics')
 @Controller('landing/statistics')
@@ -19,6 +20,7 @@ export class LandingStatController {
   constructor(private readonly landingStatService: LandingStatService) {}
 
   @Get()
+  @Public()
   @ApiOperation({ summary: 'Get all active statistics (public)' })
   findActive() {
     return this.landingStatService.findActive();

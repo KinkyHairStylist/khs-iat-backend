@@ -1,9 +1,11 @@
 import { Client } from 'pg';
 import * as dotenv from 'dotenv';
+import * as bcrypt from 'bcrypt';
 import { typeOrmConfig } from '../src/config/database';
 
 dotenv.config();
 
+const SEED_PASSWORD = 'Password123';
 const SEED_TAG = '[SEED_APPT]';
 const BUSINESS_NAME = 'KHS Seed Salon Appointment Hub';
 
@@ -12,8 +14,9 @@ type SeedUser = {
   firstName: string;
   surname: string;
   phoneNumber: string;
-  isBusiness?: boolean;
-  isClient?: boolean;
+  isMerchant?: boolean;
+  isCustomer?: boolean;
+  password: string;
 };
 
 const toIsoDate = (date: Date) => date.toISOString().slice(0, 10);
@@ -62,6 +65,7 @@ const connectClient = async () => {
 
 const upsertUser = async (client: Client, user: SeedUser): Promise<string> => {
   const nowIso = new Date().toISOString();
+  const hashedPassword = await bcrypt.hash(user.password, 10);
 
   const result = await client.query<{ id: string }>(
     `
@@ -70,19 +74,21 @@ const upsertUser = async (client: Client, user: SeedUser): Promise<string> => {
         "firstName",
         surname,
         "phoneNumber",
+        password,
         "isVerified",
-        "isBusiness",
-        "isClient",
+        "isMerchant",
+        "isCustomer",
         activity
       )
-      VALUES ($1, $2, $3, $4, TRUE, $5, $6, $7)
+      VALUES ($1, $2, $3, $4, $5, TRUE, $6, $7, $8)
       ON CONFLICT (email)
       DO UPDATE SET
         "firstName" = EXCLUDED."firstName",
         surname = EXCLUDED.surname,
         "phoneNumber" = EXCLUDED."phoneNumber",
-        "isBusiness" = EXCLUDED."isBusiness",
-        "isClient" = EXCLUDED."isClient"
+        password = EXCLUDED.password,
+        "isMerchant" = EXCLUDED."isMerchant",
+        "isCustomer" = EXCLUDED."isCustomer"
       RETURNING id
     `,
     [
@@ -90,8 +96,9 @@ const upsertUser = async (client: Client, user: SeedUser): Promise<string> => {
       user.firstName,
       user.surname,
       user.phoneNumber,
-      user.isBusiness ?? false,
-      user.isClient ?? true,
+      hashedPassword,
+      user.isMerchant ?? false,
+      user.isCustomer ?? true,
       nowIso,
     ],
   );
@@ -231,7 +238,7 @@ const upsertStaff = async (
         specialization,
         "business_id"
       )
-      VALUES ($1, $2, $3, $4, 'HAIRSTYLIST', $5, $6, $7)
+      VALUES ($1, $2, $3, $4, 'stylist', $5, $6, $7)
       ON CONFLICT (email)
       DO UPDATE SET
         "firstName" = EXCLUDED."firstName",
@@ -328,8 +335,9 @@ const seedAppointments = async () => {
       firstName: 'Ifeanyi',
       surname: 'Gold',
       phoneNumber: '+2348012345000',
-      isBusiness: true,
-      isClient: false,
+      isMerchant: true,
+      isCustomer: false,
+      password: SEED_PASSWORD,
     });
 
     const clientUsers: SeedUser[] = [
@@ -338,24 +346,28 @@ const seedAppointments = async () => {
         firstName: 'Ada',
         surname: 'Okafor',
         phoneNumber: '+2348100000001',
+        password: SEED_PASSWORD,
       },
       {
         email: 'client.two@khs-seed.local',
         firstName: 'Tolu',
         surname: 'Adebayo',
         phoneNumber: '+2348100000002',
+        password: SEED_PASSWORD,
       },
       {
         email: 'client.three@khs-seed.local',
         firstName: 'Mina',
         surname: 'Ibrahim',
         phoneNumber: '+2348100000003',
+        password: SEED_PASSWORD,
       },
       {
         email: 'client.four@khs-seed.local',
         firstName: 'Zoe',
         surname: 'Campbell',
         phoneNumber: '+2348100000004',
+        password: SEED_PASSWORD,
       },
     ];
 
@@ -495,6 +507,7 @@ const seedAppointments = async () => {
     console.log(`   • Business: ${BUSINESS_NAME}`);
     console.log(`   • Seeded appointments: ${created}`);
     console.log(`   • Seed marker: ${SEED_TAG}`);
+    console.log(`   • Default password for all users: ${SEED_PASSWORD}`);
   } catch (error) {
     await client.query('ROLLBACK');
     const message = error instanceof Error ? error.message : 'Unknown error';

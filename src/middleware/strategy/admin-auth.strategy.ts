@@ -6,9 +6,11 @@ import { AdminAuthService } from 'src/admin/services/admin_auth.service';
 @Injectable()
 export class AdminAuthStrategy extends PassportStrategy(Strategy, 'admin-jwt') {
   constructor(private readonly adminAuthService: AdminAuthService) {
+    const secret = process.env.JWT_ACCESS_SECRET;
+    if (!secret) throw new Error('JWT_ACCESS_SECRET environment variable is not set');
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-      secretOrKey: process.env.JWT_ACCESS_SECRET || 'defaultSecret',
+      secretOrKey: secret,
     });
   }
 

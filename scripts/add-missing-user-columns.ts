@@ -3,12 +3,14 @@ import * as dotenv from 'dotenv';
 dotenv.config();
 
 async function run() {
+  const ssl = process.env.DB_SSL === 'require' ? { rejectUnauthorized: false } : false;
   const client = new Client({
     host: process.env.DB_HOST,
     port: Number(process.env.DB_PORT),
     user: process.env.DB_USERNAME,
     password: process.env.DB_PASSWORD,
     database: process.env.DB_DATABASE,
+    ssl,
   });
   await client.connect();
   console.log('Connected to database.');

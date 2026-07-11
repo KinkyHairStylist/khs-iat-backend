@@ -12,6 +12,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { FaqService } from '../services/faq.service';
 import { CreateFaqDto, UpdateFaqDto } from '../dtos/faq.dto';
 import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
+import { Public } from 'src/business/middlewares/public.decorator';
 
 @ApiTags('Landing - FAQ')
 @Controller('landing/faq')
@@ -19,6 +20,7 @@ export class FaqController {
   constructor(private readonly faqService: FaqService) {}
 
   @Get()
+  @Public()
   @ApiOperation({ summary: 'Get all active FAQs (public)' })
   findActive() {
     return this.faqService.findActive();

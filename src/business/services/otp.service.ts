@@ -179,20 +179,20 @@ export class OtpService {
     if (!phoneOtpRecord) {
       phoneOtpRecord = this.phoneOtpRepo.create({
         phoneNumber: phone,
-        otp,
+        otp: hashOtp(otp),
         expiresAt,
         trials: 0,
         maxTrials: this.MAX_TRIALS,
       });
     } else {
-      phoneOtpRecord.otp = otp;
+      phoneOtpRecord.otp = hashOtp(otp);
       phoneOtpRecord.expiresAt = expiresAt;
       phoneOtpRecord.trials = 0;
       phoneOtpRecord.maxTrials = this.MAX_TRIALS;
     }
 
     await this.phoneOtpRepo.save(phoneOtpRecord);
-    this.logger.debug(`Phone OTP generated for ${phone}: ${otp}`);
+    this.logger.debug(`Phone OTP generated for ${phone}`);
     return otp;
   }
 
@@ -208,11 +208,9 @@ export class OtpService {
 
     if (!hasTwilioConfig) {
       const fallbackMode = process.env.NODE_ENV !== 'production';
-      const message = fallbackMode
-        ? `[Phone OTP fallback] OTP for ${phone}: ${otp}`
-        : `OTP for ${phone}: ${otp}`;
-
-      console.warn(message);
+      if (fallbackMode) {
+        this.logger.warn(`[Phone OTP fallback] Twilio not configured — OTP delivery skipped for ${phone}`);
+      }
       return {
         delivered: false,
         fallbackMode,
@@ -239,7 +237,7 @@ export class OtpService {
       );
     }
 
-    if (phoneOtpRecord.otp !== otp) {
+    if (!timingSafeEqual(phoneOtpRecord.otp, hashOtp(otp))) {
       phoneOtpRecord.trials += 1;
       await this.phoneOtpRepo.save(phoneOtpRecord);
       throw new BadRequestException('Invalid OTP provided.');
