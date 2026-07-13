@@ -7,6 +7,7 @@ import {
   Business,
   BusinessStatus,
 } from 'src/business/entities/business.entity';
+import { ServiceType } from 'src/business/types/service-type.enum';
 
 @Injectable()
 export class SalonService {
@@ -107,7 +108,10 @@ export class SalonService {
     switch (sortBy) {
       case 'topRated':
         query = query
-          .orderBy("COALESCE((business.performance->>'rating')::FLOAT, 0)", 'DESC')
+          .orderBy(
+            "COALESCE((business.performance->>'rating')::FLOAT, 0)",
+            'DESC',
+          )
           .addOrderBy('business.revenue', 'DESC');
         break;
 
@@ -125,7 +129,10 @@ export class SalonService {
       case 'bestMatch':
       default:
         query = query
-          .orderBy("COALESCE((business.performance->>'rating')::FLOAT, 0)", 'DESC')
+          .orderBy(
+            "COALESCE((business.performance->>'rating')::FLOAT, 0)",
+            'DESC',
+          )
           .addOrderBy('business.createdAt', 'DESC');
         break;
     }
@@ -175,5 +182,37 @@ export class SalonService {
       where: { business: { id: businessId } },
       relations: ['business'],
     });
+  }
+
+  async getServiceTypes(): Promise<{ value: string; label: string }[]> {
+    return Object.values(ServiceType).map((value) => {
+      const label = value
+        .split('-')
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+      return { value, label };
+    });
+  }
+
+  async getLocations(): Promise<string[]> {
+    const businesses = await this.businessRepository
+      .createQueryBuilder('business')
+      .select('DISTINCT business.businessAddress', 'address')
+      .where('business.status = :status', { status: BusinessStatus.APPROVED })
+      .getRawMany();
+
+    const locations = Array.from(
+      new Set(
+        businesses
+          .map((b) => {
+            const addr = b.address || '';
+            const parts = addr.split(',');
+            return parts[parts.length - 1]?.trim() || '';
+          })
+          .filter((loc) => loc.length > 0),
+      ),
+    );
+
+    return locations.sort();
   }
 }

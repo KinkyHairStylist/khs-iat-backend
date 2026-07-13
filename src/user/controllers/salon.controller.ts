@@ -87,6 +87,30 @@ export class SalonController {
   }
 
   @Public()
+  @Get('service-types')
+  @ApiOperation({
+    summary: 'Get all programmatic service types with value and label',
+  })
+  @ApiResponse({ status: 200, description: 'Return list of service types' })
+  async getServiceTypes() {
+    return this.salonService.getServiceTypes();
+  }
+
+  @Public()
+  @Get('locations')
+  @ApiOperation({
+    summary:
+      'Get list of distinct city/location values from approved businesses',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Return list of unique locations/cities',
+  })
+  async getLocations() {
+    return this.salonService.getLocations();
+  }
+
+  @Public()
   @Get('services/:businessId')
   @ApiOperation({ summary: 'Get all services for a business by business ID' })
   @ApiResponse({ status: 200, description: 'Return list of services' })
