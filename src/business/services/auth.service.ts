@@ -146,38 +146,8 @@ export class AuthService {
       where: { email: email.toLowerCase() },
     });
 
-    if (!user) {
-      throw new UnauthorizedException('No user');
-    }
-
     if (!user || !user.password) {
-      throw new UnauthorizedException('Invalid credentials.');
-    }
-
-    if (!user.isVerified) {
-      throw new UnauthorizedException(
-        'Account is not verified. Please verify your email.',
-      );
-    }
-
-    if (user.isSuspended) {
-      throw new UnauthorizedException('user has been suspended');
-    }
-
-    let message: string | undefined;
-
-    if (!user.isMerchant) {
-      message = 'This is not a business account. Kindly create a new business account.';
-      throw new UnauthorizedException(message);
-    }
-
-    const userBusiness = await this.businessRepo.findOne({
-      where: { ownerId: user.id },
-    });
-
-    if (!userBusiness) {
-      message = 'User does not own a business yet. Please create a business.';
-      throw new UnauthorizedException(message);
+      throw new UnauthorizedException('Invalid email or password.');
     }
 
     const passwordMatch = await this.passwordUtil.comparePassword(
@@ -185,21 +155,50 @@ export class AuthService {
       user.password,
     );
     if (!passwordMatch) {
-      throw new UnauthorizedException('Invalid credentials.');
+      throw new UnauthorizedException('Invalid email or password.');
     }
 
+    if (!user.isVerified) {
+      throw new UnauthorizedException(
+        'Your email address has not been verified. Please check your inbox and verify your email to continue.',
+      );
+    }
+
+    if (user.isSuspended) {
+      throw new UnauthorizedException(
+        'Your account has been suspended. Please contact support for assistance.',
+      );
+    }
+
+    if (!user.isMerchant) {
+      throw new UnauthorizedException(
+        'This email is not registered as a business account. Please sign up as a merchant or use your customer login.',
+      );
+    }
+
+    const userBusiness = await this.businessRepo.findOne({
+      where: { ownerId: user.id },
+    });
+
     const tokens = await getTokens(this.jwtService, user.id, user.email);
-    
+
     const role = {
       isStaff: user.isStaff,
       isMerchant: user.isMerchant,
       isCustomer: user.isCustomer,
     };
-    
-    return { 
-      ...tokens, 
-      message,
-      role
+
+    if (!userBusiness) {
+      return {
+        ...tokens,
+        message: 'User does not own a business yet. Please create a business.',
+        role,
+      };
+    }
+
+    return {
+      ...tokens,
+      role,
     };
   }
 
