@@ -26,6 +26,7 @@ import { Business } from '../entities/business.entity';
 import { BusinessService } from './business.service';
 import { getTokens } from '../../helpers/token.helper';
 import { CompanySize } from '../types/constants';
+import { EmailService } from '../../email/email.service';
 
 export interface TokenPair {
   accessToken: string;
@@ -52,6 +53,7 @@ export class AuthService {
     private readonly passwordUtil: PasswordUtil,
     private readonly otpService: OtpService,
     private readonly businessService: BusinessService,
+    private readonly emailService: EmailService,
   ) {}
 
   async register(createUserDto: CreateUserDto): Promise<TokenPair> {
@@ -91,6 +93,12 @@ export class AuthService {
     this.passwordUtil.validatePasswordStrength(password);
 
     const user = await this.createUser(processedDto);
+
+    this.emailService.sendMerchantWelcomeEmail(
+      user.email,
+      user.firstName || user.surname || 'Merchant',
+      user.id,
+    );
 
     return getTokens(this.jwtService, user.id, user.email);
   }
@@ -189,15 +197,20 @@ export class AuthService {
     }
 
     const tokens = await getTokens(this.jwtService, user.id, user.email);
-    
+
+    this.emailService.sendLoginNotificationEmail(
+      user.email,
+      user.firstName || user.surname || 'Merchant',
+    );
+
     const role = {
       isStaff: user.isStaff,
       isMerchant: user.isMerchant,
       isCustomer: user.isCustomer,
     };
-    
-    return { 
-      ...tokens, 
+
+    return {
+      ...tokens,
       message,
       role
     };

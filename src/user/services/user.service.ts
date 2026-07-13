@@ -276,6 +276,11 @@ export class UserService {
       user.email
     );
 
+    this.emailService.sendLoginNotificationEmail(
+      user.email,
+      user.firstName || 'Customer',
+    );
+
     return {
       message: 'Signup successful',
       token: accessToken,
@@ -318,6 +323,11 @@ export class UserService {
       this.jwtService,
       user.id,
       user.email
+    );
+
+    this.emailService.sendLoginNotificationEmail(
+      user.email,
+      user.firstName || 'Customer',
     );
 
     return {
