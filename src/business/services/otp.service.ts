@@ -69,8 +69,7 @@ export class OtpService {
     await this.otpRepo.save(otpRecord);
     this.logger.debug(`OTP generated for email ${email}`);
 
-    const subject = 'Forgotten Password Otp';
-    await this.emailService.sendEmail(email, subject, otp);
+    await this.emailService.sendOtpEmail(email, otp, 'password_reset');
   }
 
   async requestOtp(email: string): Promise<void> {
@@ -105,8 +104,7 @@ export class OtpService {
     await this.otpRepo.save(otpRecord);
     this.logger.debug(`OTP generated for email ${email}`);
 
-    const subject = 'Email Verification';
-    await this.emailService.sendEmail(email, subject, otp);
+    await this.emailService.sendOtpEmail(email, otp, 'verification');
   }
 
   async verifyOtp(
