@@ -95,12 +95,19 @@ export class SalonService {
             ("business"."luxuryOverride" IS NULL AND COALESCE((business.performance->>'rating')::FLOAT, 0) >= 4.5))`,
       );
     }
-    // Filter by services (array in text column)
+    // Filter by services using the real Service relation
     if (services.length > 0) {
       services.forEach((service, index) => {
-        query = query.andWhere(`:service${index} = ANY(business.service)`, {
-          [`service${index}`]: service,
-        });
+        query = query.leftJoinAndSelect(
+          'business.serviceList',
+          `serviceList${index}`,
+        );
+        query = query.andWhere(
+          `serviceList${index}.serviceType = :service${index}`,
+          {
+            [`service${index}`]: service,
+          },
+        );
       });
     }
 
