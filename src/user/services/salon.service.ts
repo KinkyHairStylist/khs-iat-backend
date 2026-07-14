@@ -1,6 +1,16 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
+
+const WEEKDAY_NAMES = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+] as const;
 
 import { Service } from 'src/business/entities/service.entity';
 import {
@@ -30,6 +40,8 @@ export class SalonService {
     lat?: number;
     lng?: number;
     category?: string;
+    date?: string;
+    time?: string;
   }): Promise<{
     data: Business[];
     total: number;
@@ -48,6 +60,8 @@ export class SalonService {
       lat,
       lng,
       category,
+      date,
+      time,
     } = options;
 
     let query = this.businessRepository
@@ -98,10 +112,7 @@ export class SalonService {
     // Filter by services using the real Service relation
     if (services.length > 0) {
       services.forEach((service, index) => {
-        query = query.leftJoinAndSelect(
-          'business.serviceList',
-          `serviceList${index}`,
-        );
+        query = query.leftJoin('business.serviceList', `serviceList${index}`);
         query = query.andWhere(
           `serviceList${index}.serviceType = :service${index}`,
           {
@@ -111,14 +122,28 @@ export class SalonService {
       });
     }
 
+    if (date) {
+      const parsedDate = new Date(date);
+      const day = WEEKDAY_NAMES[parsedDate.getUTCDay()];
+
+      query = query.leftJoin('business.bookingHours', 'bookingHours');
+      query = query.andWhere('bookingHours.day = :day', { day });
+      query = query.andWhere('bookingHours.isOpen = :isOpen', { isOpen: true });
+
+      if (time) {
+        query = query.andWhere('bookingHours.startTime <= :time', { time });
+        query = query.andWhere('bookingHours.endTime >= :time', { time });
+      }
+    }
+
     // Apply sorting
+    const ratingExpression =
+      "COALESCE((business.performance->>'rating')::FLOAT, 0)";
     switch (sortBy) {
       case 'topRated':
+        query = query.addSelect(ratingExpression, 'rating');
         query = query
-          .orderBy(
-            "COALESCE((business.performance->>'rating')::FLOAT, 0)",
-            'DESC',
-          )
+          .orderBy('rating', 'DESC')
           .addOrderBy('business.revenue', 'DESC');
         break;
 
@@ -135,11 +160,9 @@ export class SalonService {
 
       case 'bestMatch':
       default:
+        query = query.addSelect(ratingExpression, 'rating');
         query = query
-          .orderBy(
-            "COALESCE((business.performance->>'rating')::FLOAT, 0)",
-            'DESC',
-          )
+          .orderBy('rating', 'DESC')
           .addOrderBy('business.createdAt', 'DESC');
         break;
     }
@@ -154,7 +177,10 @@ export class SalonService {
     // Load services separately to avoid join issues with pagination
     for (const business of data) {
       business.serviceList = await this.serviceRepo.find({
-        where: { business: { id: business.id } },
+        where: {
+          business: { id: business.id },
+          ...(services.length > 0 ? { serviceType: In(services) } : {}),
+        },
       });
     }
 
