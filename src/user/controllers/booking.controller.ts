@@ -129,9 +129,10 @@ export class BookingController {
   })
   async rescheduleBooking(
     @Param('orderId') orderId: string,
-    @Body() body: { date: string; time: string },
+    @Body('newDate') newDate: string,
+    @Body('newTime') newTime: string,
   ) {
-    return this.bookingService.rescheduleBooking(orderId, new Date(body.date), body.time);
+    return this.bookingService.rescheduleBooking(orderId, new Date(newDate), newTime);
   }
 
   // (Existing) Get salon time slots (static example)

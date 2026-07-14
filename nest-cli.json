@@ -4,10 +4,6 @@
   "sourceRoot": "src",
   "entryFile": "src/main",
   "compilerOptions": {
-    "deleteOutDir": true,
-    "assets": [
-      { "include": "**/*.ejs", "outDir": "./dist/src" }
-    ],
-    "watchAssets": true
+    "deleteOutDir": true
   }
 }

@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { EmailModule } from 'src/email/email.module';
 import { Appointment } from 'src/business/entities/appointment.entity';
 import { Business } from 'src/business/entities/business.entity';
 import { Service } from 'src/business/entities/service.entity';
@@ -23,7 +22,6 @@ import { PaystackService } from 'src/payment/paystack.service';
     TypeOrmModule.forFeature([Appointment, Business, Service, Staff, Transaction, BusinessGiftCard, PlatformSettingsEntity, Review, ClientSchema, Card]),
     ReviewModule,
     BusinessWalletModule,
-    EmailModule,
   ],
   controllers: [BookingController],
   providers: [BookingService, PlatformSettingsService, PaystackService],

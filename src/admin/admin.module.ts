@@ -17,7 +17,7 @@ import { Dispute } from '../business/entities/dispute.entity';
 import { MembershipPlan } from '../business/entities/membership.entity';
 import { Subscription } from '../business/entities/subscription.entity';
 import { Payment } from './payment/entities/payment.entity';
-import { EmailModule } from '../email/email.module';
+import { EmailService } from '../email/email.service';
 import { PaymentService } from './payment/payment.service';
 import { CloudinaryModule } from '../user/modules/cloudinary.module';
 import { BusinessWalletModule } from 'src/business/wallet.module';
@@ -37,11 +37,11 @@ import { Transaction } from 'src/business/entities/transaction.entity';
     TypeOrmModule.forFeature([Transaction]),
     CloudinaryModule,
     BusinessWalletModule,
-    EmailModule,
   ],
   controllers: [AdminController, ArticleController, AdminAuthController],
   providers: [
     AdminService,
+    EmailService,
     PaymentService,
     ArticleService,
     AdminAuthService,

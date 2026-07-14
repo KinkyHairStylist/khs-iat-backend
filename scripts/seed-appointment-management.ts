@@ -331,7 +331,7 @@ const seedAppointments = async () => {
     await client.query('BEGIN');
 
     const ownerId = await upsertUser(client, {
-      email: 'alt.rl-61irtmx@yopmail.com',
+      email: 'gold.owner@khs-seed.local',
       firstName: 'Ifeanyi',
       surname: 'Gold',
       phoneNumber: '+2348012345000',
@@ -342,7 +342,7 @@ const seedAppointments = async () => {
 
     const clientUsers: SeedUser[] = [
       {
-        email: 'alt.dk-64090mj@yopmail.com',
+        email: 'client.one@khs-seed.local',
         firstName: 'Ada',
         surname: 'Okafor',
         phoneNumber: '+2348100000001',

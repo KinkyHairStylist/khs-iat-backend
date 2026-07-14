@@ -5,8 +5,9 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
+import sgMail from '@sendgrid/mail';
 import axios from 'axios';
 
 import { User } from '../../all_user_entities/user.entity';
@@ -27,7 +28,6 @@ import { Referral } from '../user_entities/referrals.entity';
 import { Gender } from 'src/business/types/constants';
 import { ReferralService } from './referral.service';
 import { PasswordUtil } from 'src/business/utils/password.util';
-import { EmailService } from '../../email/email.service';
 
 type SanitizedUser = Omit<
   User,
@@ -42,6 +42,8 @@ type SanitizedUser = Omit<
 
 @Injectable()
 export class UserService {
+  private fromEmail: string;
+
   constructor(
     @InjectRepository(User)
     private userRepository: Repository<User>,
@@ -52,11 +54,17 @@ export class UserService {
     private jwtService: JwtService,
     private readonly referralService: ReferralService,
     private readonly passwordUtil: PasswordUtil,
-    private readonly emailService: EmailService,
-    private readonly dataSource: DataSource,
-  ) {}
+  ) {
+    const apiKey = process.env.SENDGRID_API_KEY;
+    const fromEmail = process.env.SENDGRID_FROM_EMAIL;
 
-  private readonly otpCooldowns = new Map<string, number>();
+    if (!apiKey || !fromEmail) {
+      throw new Error('SENDGRID_API_KEY and SENDGRID_FROM_EMAIL must be set');
+    }
+
+    sgMail.setApiKey(apiKey);
+    this.fromEmail = fromEmail;
+  }
 
   private generateCode(): string {
     return Math.floor(10000 + Math.random() * 90000).toString();
@@ -100,20 +108,34 @@ export class UserService {
     email: string,
     code: string,
   ): Promise<void> {
-    this.emailService.sendOtpEmail(email, code, 'verification');
+    const msg = {
+      to: email,
+      from: this.fromEmail,
+      subject: 'Your KHS Email Verification Code',
+      text: `Your verification code is: ${code}. It is valid for 10 minutes.`,
+    };
+    await sgMail.send(msg);
   }
 
   private async sendResetCodeEmail(email: string, code: string): Promise<void> {
-    this.emailService.sendOtpEmail(email, code, 'password_reset');
+    const msg = {
+      to: email,
+      from: this.fromEmail,
+      subject: 'Password Reset Code',
+      text: `Your password reset code is: ${code}. It is valid for 10 minutes.`,
+    };
+    await sgMail.send(msg);
   }
 
   async getStarted(dto: GetStartedDto): Promise<AuthResponseDto> {
     const { email } = dto;
 
-    const lastSent = this.otpCooldowns.get(email);
-    if (lastSent && Date.now() - lastSent < 60_000) {
+    let user = await this.userRepository.findOne({ where: { email } });
+
+    // user exists and is fully registered
+    if (user && user.isVerified && user.password) {
       return {
-        message: 'Please wait about a minute before requesting a new code.',
+        message: 'User already exists. Please log in instead.',
         success: false,
       };
     }
@@ -121,46 +143,31 @@ export class UserService {
     const verificationCode = this.generateCode();
     const verificationExpires = new Date(Date.now() + 10 * 60 * 1000);
 
-    let user = await this.userRepository.findOne({ where: { email } });
-
-    if (user && user.isVerified && user.password) {
-      return { message: 'User already exists. Please log in instead.', success: false };
-    }
-
-    if (user && user.isVerified && !user.password) {
-      return { message: 'Email already verified. Please complete your registration.', success: false };
-    }
-
+    // user exists but not verified → update record
     if (user && !user.isVerified) {
-      return await this.dataSource.transaction(async (manager) => {
-        const locked = await manager
-          .createQueryBuilder(User, 'u')
-          .setLock('pessimistic_write')
-          .where('u.email = :email', { email })
-          .getOne();
+      user.verificationCode = verificationCode;
+      user.verificationExpires = verificationExpires;
 
-        if (!locked) {
-          return { message: 'User not found', success: false };
-        }
+      await this.userRepository.save(user);
+      await this.sendVerificationEmail(user.email, verificationCode);
 
-        locked.verificationCode = verificationCode;
-        locked.verificationExpires = verificationExpires;
-        await manager.save(locked);
-        this.otpCooldowns.set(email, Date.now());
-        await this.sendVerificationEmail(locked.email, verificationCode);
-        return { message: 'Verification code resent to your email.', success: true };
-      });
+      return {
+        message: 'Verification code resent to your email.',
+        success: true,
+      };
     }
 
+    // new user → create a new record
     const newUser = this.userRepository.create({
       email,
       isVerified: false,
       verificationCode,
       verificationExpires,
     });
+
     await this.userRepository.save(newUser);
-    this.otpCooldowns.set(email, Date.now());
     await this.sendVerificationEmail(newUser.email, verificationCode);
+
     return { message: 'Verification code sent', success: true };
   }
 
@@ -292,11 +299,6 @@ export class UserService {
       user.email
     );
 
-    this.emailService.sendLoginNotificationEmail(
-      user.email,
-      user.firstName || 'Customer',
-    );
-
     return {
       message: 'Signup successful',
       token: accessToken,
@@ -339,11 +341,6 @@ export class UserService {
       this.jwtService,
       user.id,
       user.email
-    );
-
-    this.emailService.sendLoginNotificationEmail(
-      user.email,
-      user.firstName || 'Customer',
     );
 
     return {
