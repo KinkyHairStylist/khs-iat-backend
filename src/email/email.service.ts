@@ -276,6 +276,26 @@ export class EmailService {
     );
   }
 
+  sendAddressUpdateEmail(
+    to: string,
+    name: string,
+    addressType: string,
+    fullAddress: string,
+    action: 'added' | 'updated',
+  ) {
+    const html = this.templateService.render('address-update', {
+      name,
+      addressType,
+      fullAddress,
+      action,
+      frontendUrl: this.frontendUrl,
+      year: new Date().getFullYear(),
+    });
+    const subject = `Address ${action === 'added' ? 'Added' : 'Updated'} – Kinky Hairstylist`;
+    const text = `Hi ${name}, your ${addressType} address (${fullAddress}) has been ${action}. If this wasn't you, contact support immediately.`;
+    this.sendEmail(to, subject, text, html, this.deliveryTeamEmail);
+  }
+
   private async sendWithRetry(msg: any, attempt: number) {
     try {
       await sgMail.send(msg);
