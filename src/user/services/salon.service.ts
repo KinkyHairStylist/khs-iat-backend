@@ -98,7 +98,7 @@ export class SalonService {
     // Filter by services (array in text column)
     if (services.length > 0) {
       services.forEach((service, index) => {
-        query = query.andWhere(`:service${index} = ANY(business.services)`, {
+        query = query.andWhere(`:service${index} = ANY(business.service)`, {
           [`service${index}`]: service,
         });
       });
