@@ -7,7 +7,6 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
-import sgMail from '@sendgrid/mail';
 import axios from 'axios';
 
 import { User } from '../../all_user_entities/user.entity';
@@ -28,6 +27,7 @@ import { Referral } from '../user_entities/referrals.entity';
 import { Gender } from 'src/business/types/constants';
 import { ReferralService } from './referral.service';
 import { PasswordUtil } from 'src/business/utils/password.util';
+import { EmailService } from '../../email/email.service';
 
 type SanitizedUser = Omit<
   User,
@@ -42,8 +42,6 @@ type SanitizedUser = Omit<
 
 @Injectable()
 export class UserService {
-  private fromEmail: string;
-
   constructor(
     @InjectRepository(User)
     private userRepository: Repository<User>,
@@ -54,17 +52,8 @@ export class UserService {
     private jwtService: JwtService,
     private readonly referralService: ReferralService,
     private readonly passwordUtil: PasswordUtil,
-  ) {
-    const apiKey = process.env.SENDGRID_API_KEY;
-    const fromEmail = process.env.SENDGRID_FROM_EMAIL;
-
-    if (!apiKey || !fromEmail) {
-      throw new Error('SENDGRID_API_KEY and SENDGRID_FROM_EMAIL must be set');
-    }
-
-    sgMail.setApiKey(apiKey);
-    this.fromEmail = fromEmail;
-  }
+    private readonly emailService: EmailService,
+  ) {}
 
   private generateCode(): string {
     return Math.floor(10000 + Math.random() * 90000).toString();
@@ -108,23 +97,11 @@ export class UserService {
     email: string,
     code: string,
   ): Promise<void> {
-    const msg = {
-      to: email,
-      from: this.fromEmail,
-      subject: 'Your KHS Email Verification Code',
-      text: `Your verification code is: ${code}. It is valid for 10 minutes.`,
-    };
-    await sgMail.send(msg);
+    this.emailService.sendOtpEmail(email, code, 'verification');
   }
 
   private async sendResetCodeEmail(email: string, code: string): Promise<void> {
-    const msg = {
-      to: email,
-      from: this.fromEmail,
-      subject: 'Password Reset Code',
-      text: `Your password reset code is: ${code}. It is valid for 10 minutes.`,
-    };
-    await sgMail.send(msg);
+    this.emailService.sendOtpEmail(email, code, 'password_reset');
   }
 
   async getStarted(dto: GetStartedDto): Promise<AuthResponseDto> {
@@ -299,6 +276,11 @@ export class UserService {
       user.email
     );
 
+    this.emailService.sendLoginNotificationEmail(
+      user.email,
+      user.firstName || 'Customer',
+    );
+
     return {
       message: 'Signup successful',
       token: accessToken,
@@ -341,6 +323,11 @@ export class UserService {
       this.jwtService,
       user.id,
       user.email
+    );
+
+    this.emailService.sendLoginNotificationEmail(
+      user.email,
+      user.firstName || 'Customer',
     );
 
     return {
