@@ -15,7 +15,7 @@ export class BlockedTimeSlot {
   type: string;
 
   @Column({ type: 'varchar', nullable: true })
-  title: string | null;
+  title: string;
 
   @Column({ type: 'date' })
   date: string;
@@ -30,5 +30,5 @@ export class BlockedTimeSlot {
   teamMember: string;
 
   @Column({ type: 'varchar', nullable: true })
-  description: string | null;
+  description: string;
 }
