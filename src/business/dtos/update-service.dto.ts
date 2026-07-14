@@ -2,6 +2,7 @@ import { IsString, IsNumber, IsOptional, IsUUID, IsEnum } from 'class-validator'
 import { ApiProperty } from '@nestjs/swagger';
 import { BusinessCategory } from '../types/category.enum';
 import { ServiceType } from '../types/service-type.enum';
+import { PriceType } from '../types/price-type.enum';
 
 export class UpdateServiceDto {
   @ApiProperty({
@@ -41,13 +42,40 @@ export class UpdateServiceDto {
   description?: string;
 
   @ApiProperty({
-    description: 'Service price (optional)',
+    description: 'Price type: fixed or variable',
+    enum: PriceType,
+    required: false
+  })
+  @IsOptional()
+  @IsEnum(PriceType)
+  priceType?: PriceType;
+
+  @ApiProperty({
+    description: 'Service price (for fixed pricing)',
     example: 50.00,
     required: false
   })
   @IsNumber()
   @IsOptional()
   price?: number;
+
+  @ApiProperty({
+    description: 'Minimum price (for variable pricing)',
+    example: 30.00,
+    required: false
+  })
+  @IsNumber()
+  @IsOptional()
+  minPrice?: number;
+
+  @ApiProperty({
+    description: 'Maximum price (for variable pricing)',
+    example: 80.00,
+    required: false
+  })
+  @IsNumber()
+  @IsOptional()
+  maxPrice?: number;
 
   @ApiProperty({
     description: 'Service duration (optional)',
