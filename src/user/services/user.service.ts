@@ -5,7 +5,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import axios from 'axios';
 
@@ -53,7 +53,10 @@ export class UserService {
     private readonly referralService: ReferralService,
     private readonly passwordUtil: PasswordUtil,
     private readonly emailService: EmailService,
+    private readonly dataSource: DataSource,
   ) {}
+
+  private readonly otpCooldowns = new Map<string, number>();
 
   private generateCode(): string {
     return Math.floor(10000 + Math.random() * 90000).toString();
@@ -107,12 +110,10 @@ export class UserService {
   async getStarted(dto: GetStartedDto): Promise<AuthResponseDto> {
     const { email } = dto;
 
-    let user = await this.userRepository.findOne({ where: { email } });
-
-    // user exists and is fully registered
-    if (user && user.isVerified && user.password) {
+    const lastSent = this.otpCooldowns.get(email);
+    if (lastSent && Date.now() - lastSent < 60_000) {
       return {
-        message: 'User already exists. Please log in instead.',
+        message: 'Please wait about a minute before requesting a new code.',
         success: false,
       };
     }
@@ -120,31 +121,46 @@ export class UserService {
     const verificationCode = this.generateCode();
     const verificationExpires = new Date(Date.now() + 10 * 60 * 1000);
 
-    // user exists but not verified → update record
-    if (user && !user.isVerified) {
-      user.verificationCode = verificationCode;
-      user.verificationExpires = verificationExpires;
+    let user = await this.userRepository.findOne({ where: { email } });
 
-      await this.userRepository.save(user);
-      await this.sendVerificationEmail(user.email, verificationCode);
-
-      return {
-        message: 'Verification code resent to your email.',
-        success: true,
-      };
+    if (user && user.isVerified && user.password) {
+      return { message: 'User already exists. Please log in instead.', success: false };
     }
 
-    // new user → create a new record
+    if (user && user.isVerified && !user.password) {
+      return { message: 'Email already verified. Please complete your registration.', success: false };
+    }
+
+    if (user && !user.isVerified) {
+      return await this.dataSource.transaction(async (manager) => {
+        const locked = await manager
+          .createQueryBuilder(User, 'u')
+          .setLock('pessimistic_write')
+          .where('u.email = :email', { email })
+          .getOne();
+
+        if (!locked) {
+          return { message: 'User not found', success: false };
+        }
+
+        locked.verificationCode = verificationCode;
+        locked.verificationExpires = verificationExpires;
+        await manager.save(locked);
+        this.otpCooldowns.set(email, Date.now());
+        await this.sendVerificationEmail(locked.email, verificationCode);
+        return { message: 'Verification code resent to your email.', success: true };
+      });
+    }
+
     const newUser = this.userRepository.create({
       email,
       isVerified: false,
       verificationCode,
       verificationExpires,
     });
-
     await this.userRepository.save(newUser);
+    this.otpCooldowns.set(email, Date.now());
     await this.sendVerificationEmail(newUser.email, verificationCode);
-
     return { message: 'Verification code sent', success: true };
   }
 

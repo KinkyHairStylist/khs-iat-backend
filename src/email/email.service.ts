@@ -1,22 +1,17 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import sgMail from '@sendgrid/mail';
-import {
-  renderOtpEmail,
-  renderWelcomeEmail,
-  renderPasswordResetEmail,
-  renderMerchantWelcomeEmail,
-  renderMerchantTeamNotification,
-  renderStaffWelcomeEmail,
-  renderLoginNotificationEmail,
-} from './templates';
+import { TemplateService } from './template.service';
 
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
   private readonly maxRetries = 3;
 
-  constructor(private configService: ConfigService) {
+  constructor(
+    private configService: ConfigService,
+    private templateService: TemplateService,
+  ) {
     sgMail.setApiKey(this.configService.get<any>('SENDGRID_API_KEY'));
   }
 
@@ -50,18 +45,36 @@ export class EmailService {
   }
 
   sendWelcomeEmail(to: string, name: string) {
-    const { html, text } = renderWelcomeEmail(name, this.frontendUrl);
+    const html = this.templateService.render('welcome', { name, frontendUrl: this.frontendUrl, year: new Date().getFullYear() });
+    const text = `Welcome ${name}! Thanks for joining us.`;
     return this.sendEmail(to, 'Welcome to Our App!', text, html);
   }
 
   sendPasswordResetEmail(to: string, resetToken: string) {
     const resetUrl = `${this.frontendUrl}/reset-password?token=${resetToken}`;
-    const { html, text } = renderPasswordResetEmail(resetUrl, this.frontendUrl);
+    const html = this.templateService.render('password-reset', { resetUrl, frontendUrl: this.frontendUrl, year: new Date().getFullYear() });
+    const text = `Reset your password here: ${resetUrl}`;
     return this.sendEmail(to, 'Password Reset Request', text, html);
   }
 
   sendOtpEmail(email: string, otp: string, type: 'verification' | 'password_reset') {
-    const { html, text, subject } = renderOtpEmail(otp, type, email, this.frontendUrl);
+    const isVerification = type === 'verification';
+    const html = this.templateService.render('otp-email', {
+      eyebrow: 'Verify your email',
+      headline: isVerification ? 'Verify your email address' : 'Reset your password',
+      explanation: isVerification
+        ? 'Use the code below to verify your email address and complete your sign-up.'
+        : 'Use the code below to reset your password.',
+      otp,
+      ctaUrl: isVerification
+        ? `${this.frontendUrl}/merchant/auth/signup/email-verification-modal`
+        : `${this.frontendUrl}/merchant/auth/forgot-password/reset-password-verification-modal?email=${encodeURIComponent(email)}`,
+      ctaText: isVerification ? 'Verify Email' : 'Reset Password',
+      frontendUrl: this.frontendUrl,
+      year: new Date().getFullYear(),
+    });
+    const subject = isVerification ? 'Verify your email address' : 'Reset your password';
+    const text = `Your verification code is: ${otp}`;
     this.sendEmail(email, subject, text, html, this.deliveryTeamEmail);
   }
 
@@ -71,7 +84,17 @@ export class EmailService {
     businessName: string,
     tempPassword: string,
   ) {
-    const { html, text } = renderStaffWelcomeEmail(to, firstName, businessName, tempPassword, this.frontendUrl);
+    const loginUrl = `${this.frontendUrl}/login`;
+    const html = this.templateService.render('staff-welcome', {
+      to,
+      firstName,
+      businessName,
+      tempPassword,
+      loginUrl,
+      frontendUrl: this.frontendUrl,
+      year: new Date().getFullYear(),
+    });
+    const text = `Welcome to ${businessName}, ${firstName}! Your temporary password is: ${tempPassword}. Log in at ${loginUrl}`;
 
     const msg = {
       to,
@@ -89,9 +112,17 @@ export class EmailService {
 
   sendMerchantWelcomeEmail(to: string, merchantName: string, merchantId: string) {
     const setupUrl = `${this.frontendUrl}/merchant/business-setup/step-1`;
-    const data = { merchantName, merchantId, email: to, setupUrl, frontendUrl: this.frontendUrl };
+    const shared = {
+      frontendUrl: this.frontendUrl,
+      year: new Date().getFullYear(),
+    };
 
-    const { html, text } = renderMerchantWelcomeEmail(data);
+    const html = this.templateService.render('merchant-welcome', {
+      merchantName,
+      setupUrl,
+      ...shared,
+    });
+    const text = `Welcome ${merchantName}! Complete your merchant setup here: ${setupUrl}`;
     this.sendEmail(
       to,
       'Welcome! Complete your merchant setup.',
@@ -103,7 +134,12 @@ export class EmailService {
     const teamTo = this.deliveryTeamEmail;
     if (teamTo) {
       this.logger.log(`Sending merchant registration notification to delivery team at ${teamTo}`);
-      const { html: teamHtml, text: teamText } = renderMerchantTeamNotification(data);
+      const teamHtml = this.templateService.render('merchant-team-notification', {
+        merchantId,
+        email: to,
+        ...shared,
+      });
+      const teamText = `New merchant registration #${merchantId} requires verification.`;
       const teamMsg = {
         to: teamTo,
         from: {
@@ -132,11 +168,71 @@ export class EmailService {
       timeZone: 'UTC',
     });
 
-    const { html, text } = renderLoginNotificationEmail(userName, now, this.frontendUrl);
+    const html = this.templateService.render('login-notification', {
+      userName,
+      timestamp: now,
+      frontendUrl: this.frontendUrl,
+      year: new Date().getFullYear(),
+    });
+    const text = `Hi ${userName}, we noticed a successful sign-in to your Kinky Hairstylist account at ${now}.`;
 
     this.sendEmail(
       to,
       'New sign-in to your Kinky Hairstylist account',
+      text,
+      html,
+      this.deliveryTeamEmail,
+    );
+  }
+
+  sendRescheduleConfirmationEmail(
+    to: string,
+    name: string,
+    businessName: string,
+    serviceName: string,
+    newDate: string,
+    newTime: string,
+  ) {
+    const html = this.templateService.render('reschedule-confirmation', {
+      name,
+      businessName,
+      serviceName,
+      newDate,
+      newTime,
+      frontendUrl: this.frontendUrl,
+      year: new Date().getFullYear(),
+    });
+    const text = `Hi ${name}, your appointment at ${businessName} for ${serviceName} has been rescheduled to ${newDate} at ${newTime}.`;
+    this.sendEmail(
+      to,
+      'Your appointment has been rescheduled',
+      text,
+      html,
+      this.deliveryTeamEmail,
+    );
+  }
+
+  sendCancellationConfirmationEmail(
+    to: string,
+    name: string,
+    businessName: string,
+    serviceName: string,
+    date: string,
+    time: string,
+  ) {
+    const html = this.templateService.render('cancellation-confirmation', {
+      name,
+      businessName,
+      serviceName,
+      date,
+      time,
+      frontendUrl: this.frontendUrl,
+      year: new Date().getFullYear(),
+    });
+    const text = `Hi ${name}, your appointment at ${businessName} for ${serviceName} on ${date} at ${time} has been cancelled.`;
+    this.sendEmail(
+      to,
+      'Your appointment has been cancelled',
       text,
       html,
       this.deliveryTeamEmail,
