@@ -886,6 +886,9 @@ export class BusinessService {
       description,
       price,
       duration,
+      priceType,
+      minPrice,
+      maxPrice,
     } = createServiceDto;
 
     let business = await this.businessRepo.findOne({
@@ -924,6 +927,9 @@ export class BusinessService {
       images,
       advertisementPlan,
       assignedStaff: staff,
+      priceType,
+      minPrice,
+      maxPrice,
     });
 
     return this.serviceRepo.save(service);
