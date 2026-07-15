@@ -18,6 +18,30 @@ import { CacheInterceptor } from '../../cache/cache.interceptor';
 export class SalonController {
   constructor(private readonly salonService: SalonService) {}
 
+  @Public()
+  @Get('service-types')
+  @ApiOperation({
+    summary: 'Get all programmatic service types with value and label',
+  })
+  @ApiResponse({ status: 200, description: 'Return list of service types' })
+  async getServiceTypes() {
+    return this.salonService.getServiceTypes();
+  }
+
+  @Public()
+  @Get('locations')
+  @ApiOperation({
+    summary:
+      'Get list of distinct city/location values from approved businesses',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Return list of unique locations/cities',
+  })
+  async getLocations() {
+    return this.salonService.getLocations();
+  }
+
   @Get()
   @ApiOperation({ summary: 'Get all salons with pagination and filters' })
   @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })

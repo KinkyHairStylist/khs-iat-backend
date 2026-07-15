@@ -7,7 +7,8 @@ import {
   UpdateDateColumn,
   JoinColumn,
   OneToMany,
-  ManyToMany
+  ManyToMany,
+  JoinTable,
 } from 'typeorm';
 
 import { Business } from './business.entity';
@@ -16,6 +17,7 @@ import { AdvertisementPlan } from './advertisement-plan.entity';
 import { Appointment } from './appointment.entity'
 import { BusinessCategory } from '../types/category.enum';
 import { ServiceType } from '../types/service-type.enum';
+import { PriceType } from '../types/price-type.enum';
 
 @Entity('Service')
 export class Service {
@@ -34,8 +36,17 @@ export class Service {
   @Column({ nullable: true })
   description: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'enum', enum: PriceType, default: PriceType.FIXED, nullable: true })
+  priceType: PriceType;
+
+  @Column({ nullable: true, type: 'decimal', precision: 10, scale: 2 })
   price: number;
+
+  @Column({ nullable: true, type: 'decimal', precision: 10, scale: 2 })
+  minPrice: number;
+
+  @Column({ nullable: true, type: 'decimal', precision: 10, scale: 2 })
+  maxPrice: number;
 
   @Column({ nullable: true })
   duration: string;
@@ -51,9 +62,9 @@ export class Service {
   business: Business;
 
   @ManyToMany(() => Staff, (staff) => staff.services, {
-    onDelete: 'SET NULL',
     nullable: true,
   })
+  @JoinTable({ name: 'service_staff' })
   assignedStaff: Staff[];
 
   @CreateDateColumn()

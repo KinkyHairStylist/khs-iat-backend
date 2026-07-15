@@ -8,6 +8,7 @@ import { Staff } from 'src/business/entities/staff.entity';
 import { Transaction, TransactionType, PaymentMethod, TransactionStatus as TxnStatus } from 'src/business/entities/transaction.entity';
 import { WalletCurrency } from 'src/admin/payment/enums/wallet.enum';
 import { PlatformSettingsService } from 'src/admin/platform-settings/platform-settings.service';
+import { EmailService } from 'src/email/email.service';
 import { PaystackService } from 'src/payment/paystack.service';
 import { Card } from 'src/all_user_entities/card.entity';
 import { BusinessGiftCard } from 'src/business/entities/business-giftcard.entity';
@@ -41,6 +42,7 @@ export class BookingService {
     private readonly dataSource: DataSource,
     private readonly paystack: PaystackService,
     private readonly walletService: BusinessWalletService,
+    private readonly emailService: EmailService,
   ) {}
 
   // Create Booking
@@ -645,7 +647,7 @@ export class BookingService {
     // Find all appointments for this orderId
     const appointments = await this.bookingRepository.find({
       where: { orderId },
-      relations: ['service'],
+      relations: ['client', 'service'],
     });
 
     if (appointments.length === 0) {
@@ -703,6 +705,19 @@ export class BookingService {
 
     await this.bookingRepository.save(appointmentsToCancel);
 
+    const firstAppt = appointmentsToCancel[0];
+    if (firstAppt?.client?.email) {
+      const serviceNames = [...new Set(appointmentsToCancel.map(a => a.serviceName))].join(', ');
+      this.emailService.sendCancellationConfirmationEmail(
+        firstAppt.client.email,
+        firstAppt.client.firstName || 'Valued Customer',
+        firstAppt.business?.businessName || 'the salon',
+        serviceNames,
+        firstAppt.date,
+        firstAppt.time,
+      );
+    }
+
     const remainingCount = appointments.filter(
       (appt) => appt.status !== AppointmentStatus.CANCELLED,
     ).length;
@@ -737,14 +752,28 @@ export class BookingService {
   async rescheduleBooking(orderId: string, newDate: Date, newTime: string): Promise<{ message: string }> {
     const appointment = await this.bookingRepository.findOne({
       where: { orderId },
+      relations: ['client'],
     });
     if (!appointment) {
       throw new NotFoundException('Appointment not found');
     }
-    appointment.date = newDate.toISOString().split('T')[0]; // Format as date string
+    const formattedDate = newDate.toISOString().split('T')[0];
+    appointment.date = formattedDate;
     appointment.time = newTime;
     appointment.status = AppointmentStatus.RESCHEDULED;
     await this.bookingRepository.save(appointment);
+
+    if (appointment.client?.email) {
+      this.emailService.sendRescheduleConfirmationEmail(
+        appointment.client.email,
+        appointment.client.firstName || 'Valued Customer',
+        appointment.business?.businessName || 'the salon',
+        appointment.serviceName,
+        formattedDate,
+        newTime,
+      );
+    }
+
     return { message: 'Appointment rescheduled successfully' };
   }
 
