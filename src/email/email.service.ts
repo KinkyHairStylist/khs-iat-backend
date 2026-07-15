@@ -1,17 +1,29 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import sgMail from '@sendgrid/mail';
+import { TemplateService } from './template.service';
 
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
   private readonly maxRetries = 3;
 
-  constructor(private configService: ConfigService) {
+  constructor(
+    private configService: ConfigService,
+    private templateService: TemplateService,
+  ) {
     sgMail.setApiKey(this.configService.get<any>('SENDGRID_API_KEY'));
   }
 
-  sendEmail(to: string, subject: string, text: string, html?: string) {
+  private get frontendUrl(): string {
+    return this.configService.get<string>('FRONTEND_URL') || 'https://kinkyhairstylists.com';
+  }
+
+  private get deliveryTeamEmail(): string | undefined {
+    return this.configService.get<string>('DELIVERY_TEAM_EMAIL');
+  }
+
+  sendEmail(to: string, subject: string, text: string, html?: string, cc?: string) {
     const msg: any = {
       to,
       from: {
@@ -23,39 +35,47 @@ export class EmailService {
       html: html || text,
     };
 
+    if (cc) {
+      msg.cc = [{ email: cc }];
+      this.logger.log(`CC recipient set: ${cc} on email to ${to} (subject: "${subject}")`);
+    }
+
     void this.sendWithRetry(msg, 1);
     return { success: true };
   }
 
   sendWelcomeEmail(to: string, name: string) {
-    const subject = 'Welcome to Our App!';
-    const text = `Hi ${name}, welcome to our platform!`;
-    const html = `
-      <div style="font-family: Arial, sans-serif;">
-        <h2>Welcome ${name}!</h2>
-        <p>Thanks for joining us. We're excited to have you on board.</p>
-      </div>
-    `;
-
-    return this.sendEmail(to, subject, text, html);
+    const html = this.templateService.render('welcome', { name, frontendUrl: this.frontendUrl, year: new Date().getFullYear() });
+    const text = `Welcome ${name}! Thanks for joining us.`;
+    return this.sendEmail(to, 'Welcome to Our App!', text, html);
   }
 
   sendPasswordResetEmail(to: string, resetToken: string) {
-    const subject = 'Password Reset Request';
-    const resetUrl = `${this.configService.get<string>('FRONTEND_URL')}/reset-password?token=${resetToken}`;
-    const text = `Click this link to reset your password: ${resetUrl}`;
-    const html = `
-      <div style="font-family: Arial, sans-serif;">
-        <h2>Password Reset</h2>
-        <p>You requested a password reset. Click the button below:</p>
-        <a href="${resetUrl}" style="background-color: #4CAF50; color: white; padding: 14px 20px; text-decoration: none; border-radius: 4px; display: inline-block;">
-          Reset Password
-        </a>
-        <p>If you didn't request this, please ignore this email.</p>
-      </div>
-    `;
+    const resetUrl = `${this.frontendUrl}/reset-password?token=${resetToken}`;
+    const html = this.templateService.render('password-reset', { resetUrl, frontendUrl: this.frontendUrl, year: new Date().getFullYear() });
+    const text = `Reset your password here: ${resetUrl}`;
+    return this.sendEmail(to, 'Password Reset Request', text, html);
+  }
 
-    return this.sendEmail(to, subject, text, html);
+  sendOtpEmail(email: string, otp: string, type: 'verification' | 'password_reset') {
+    const isVerification = type === 'verification';
+    const html = this.templateService.render('otp-email', {
+      eyebrow: 'Verify your email',
+      headline: isVerification ? 'Verify your email address' : 'Reset your password',
+      explanation: isVerification
+        ? 'Use the code below to verify your email address and complete your sign-up.'
+        : 'Use the code below to reset your password.',
+      otp,
+      ctaUrl: isVerification
+        ? `${this.frontendUrl}/merchant/auth/signup/email-verification-modal`
+        : `${this.frontendUrl}/merchant/auth/forgot-password/reset-password-verification-modal?email=${encodeURIComponent(email)}`,
+      ctaText: isVerification ? 'Verify Email' : 'Reset Password',
+      frontendUrl: this.frontendUrl,
+      year: new Date().getFullYear(),
+    });
+    const subject = isVerification ? 'Verify your email address' : 'Reset your password';
+    const text = `Your verification code is: ${otp}`;
+    this.sendEmail(email, subject, text, html, this.deliveryTeamEmail);
   }
 
   sendStaffWelcomeEmail(
@@ -64,61 +84,17 @@ export class EmailService {
     businessName: string,
     tempPassword: string,
   ) {
-    const loginUrl = `${process.env.FRONTEND_URL}/prospect/auth/login/email-login-modal`;
-
-    const html = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Welcome to ${businessName}</title>
-  <style>
-    body { margin: 0; padding: 0; background-color: #f9fafb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
-    .container { max-width: 600px; margin: 30px auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.08); border: 1px solid #e5e7eb; }
-    .header { background: #ED3131; padding: 32px 40px; text-align: center; color: white; }
-    .header h1 { margin: 0; font-size: 28px; font-weight: 700; }
-    .header p { margin: 8px 0 0; font-size: 16px; opacity: 0.95; }
-    .body { padding: 40px; color: #1f2937; }
-    .greeting { font-size: 18px; margin-bottom: 20px; }
-    .highlight-box { background: #FEF2F2; border-left: 4px solid #ED3131; padding: 20px; border-radius: 0 8px 8px 0; margin: 28px 0; font-size: 15px; }
-    .highlight-box strong { color: #B91C1C; }
-    .login-btn { display: block; width: fit-content; margin: 32px auto; padding: 14px 32px; background: #ED3131; color: white; font-weight: 600; font-size: 16px; text-decoration: none; border-radius: 9999px; box-shadow: 0 4px 12px rgba(237,49,49,0.3); }
-    .footer { background: #f3f4f6; padding: 24px; text-align: center; color: #6b7280; font-size: 13px; }
-    .footer a { color: #ED3131; text-decoration: none; }
-    ul { padding-left: 20px; margin: 16px 0; }
-    li { margin-bottom: 8px; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h1>Welcome to ${businessName}</h1>
-      <p>You've been added to the team!</p>
-    </div>
-    <div class="body">
-      <p class="greeting">Hi ${firstName || 'there'},</p>
-      <p>Great news! You've been added as a staff member at <strong>${businessName}</strong>.</p>
-      <div class="highlight-box">
-        <p><strong>Your login details:</strong></p>
-        <ul>
-          <li><strong>Email:</strong> ${to}</li>
-          <li><strong>Temporary Password:</strong> ${tempPassword}</li>
-        </ul>
-      </div>
-      <p style="text-align: center;">
-        <a href="${loginUrl}" class="login-btn">Log In Now</a>
-      </p>
-      <p>For security, please <strong>change your password</strong> immediately after logging in.</p>
-      <p>Welcome to the team — we're excited to have you!</p>
-    </div>
-    <div class="footer">
-      <p>This is an automated message from <strong>${businessName}</strong>.</p>
-      <p><a href="${process.env.FRONTEND_URL}">${process.env.FRONTEND_URL}</a></p>
-    </div>
-  </div>
-</body>
-</html>`.trim();
+    const loginUrl = `${this.frontendUrl}/login`;
+    const html = this.templateService.render('staff-welcome', {
+      to,
+      firstName,
+      businessName,
+      tempPassword,
+      loginUrl,
+      frontendUrl: this.frontendUrl,
+      year: new Date().getFullYear(),
+    });
+    const text = `Welcome to ${businessName}, ${firstName}! Your temporary password is: ${tempPassword}. Log in at ${loginUrl}`;
 
     const msg = {
       to,
@@ -128,16 +104,146 @@ export class EmailService {
       },
       subject: `Welcome to ${businessName} – Your Login Details`,
       html,
-      text: `Hi ${firstName},\n\nYou've been added to ${businessName}!\n\nLogin:\nEmail: ${to}\nPassword: ${tempPassword}\n\nLog in: ${loginUrl}\n\nPlease change your password after logging in.\n\nWelcome!`,
+      text,
     };
 
     void this.sendWithRetry(msg, 1);
   }
 
+  sendMerchantWelcomeEmail(to: string, merchantName: string, merchantId: string) {
+    const setupUrl = `${this.frontendUrl}/merchant/business-setup/step-1`;
+    const shared = {
+      frontendUrl: this.frontendUrl,
+      year: new Date().getFullYear(),
+    };
+
+    const html = this.templateService.render('merchant-welcome', {
+      merchantName,
+      setupUrl,
+      ...shared,
+    });
+    const text = `Welcome ${merchantName}! Complete your merchant setup here: ${setupUrl}`;
+    this.sendEmail(
+      to,
+      'Welcome! Complete your merchant setup.',
+      text,
+      html,
+      this.deliveryTeamEmail,
+    );
+
+    const teamTo = this.deliveryTeamEmail;
+    if (teamTo) {
+      this.logger.log(`Sending merchant registration notification to delivery team at ${teamTo}`);
+      const teamHtml = this.templateService.render('merchant-team-notification', {
+        merchantId,
+        email: to,
+        ...shared,
+      });
+      const teamText = `New merchant registration #${merchantId} requires verification.`;
+      const teamMsg = {
+        to: teamTo,
+        from: {
+          email: this.configService.get<string>('SENDGRID_FROM_EMAIL')!,
+          name: this.configService.get<string>('SENDGRID_FROM_NAME') || 'Kinky Hairstylist',
+        },
+        subject: `New merchant registration #${merchantId} requires verification.`,
+        html: teamHtml,
+        text: teamText,
+      };
+
+      void this.sendWithRetry(teamMsg, 1);
+    } else {
+      this.logger.warn('DELIVERY_TEAM_EMAIL is not set — skipping delivery team notification');
+    }
+  }
+
+  sendLoginNotificationEmail(
+    to: string,
+    userName: string,
+    timestamp?: string,
+  ) {
+    const now = timestamp || new Date().toLocaleString('en-US', {
+      dateStyle: 'full',
+      timeStyle: 'short',
+      timeZone: 'UTC',
+    });
+
+    const html = this.templateService.render('login-notification', {
+      userName,
+      timestamp: now,
+      frontendUrl: this.frontendUrl,
+      year: new Date().getFullYear(),
+    });
+    const text = `Hi ${userName}, we noticed a successful sign-in to your Kinky Hairstylist account at ${now}.`;
+
+    this.sendEmail(
+      to,
+      'New sign-in to your Kinky Hairstylist account',
+      text,
+      html,
+      this.deliveryTeamEmail,
+    );
+  }
+
+  sendRescheduleConfirmationEmail(
+    to: string,
+    name: string,
+    businessName: string,
+    serviceName: string,
+    newDate: string,
+    newTime: string,
+  ) {
+    const html = this.templateService.render('reschedule-confirmation', {
+      name,
+      businessName,
+      serviceName,
+      newDate,
+      newTime,
+      frontendUrl: this.frontendUrl,
+      year: new Date().getFullYear(),
+    });
+    const text = `Hi ${name}, your appointment at ${businessName} for ${serviceName} has been rescheduled to ${newDate} at ${newTime}.`;
+    this.sendEmail(
+      to,
+      'Your appointment has been rescheduled',
+      text,
+      html,
+      this.deliveryTeamEmail,
+    );
+  }
+
+  sendCancellationConfirmationEmail(
+    to: string,
+    name: string,
+    businessName: string,
+    serviceName: string,
+    date: string,
+    time: string,
+  ) {
+    const html = this.templateService.render('cancellation-confirmation', {
+      name,
+      businessName,
+      serviceName,
+      date,
+      time,
+      frontendUrl: this.frontendUrl,
+      year: new Date().getFullYear(),
+    });
+    const text = `Hi ${name}, your appointment at ${businessName} for ${serviceName} on ${date} at ${time} has been cancelled.`;
+    this.sendEmail(
+      to,
+      'Your appointment has been cancelled',
+      text,
+      html,
+      this.deliveryTeamEmail,
+    );
+  }
+
   private async sendWithRetry(msg: any, attempt: number) {
     try {
       await sgMail.send(msg);
-      this.logger.log(`Email sent to ${msg.to} (attempt ${attempt})`);
+      const ccInfo = msg.cc ? ` (CC: ${msg.cc.map((c: any) => c.email).join(', ')})` : '';
+      this.logger.log(`Email sent to ${msg.to}${ccInfo} (attempt ${attempt})`);
     } catch (error: any) {
       const statusCode = error.response?.statusCode || error.code;
       const body = error.response?.body;

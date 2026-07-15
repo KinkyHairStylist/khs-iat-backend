@@ -26,6 +26,7 @@ import { Business } from '../entities/business.entity';
 import { BusinessService } from './business.service';
 import { getTokens } from '../../helpers/token.helper';
 import { CompanySize } from '../types/constants';
+import { EmailService } from '../../email/email.service';
 
 export interface TokenPair {
   accessToken: string;
@@ -52,6 +53,7 @@ export class AuthService {
     private readonly passwordUtil: PasswordUtil,
     private readonly otpService: OtpService,
     private readonly businessService: BusinessService,
+    private readonly emailService: EmailService,
   ) {}
 
   async register(createUserDto: CreateUserDto): Promise<TokenPair> {
@@ -91,6 +93,12 @@ export class AuthService {
     this.passwordUtil.validatePasswordStrength(password);
 
     const user = await this.createUser(processedDto);
+
+    this.emailService.sendMerchantWelcomeEmail(
+      user.email,
+      user.firstName || user.surname || 'Merchant',
+      user.id,
+    );
 
     return getTokens(this.jwtService, user.id, user.email);
   }
@@ -146,38 +154,8 @@ export class AuthService {
       where: { email: email.toLowerCase() },
     });
 
-    if (!user) {
-      throw new UnauthorizedException('No user');
-    }
-
     if (!user || !user.password) {
-      throw new UnauthorizedException('Invalid credentials.');
-    }
-
-    if (!user.isVerified) {
-      throw new UnauthorizedException(
-        'Account is not verified. Please verify your email.',
-      );
-    }
-
-    if (user.isSuspended) {
-      throw new UnauthorizedException('user has been suspended');
-    }
-
-    let message: string | undefined;
-
-    if (!user.isMerchant) {
-      message = 'This is not a business account. Kindly create a new business account.';
-      throw new UnauthorizedException(message);
-    }
-
-    const userBusiness = await this.businessRepo.findOne({
-      where: { ownerId: user.id },
-    });
-
-    if (!userBusiness) {
-      message = 'User does not own a business yet. Please create a business.';
-      throw new UnauthorizedException(message);
+      throw new UnauthorizedException('Invalid email or password.');
     }
 
     const passwordMatch = await this.passwordUtil.comparePassword(
@@ -185,20 +163,54 @@ export class AuthService {
       user.password,
     );
     if (!passwordMatch) {
-      throw new UnauthorizedException('Invalid credentials.');
+      throw new UnauthorizedException('Invalid email or password.');
     }
 
+    if (!user.isVerified) {
+      throw new UnauthorizedException(
+        'Your email address has not been verified. Please check your inbox and verify your email to continue.',
+      );
+    }
+
+    if (user.isSuspended) {
+      throw new UnauthorizedException(
+        'Your account has been suspended. Please contact support for assistance.',
+      );
+    }
+
+    if (!user.isMerchant) {
+      throw new UnauthorizedException(
+        'This email is not registered as a business account. Please sign up as a merchant or use your customer login.',
+      );
+    }
+
+    const userBusiness = await this.businessRepo.findOne({
+      where: { ownerId: user.id },
+    });
+
     const tokens = await getTokens(this.jwtService, user.id, user.email);
-    
+
+    this.emailService.sendLoginNotificationEmail(
+      user.email,
+      user.firstName || user.surname || 'Merchant',
+    );
+
     const role = {
       isStaff: user.isStaff,
       isMerchant: user.isMerchant,
       isCustomer: user.isCustomer,
     };
-    
-    return { 
-      ...tokens, 
-      message,
+
+    if (!userBusiness) {
+      return {
+        ...tokens,
+        message: 'User does not own a business yet. Please create a business.',
+        role,
+      };
+    }
+
+    return {
+      ...tokens,
       role
     };
   }
