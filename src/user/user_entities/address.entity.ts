@@ -12,7 +12,7 @@ export class UserAddress {
   @Column({ type: 'varchar', nullable: false })
   fullAddress: string;
 
-  @ManyToOne(() => User, user => user.addresses)
+  @ManyToOne(() => User, (user) => user.addresses, { onDelete: 'CASCADE' })
   user: User;
 
   @CreateDateColumn()

@@ -577,8 +577,8 @@ export class BusinessService {
       relations: ['business','business.serviceList'],
     })
 
-   if (!staff) {throw new Error('No staff found')}
-   if(!staff.business){throw new Error("business not found")}
+   if (!staff) {throw new NotFoundException('No staff record found for this user')}
+   if(!staff.business){throw new NotFoundException("Business not found for this staff member")}
 
     return staff.business;
   }
