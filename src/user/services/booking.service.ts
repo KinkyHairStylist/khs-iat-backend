@@ -749,7 +749,7 @@ export class BookingService {
   }
 
   // Reschedule Booking
-  async rescheduleBooking(orderId: string, newDate: Date, newTime: string): Promise<{ message: string }> {
+  async rescheduleBooking(orderId: string, newDate: string, newTime: string): Promise<{ message: string }> {
     const appointment = await this.bookingRepository.findOne({
       where: { orderId },
       relations: ['client'],
@@ -757,7 +757,7 @@ export class BookingService {
     if (!appointment) {
       throw new NotFoundException('Appointment not found');
     }
-    const formattedDate = newDate.toISOString().split('T')[0];
+    const formattedDate = newDate.split('T')[0];
     appointment.date = formattedDate;
     appointment.time = newTime;
     appointment.status = AppointmentStatus.RESCHEDULED;

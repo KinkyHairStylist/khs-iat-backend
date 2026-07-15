@@ -1,4 +1,4 @@
-﻿import { Controller, Post, Body, Get, Param, Patch, UseGuards } from '@nestjs/common';
+﻿import { Controller, Post, Body, Get, Param, Patch, UseGuards, BadRequestException } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { Role } from 'src/middleware/role.enum';
@@ -131,7 +131,10 @@ export class BookingController {
     @Param('orderId') orderId: string,
     @Body() body: { date: string; time: string },
   ) {
-    return this.bookingService.rescheduleBooking(orderId, new Date(body.date), body.time);
+    if (!body.date || isNaN(new Date(body.date).getTime())) {
+      throw new BadRequestException('Invalid or missing date value');
+    }
+    return this.bookingService.rescheduleBooking(orderId, body.date, body.time);
   }
 
   // (Existing) Get salon time slots (static example)
