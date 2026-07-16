@@ -39,7 +39,7 @@ import { BusinessWalletService } from './wallet.service';
 import { MailchimpService } from 'src/integration/services/mailchimp.service';
 import { BusinessOwnerSettingsService } from './business-owner-settings.service';
 import { ZohoBooksService } from 'src/integration/services/zohobooks.service';
-import {PasswordUtil} from "../utils/password.util";
+import { PasswordUtil } from '../utils/password.util';
 import { promises } from 'dns';
 
 @Injectable()
@@ -370,8 +370,8 @@ export class BusinessService {
   }
 
   async addStaff(
-      ownerMail: string,
-      createStaffDto: CreateStaffDto,
+    ownerMail: string,
+    createStaffDto: CreateStaffDto,
   ): Promise<Staff> {
     const {
       addresses,
@@ -409,14 +409,16 @@ export class BusinessService {
     // If user already exists, check if they're already staff at this business
     if (user) {
       const existingStaff = await this.staffRepo.findOne({
-        where: { 
+        where: {
           email: staffEmail,
-          business: { id: business.id }
+          business: { id: business.id },
         },
       });
 
       if (existingStaff) {
-        throw new BadRequestException('This user is already a staff member at your business');
+        throw new BadRequestException(
+          'This user is already a staff member at your business',
+        );
       }
     }
 
@@ -430,20 +432,20 @@ export class BusinessService {
       user.phoneNumber = phoneNumber;
       if (gender) user.gender = gender.toUpperCase() as any;
       if (avatar) user.avatarUrl = avatar;
-      
+
       // Business staff are merchants
       user.isMerchant = true;
       user.isCustomer = false;
       user.isStaff = false;
-      
+
       await this.userRepo.save(user);
     } else {
       // Email does not exist - create new user with password
       // Generate strong random password
       tempPassword =
-          Math.random().toString(36).slice(-10) +
-          Math.random().toString(36).toUpperCase().slice(-4) +
-          ['!', '@', '#'][Math.floor(Math.random() * 3)];
+        Math.random().toString(36).slice(-10) +
+        Math.random().toString(36).toUpperCase().slice(-4) +
+        ['!', '@', '#'][Math.floor(Math.random() * 3)];
 
       const hashedPassword = await this.passwordUtil.hashPassword(tempPassword);
 
@@ -465,10 +467,10 @@ export class BusinessService {
 
       try {
         await this.emailService.sendStaffWelcomeEmail(
-            staffEmail,
-            firstName,
-            business.businessName,
-            tempPassword
+          staffEmail,
+          firstName,
+          business.businessName,
+          tempPassword,
         );
       } catch (emailError) {
         console.error('Failed to send welcome email:', emailError);
@@ -504,7 +506,7 @@ export class BusinessService {
       staff.addresses = await this.addressRepo.save(cleanAddresses);
     }
 
-    // Handle assigned services 
+    // Handle assigned services
     if (selectedServices?.length) {
       staff.services = await this.serviceRepo.findByIds(selectedServices);
       await this.staffRepo.save(staff);
@@ -514,7 +516,6 @@ export class BusinessService {
   }
 
   async editStaff(staffId: string, editStaffDto: EditStaffDto): Promise<Staff> {
-
     const staff = await this.staffRepo.findOne({
       where: { id: staffId },
       relations: ['addresses', 'emergencyContacts'],
@@ -526,7 +527,9 @@ export class BusinessService {
 
     // Ensure user record stays as merchant when staff is edited
     if (staff.email) {
-      const user = await this.userRepo.findOne({ where: { email: staff.email } });
+      const user = await this.userRepo.findOne({
+        where: { email: staff.email },
+      });
       if (user && !user.isMerchant) {
         user.isMerchant = true;
         user.isCustomer = false;
@@ -556,7 +559,7 @@ export class BusinessService {
       staff.emergencyContacts = newContacts;
     }
 
-    if(editStaffDto.settings){
+    if (editStaffDto.settings) {
       staff.settings = editStaffDto.settings;
     }
 
@@ -571,18 +574,18 @@ export class BusinessService {
     return staff;
   }
 
-  async getBusinessFromStaff(mail:string){
+  async getBusinessFromStaff(userId: string) {
     const staff = await this.staffRepo.findOne({
-      where:{email:mail},
-      relations: ['business','business.serviceList'],
-    })
+      where: { id: userId },
+      relations: ['business', 'business.serviceList'],
+    });
 
     if (staff?.business) {
       return staff.business;
     }
 
     const ownedBusiness = await this.businessRepo.findOne({
-      where: { ownerEmail: mail },
+      where: { owner: { id: userId } },
       relations: ['serviceList'],
     });
 
@@ -593,12 +596,13 @@ export class BusinessService {
     throw new Error('No staff found');
   }
 
-  async createBlockedTime(body: CreateBlockedTimeDto) {
+  async createBlockedTime(userId: string, body: CreateBlockedTimeDto) {
+    if (!userId) throw new Error('Invalid User');
+
     let business = await this.businessRepo.findOne({
-      where: { ownerEmail: body.ownerMail },
+      where: { owner: { id: userId } },
     });
-    if(!body.ownerMail) throw new Error('Invalid User')
-    if(!business) business = await this.getBusinessFromStaff(body.ownerMail)
+    if (!business) business = await this.getBusinessFromStaff(userId);
     if (!business) throw new NotFoundException('Business not found');
 
     const blockedSlot = this.blockedSlotRepo.create({
@@ -620,12 +624,13 @@ export class BusinessService {
     return { message: 'Blocked time deleted successfully' };
   }
 
-  async getBlockedSlots(userMail: string) {
+  async getBlockedSlots(userId: string) {
+    if (!userId) throw new Error('Invalid User');
+
     let business = await this.businessRepo.findOne({
-      where: { ownerEmail: userMail },
+      where: { owner: { id: userId } },
     });
-    if(!userMail) throw new Error('Invalid User')
-    if(!business) business = await this.getBusinessFromStaff(userMail)
+    if (!business) business = await this.getBusinessFromStaff(userId);
     if (!business) throw new NotFoundException('Business not found');
 
     const blockedSlots = await this.blockedSlotRepo.find({
@@ -791,14 +796,14 @@ export class BusinessService {
     return appointment;
   }
 
-  async getBusinessServices(userMail: string) {
+  async getBusinessServices(userId: string) {
     let business = await this.businessRepo.findOne({
-      where: { ownerEmail: userMail },
+      where: { owner: { id: userId } },
       relations: ['serviceList'],
     });
 
-    if(!userMail) throw new Error('Invalid User')
-    if(!business) business = await this.getBusinessFromStaff(userMail)
+    if (!userId) throw new Error('Invalid User');
+    if (!business) business = await this.getBusinessFromStaff(userId);
     if (!business) {
       throw new NotFoundException('Business not found');
     }
@@ -806,12 +811,12 @@ export class BusinessService {
     return business.serviceList;
   }
 
-  async getTeamMembers(userMail: string) {
+  async getTeamMembers(userId: string) {
     let business = await this.businessRepo.findOne({
-      where: { ownerEmail: userMail },
+      where: { owner: { id: userId } },
     });
-    if(!userMail) throw new Error('Invalid User')
-    if(!business) business = await this.getBusinessFromStaff(userMail)
+    if (!userId) throw new Error('Invalid User');
+    if (!business) business = await this.getBusinessFromStaff(userId);
     if (!business) {
       throw new NotFoundException('Business not found');
     }
@@ -827,7 +832,7 @@ export class BusinessService {
 
   async getAdvertisementPlans() {
     const plans = await this.advertisementPlanRepo.find();
-    
+
     // If no advertisement plans exist, seed with default plans
     if (plans.length === 0) {
       const defaultPlans = [
@@ -836,13 +841,10 @@ export class BusinessService {
           price: 69.99,
           durationDays: 30,
           description: 'Basic service promotion',
-          features: [
-            'Featured in search results',
-            'Basic analytics'
-          ],
+          features: ['Featured in search results', 'Basic analytics'],
           payable: 'Basic',
           isRecommended: false,
-          boost: '1.2x'
+          boost: '1.2x',
         },
         {
           planName: 'Premium',
@@ -853,11 +855,11 @@ export class BusinessService {
             'Top placement in search',
             'Detailed analytics',
             'Social media boost',
-            'Priority support'
+            'Priority support',
           ],
           payable: 'Premium',
           isRecommended: true,
-          boost: '2x'
+          boost: '2x',
         },
         {
           planName: 'Elite',
@@ -869,12 +871,12 @@ export class BusinessService {
             'Advanced analytics',
             'Marketing consultation',
             'Cross-platform promotion',
-            'Dedicated support'
+            'Dedicated support',
           ],
           payable: 'Elite',
           isRecommended: false,
-          boost: '3.5x'
-        }
+          boost: '3.5x',
+        },
       ];
 
       const savedPlans = await this.advertisementPlanRepo.save(defaultPlans);
@@ -884,9 +886,10 @@ export class BusinessService {
     return plans;
   }
 
-  async createService(createServiceDto: CreateServiceDto) {
+  async createService(userId: string, createServiceDto: CreateServiceDto) {
+    if (!userId) throw new Error('Invalid User');
+
     const {
-      userMail,
       category,
       serviceType,
       images,
@@ -902,10 +905,9 @@ export class BusinessService {
     } = createServiceDto;
 
     let business = await this.businessRepo.findOne({
-      where: { ownerEmail: userMail },
+      where: { owner: { id: userId } },
     });
-    if(!userMail) throw new Error('Invalid User')
-    if(!business) business = await this.getBusinessFromStaff(userMail)
+    if (!business) business = await this.getBusinessFromStaff(userId);
     if (!business) throw new Error('Business not found');
 
     let advertisementPlan: AdvertisementPlan | undefined;
@@ -948,7 +950,7 @@ export class BusinessService {
   async updateService(serviceId: string, updateServiceDto: UpdateServiceDto) {
     const service = await this.serviceRepo.findOne({
       where: { id: serviceId },
-      relations: ['business']
+      relations: ['business'],
     });
 
     if (!service) {
@@ -985,7 +987,7 @@ export class BusinessService {
     const { serviceId } = deleteServiceDto;
 
     const service = await this.serviceRepo.findOne({
-      where: { id: serviceId }
+      where: { id: serviceId },
     });
 
     if (!service) {
@@ -994,11 +996,13 @@ export class BusinessService {
 
     // Check if service has any appointments
     const appointmentCount = await this.appointmentRepo.count({
-      where: { service: { id: serviceId } }
+      where: { service: { id: serviceId } },
     });
 
     if (appointmentCount > 0) {
-      throw new BadRequestException('Cannot delete service that has appointments');
+      throw new BadRequestException(
+        'Cannot delete service that has appointments',
+      );
     }
 
     await this.serviceRepo.remove(service);
@@ -1011,7 +1015,7 @@ export class BusinessService {
     // Find the service
     const service = await this.serviceRepo.findOne({
       where: { id: serviceId },
-      relations: ['business']
+      relations: ['business'],
     });
 
     if (!service) {
@@ -1020,11 +1024,13 @@ export class BusinessService {
 
     // Find all staff members
     const staffMembers = await this.staffRepo.find({
-      where: { id: In(staffIds), business: { id: service.business.id } }
+      where: { id: In(staffIds), business: { id: service.business.id } },
     });
 
     if (staffMembers.length !== staffIds.length) {
-      throw new NotFoundException('One or more staff members not found or do not belong to this business');
+      throw new NotFoundException(
+        'One or more staff members not found or do not belong to this business',
+      );
     }
 
     // Assign staff to service
@@ -1034,7 +1040,7 @@ export class BusinessService {
     return {
       message: 'Staff assigned to service successfully',
       serviceId: service.id,
-      assignedStaffCount: staffMembers.length
+      assignedStaffCount: staffMembers.length,
     };
   }
 
@@ -1045,7 +1051,9 @@ export class BusinessService {
     await this.staffRepo.save(staff);
 
     if (staff.email) {
-      const user = await this.userRepo.findOne({ where: { email: staff.email } });
+      const user = await this.userRepo.findOne({
+        where: { email: staff.email },
+      });
       if (user) {
         user.isMerchant = false;
         user.isCustomer = true;
@@ -1061,10 +1069,13 @@ export class BusinessService {
       where: { owner: { id: userId } },
     });
 
-    if(!business){
-      const staff = await this.staffRepo.findOne({where: { id: userId },relations: ['business']});
-      if(!staff?.business)throw new NotFoundException('Business not found');
-      business = staff?.business
+    if (!business) {
+      const staff = await this.staffRepo.findOne({
+        where: { id: userId },
+        relations: ['business'],
+      });
+      if (!staff?.business) throw new NotFoundException('Business not found');
+      business = staff?.business;
     }
 
     if (!business) {
@@ -1088,10 +1099,13 @@ export class BusinessService {
       where: { owner: { id: userId } },
     });
 
-    if(!business){
-      const staff = await this.staffRepo.findOne({where: { id: userId },relations: ['business']});
-      if(!staff?.business)throw new NotFoundException('Business not found');
-      business = staff?.business
+    if (!business) {
+      const staff = await this.staffRepo.findOne({
+        where: { id: userId },
+        relations: ['business'],
+      });
+      if (!staff?.business) throw new NotFoundException('Business not found');
+      business = staff?.business;
     }
 
     if (!business) {
@@ -1108,8 +1122,6 @@ export class BusinessService {
       },
     });
   }
-
-
 
   getServices(): BusinessServiceData[] {
     return getBusinessServices();
@@ -1164,7 +1176,7 @@ export class BusinessService {
       isMerchant: user.isMerchant,
       isCustomer: user.isCustomer,
       createdAt: user.createdAt,
-      verified: user.isVerified 
+      verified: user.isVerified,
     };
   }
 
@@ -1173,7 +1185,7 @@ export class BusinessService {
     // Check if user is a business owner
     const business = await this.businessRepo.findOne({
       where: { owner: { id: userId } },
-      relations: ['owner']
+      relations: ['owner'],
     });
 
     if (business) {
@@ -1186,7 +1198,7 @@ export class BusinessService {
         ];
         await this.businessRepo.save(business);
       }
-      
+
       return {
         id: business.id,
         businessName: business.businessName,
@@ -1202,7 +1214,7 @@ export class BusinessService {
           firstName: business.owner.firstName,
           surname: business.owner.surname,
           email: business.owner.email,
-          phoneNumber: business.owner.phoneNumber
+          phoneNumber: business.owner.phoneNumber,
         },
       };
     }
@@ -1212,7 +1224,7 @@ export class BusinessService {
     // Check if user is a staff member
     const staff = await this.staffRepo.findOne({
       where: { id: userId },
-      relations: ['business', 'business.owner']
+      relations: ['business', 'business.owner'],
     });
 
     if (staff && staff.business) {
@@ -1225,7 +1237,7 @@ export class BusinessService {
         ];
         await this.businessRepo.save(staff.business);
       }
-      
+
       return {
         id: staff.business.id,
         businessName: staff.business.businessName,
@@ -1241,7 +1253,7 @@ export class BusinessService {
           firstName: staff.business.owner.firstName,
           surname: staff.business.owner.surname,
           email: staff.business.owner.email,
-          phoneNumber: staff.business.owner.phoneNumber
+          phoneNumber: staff.business.owner.phoneNumber,
         },
       };
     }
@@ -1297,7 +1309,7 @@ export class BusinessService {
     // Check if user is a staff member
     const staff = await this.staffRepo.findOne({
       where: { id: userId },
-      relations: ['business']
+      relations: ['business'],
     });
 
     if (staff && staff.business) {
@@ -1313,7 +1325,10 @@ export class BusinessService {
     throw new NotFoundException('No business found for this user');
   }
 
-  async removeBusinessCategories(userId: string, categoriesToRemove: BusinessCategory[]) {
+  async removeBusinessCategories(
+    userId: string,
+    categoriesToRemove: BusinessCategory[],
+  ) {
     // Check if user is a business owner
     const business = await this.businessRepo.findOne({
       where: { owner: { id: userId } },
@@ -1324,12 +1339,13 @@ export class BusinessService {
       if (!business.category) {
         business.category = [];
       }
-      
+
       // Filter out the categories to remove
       business.category = business.category.filter(
-        category => !categoriesToRemove.includes(category as BusinessCategory)
+        (category) =>
+          !categoriesToRemove.includes(category as BusinessCategory),
       );
-      
+
       await this.businessRepo.save(business);
       return {
         message: 'Business categories removed successfully',
@@ -1343,7 +1359,7 @@ export class BusinessService {
     // Check if user is a staff member
     const staff = await this.staffRepo.findOne({
       where: { id: userId },
-      relations: ['business']
+      relations: ['business'],
     });
 
     if (staff && staff.business) {
@@ -1351,12 +1367,13 @@ export class BusinessService {
       if (!staff.business.category) {
         staff.business.category = [];
       }
-      
+
       // Filter out the categories to remove
       staff.business.category = staff.business.category.filter(
-        category => !categoriesToRemove.includes(category as BusinessCategory)
+        (category) =>
+          !categoriesToRemove.includes(category as BusinessCategory),
       );
-      
+
       await this.businessRepo.save(staff.business);
       return {
         message: 'Business categories removed successfully',
