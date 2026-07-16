@@ -444,7 +444,7 @@ export class ClientController {
 
     return {
       success: true,
-      message: `${savedAddresses.length} address(es) added successfully`,
+      message: `${savedAddresses.length} ${savedAddresses.length === 1 ? 'address' : 'addresses'} added successfully`,
       data: savedAddresses,
     };
   }
@@ -686,7 +686,7 @@ export class ClientController {
 
     return {
       success: true,
-      message: `${savedContacts.length} contact(es) added successfully`,
+      message: `${savedContacts.length} ${savedContacts.length === 1 ? 'contact' : 'contacts'} added successfully`,
       data: savedContacts,
     };
   }
