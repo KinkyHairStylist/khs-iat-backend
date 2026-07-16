@@ -111,9 +111,9 @@ export class MembershipSubscriptionController {
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Upgrade Membership' })
   @ApiResponse({ status: 200, description: 'Upgrade to next available membership tier' })
-  async upgradeMembership(@Req() req) {
+  async upgradeMembership(@Req() req, @Body('tierId') tierId?: string) {
     const userId = req.user.id;
-    return this.MembershipService.upgradeMembership(userId);
+    return this.MembershipService.upgradeMembership(userId, tierId);
   }
 
   // Downgrade Membership
@@ -121,8 +121,8 @@ export class MembershipSubscriptionController {
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Downgrade Membership' })
   @ApiResponse({ status: 200, description: 'Downgrade to previous available membership tier' })
-  async downgradeMembership(@Req() req) {
+  async downgradeMembership(@Req() req, @Body('tierId') tierId?: string) {
     const userId = req.user.id;
-    return this.MembershipService.downgradeMembership(userId);
+    return this.MembershipService.downgradeMembership(userId, tierId);
   }
 }
