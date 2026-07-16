@@ -3,17 +3,23 @@ import {
   NotFoundException,
   BadRequestException,
   InternalServerErrorException,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from 'src/all_user_entities/user.entity';
-import { UpdateUserProfileDto, ChangePasswordDto } from '../dtos/update-profile.dto';
+import {
+  UpdateUserProfileDto,
+  ChangePasswordDto,
+} from '../dtos/update-profile.dto';
 import { CloudinaryService } from './cloudinary.service';
 import { PasswordHashingHelper } from '../../helpers/password-hashing.helper';
 import { EmailService } from '../../email/email.service';
 
 @Injectable()
 export class UserProfileService {
+  private readonly logger = new Logger(UserProfileService.name);
+
   constructor(
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
@@ -80,50 +86,56 @@ export class UserProfileService {
   }
   async changePassword(user: User, dto: ChangePasswordDto) {
     const { currentPassword, newPassword } = dto;
-  
+
     // Fetch full user using ID from JWT payload
     const existingUser = await this.userRepo.findOne({
       where: { id: user.id },
     });
-  
+
     if (!existingUser) {
       throw new BadRequestException('User not found');
     }
-  
+
     if (!existingUser.password) {
       throw new BadRequestException(
         'Password change not allowed for this account',
       );
     }
-  
+
     // Compare current password
     const isValid = await PasswordHashingHelper.comparePassword(
       currentPassword,
       existingUser.password,
     );
-  
+
     if (!isValid) {
       throw new BadRequestException('Current password is incorrect');
     }
-  
+
     // Hash and save new password
-    existingUser.password = await PasswordHashingHelper.hashPassword(newPassword);
+    existingUser.password =
+      await PasswordHashingHelper.hashPassword(newPassword);
     await this.userRepo.save(existingUser);
-  
+
     // Ensure email exists before sending notification
     if (!existingUser.email) {
-      throw new BadRequestException('Email is required to send password update notification');
+      throw new BadRequestException(
+        'Email is required to send password update notification',
+      );
     }
-  
+
     // Send email notification
-    this.emailService.sendPasswordChangedEmail(existingUser.email, existingUser.firstName || 'Customer');
-  
+    this.emailService.sendPasswordChangedEmail(
+      existingUser.email,
+      existingUser.firstName || 'Customer',
+    );
+
     return { message: 'Password changed successfully' };
   }
-  
+
   /**
    * Permanently deletes a user account.
-   * 
+   *
    * CASCADE DELETE (automatically removed with user):
    * - clientAppointments (appointments where user is client)
    * - refreshTokens
@@ -132,7 +144,7 @@ export class UserProfileService {
    * - cards
    * - preferences
    * - role
-   * 
+   *
    * SET NULL (automatically handled by database):
    * - sentTransactions (senderId set to null)
    * - receivedTransactions (recipientId set to null)
@@ -150,16 +162,32 @@ export class UserProfileService {
     // Store email before deletion for sending confirmation
     const userEmail = fullUser.email;
 
+    this.logger.log(`Attempting to delete account for user ${user.id} (${userEmail})`);
+
     // Send deletion email
-    this.emailService.sendAccountDeletedEmail(userEmail);
+    try {
+      this.emailService.sendAccountDeletedEmail(
+        userEmail,
+        fullUser.firstName || 'Valued Customer',
+      );
+    } catch (emailError) {
+      this.logger.error(`Failed to send deletion email: ${emailError.message}`, emailError.stack);
+    }
 
     // Remove the user - cascade will handle all related entities:
     // - appointments, refreshTokens, businesses, referrals, cards: CASCADE DELETE
     // - preferences, role: CASCADE DELETE
     // - transactions (sender/recipient), giftCards: SET NULL (handled by DB)
-    await this.userRepo.remove(fullUser);
+    try {
+      await this.userRepo.remove(fullUser);
+    } catch (dbError) {
+      this.logger.error(`Failed to delete user ${user.id}: ${dbError.message}`, dbError.stack);
+      throw new InternalServerErrorException(
+        `Could not delete account: ${dbError.message}`,
+      );
+    }
 
+    this.logger.log(`Account ${user.id} deleted successfully`);
     return { message: 'Account permanently removed' };
   }
-  
 }

@@ -22,10 +22,20 @@ const IV_LENGTH = 16; // AES block size
 const getKey = () => {
   const key = process.env.CARD_ENCRYPTION_KEY;
   if (!key) {
-    // Fallback for local development if the key is not set
-    return Buffer.from('a_32_character_secret_key_for_encryption_!', 'utf8');
+    // Fallback for local development if the key is not set.
+    // Must be exactly 32 bytes for aes-256-cbc.
+    return Buffer.from('01234567890123456789012345678901', 'utf8');
   }
-  return Buffer.from(key, 'base64');
+
+  const decodedKey = Buffer.from(key, 'base64');
+  if (decodedKey.length !== 32) {
+    throw new Error(
+      `CARD_ENCRYPTION_KEY must be a base64-encoded 32-byte key. ` +
+        `Got ${decodedKey.length} bytes after base64 decoding.`,
+    );
+  }
+
+  return decodedKey;
 };
 
 const encrypt = (value: string): string => {

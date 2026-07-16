@@ -1,0 +1,8 @@
+<%- include('layouts/head') %>
+<p style="margin:0 0 4px 0; font-size:13px; font-weight:600; letter-spacing:0.5px; text-transform:uppercase; color:#ED3131;">Appointment restored</p>
+<h1 style="margin:0 0 16px 0; font-size:22px; font-weight:700; color:#18181b; line-height:1.3;">Your appointment has been restored</h1>
+<p style="margin:0 0 16px 0; font-size:15px; line-height:1.6; color:#52525b;">Hi <%= name %>,</p>
+<p style="margin:0 0 24px 0; font-size:15px; line-height:1.6; color:#52525b;">
+  Your appointment at <strong><%= businessName %></strong> for <strong><%= serviceName %></strong> on <strong><%= date %></strong> at <strong><%= time %></strong> has been restored successfully.
+</p>
+<%- include('layouts/foot', { frontendUrl, year }) %>

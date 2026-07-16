@@ -14,7 +14,7 @@ export class JwtAuthGuard implements CanActivate {
     private reflector: Reflector,
     private jwtService: JwtService,
     private userService: UserService,
-  ) {}
+  ) { }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const isPublic = this.reflector.getAllAndOverride<boolean>('isPublic', [
@@ -39,11 +39,13 @@ export class JwtAuthGuard implements CanActivate {
       const decoded = this.jwtService.verify(token);
       const user = await this.userService.findById(decoded.sub);
       if (!user) {
+        console.error('[JwtAuthGuard] User not found for sub:', decoded?.sub);
         throw new UnauthorizedException('User not found or token invalid.');
       }
       request['user'] = user;
       return true;
     } catch (err) {
+      console.error('[JwtAuthGuard] Token verification failed:', err.name, err.message, '| URL:', request.url);
       throw new UnauthorizedException('Invalid or expired token');
     }
   }

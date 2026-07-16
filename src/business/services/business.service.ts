@@ -581,10 +581,10 @@ export class BusinessService {
     });
 
     if (!staff) {
-      throw new Error('No staff found');
+      throw new NotFoundException('No staff record found for this user');
     }
     if (!staff.business) {
-      throw new Error('business not found');
+      throw new NotFoundException('Business not found for this staff member');
     }
 
     return staff.business;

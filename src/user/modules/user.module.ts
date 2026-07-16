@@ -7,7 +7,6 @@ import {
   RequestMethod,
 } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { JwtModule } from '@nestjs/jwt';
 
 import { Card } from 'src/all_user_entities/card.entity';
 import { BusinessGiftCard } from 'src/business/entities/business-giftcard.entity';
@@ -63,7 +62,6 @@ import { AdminChatModule } from './admin-chat.module';
     ]),
     forwardRef(() => BusinessModule),
     BusinessWalletModule,
-    JwtModule.register({}),
     EmailModule,
     ReferralModule,
     PhoneVerificationModule,
