@@ -292,7 +292,7 @@ export class UserService {
       user.email
     );
 
-    this.emailService.sendLoginNotificationEmail(
+    this.emailService.sendWelcomeEmail(
       user.email,
       user.firstName || 'Customer',
     );

@@ -51,10 +51,11 @@ export class AddressController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 404, description: 'Address not found' })
   async updateAddress(
+    @GetUser() user: User,
     @Param('id') addressId: string,
     @Body() updateAddressDto: UpdateAddressDto,
   ) {
-    return this.addressService.updateAddress(addressId, updateAddressDto);
+    return this.addressService.updateAddress(user, addressId, updateAddressDto);
   }
 
   @Delete(':id')
