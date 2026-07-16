@@ -58,13 +58,7 @@ const upsertUser = async (client: Client) => {
         "isCustomer" = EXCLUDED."isCustomer"
       RETURNING id
     `,
-    [
-      OWNER_EMAIL,
-      'Ifeanyi',
-      'Gold',
-      '+2348012345000',
-      hashedPassword,
-    ],
+    [OWNER_EMAIL, 'Ifeanyi', 'Gold', '+2348012345000', hashedPassword],
   );
 
   return result.rows[0].id;
@@ -149,7 +143,12 @@ const upsertBusiness = async (client: Client, ownerId: string) => {
       'Lekki Phase 1, Lagos, Nigeria',
       3.4812,
       6.4474,
-      JSON.stringify({ rating: 4.8, reviews: 120, completionRate: 96, avgResponseMins: 8 }),
+      JSON.stringify({
+        rating: 4.8,
+        reviews: 120,
+        completionRate: 96,
+        avgResponseMins: 8,
+      }),
     ],
   );
 
@@ -157,12 +156,17 @@ const upsertBusiness = async (client: Client, ownerId: string) => {
 };
 
 const clearSeededProducts = async (client: Client) => {
-  await client.query(`DELETE FROM inventory_products WHERE "productName" LIKE $1`, [
-    `${SEED_TAG}%`,
-  ]);
+  await client.query(
+    `DELETE FROM inventory_products WHERE "productName" LIKE $1`,
+    [`${SEED_TAG}%`],
+  );
 };
 
-const seedProducts = async (client: Client, ownerId: string, businessId: string) => {
+const seedProducts = async (
+  client: Client,
+  ownerId: string,
+  businessId: string,
+) => {
   const products = [
     {
       productName: `${SEED_TAG} Curly Hair Serum`,
@@ -410,7 +414,9 @@ const seedMarketplaceProducts = async () => {
     const count = await seedProducts(client, ownerId, businessId);
 
     await client.query('COMMIT');
-    console.log(`Seeded ${count} marketplace products for business ${BUSINESS_NAME}.`);
+    console.log(
+      `Seeded ${count} marketplace products for business ${BUSINESS_NAME}.`,
+    );
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Marketplace seed failed:', error);

@@ -1196,7 +1196,6 @@ export class BusinessService {
           BusinessCategory.NAIL_SERVICES,
           BusinessCategory.MAKEUP_SERVICES,
         ];
-        await this.businessRepo.save(business);
       }
 
       return {
@@ -1235,7 +1234,6 @@ export class BusinessService {
           BusinessCategory.NAIL_SERVICES,
           BusinessCategory.MAKEUP_SERVICES,
         ];
-        await this.businessRepo.save(staff.business);
       }
 
       return {
