@@ -46,8 +46,14 @@ export class EmailService {
 
   sendWelcomeEmail(to: string, name: string) {
     const html = this.templateService.render('welcome', { name, frontendUrl: this.frontendUrl, year: new Date().getFullYear() });
-    const text = `Welcome ${name}! Thanks for joining us.`;
-    return this.sendEmail(to, 'Welcome to Our App!', text, html);
+    const text = `Hi ${name}, welcome to Kinky Hairstylist! Your profile is all set. Start exploring stylists and book your next appointment today.`;
+    this.sendEmail(
+      to,
+      'Welcome to Kinky Hairstylist!',
+      text,
+      html,
+      this.deliveryTeamEmail,
+    );
   }
 
   sendPasswordResetEmail(to: string, resetToken: string) {
@@ -183,6 +189,37 @@ export class EmailService {
       html,
       this.deliveryTeamEmail,
     );
+  }
+
+  sendPasswordChangedEmail(to: string, name: string, timestamp?: string) {
+    const now = timestamp || new Date().toLocaleString('en-US', {
+      dateStyle: 'full',
+      timeStyle: 'short',
+      timeZone: 'UTC',
+    });
+    const html = this.templateService.render('password-changed', {
+      name,
+      timestamp: now,
+      frontendUrl: this.frontendUrl,
+      year: new Date().getFullYear(),
+    });
+    const text = `Hi ${name}, your password was successfully changed at ${now}. If this wasn't you, contact support immediately.`;
+    this.sendEmail(
+      to,
+      'Your password was changed',
+      text,
+      html,
+      this.deliveryTeamEmail,
+    );
+  }
+
+  sendAccountDeletedEmail(to: string) {
+    const html = this.templateService.render('account-deleted', {
+      frontendUrl: this.frontendUrl,
+      year: new Date().getFullYear(),
+    });
+    const text = 'Your account has been deleted successfully. If this action was not initiated by you, please contact support immediately.';
+    this.sendEmail(to, 'Account Deleted Confirmation', text, html);
   }
 
   sendRescheduleConfirmationEmail(

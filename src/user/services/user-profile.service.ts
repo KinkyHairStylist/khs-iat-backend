@@ -10,50 +10,16 @@ import { User } from 'src/all_user_entities/user.entity';
 import { UpdateUserProfileDto, ChangePasswordDto } from '../dtos/update-profile.dto';
 import { CloudinaryService } from './cloudinary.service';
 import { PasswordHashingHelper } from '../../helpers/password-hashing.helper';
-import sgMail from '@sendgrid/mail';
+import { EmailService } from '../../email/email.service';
 
 @Injectable()
 export class UserProfileService {
-  private fromEmail: string;
   constructor(
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
     private readonly cloudinaryService: CloudinaryService,
-  ) {
-      const apiKey = process.env.SENDGRID_API_KEY;
-      const fromEmail = process.env.SENDGRID_FROM_EMAIL;
-
-      if (!apiKey || !fromEmail) {
-        throw new Error('SENDGRID_API_KEY and SENDGRID_FROM_EMAIL must be set');
-      }
-          
-      sgMail.setApiKey(apiKey);
-      this.fromEmail = fromEmail;
-    }
-
-  private generateCode(): string {
-    return Math.floor(10000 + Math.random() * 90000).toString();
-  }
-
-  private async sendPasswordChangedEmail(email: string): Promise<void> {
-    const msg = {
-      to: email,
-      from: this.fromEmail,
-      subject: 'Your Password Was Changed',
-      text: `Your password was successfully changed. If this wasn't you, please contact support immediately.`,
-    };
-    await sgMail.send(msg);
-  }
-
-  private async sendAccountDeletedEmail(email: string): Promise<void> {
-    const msg = {
-      to: email,
-      from: this.fromEmail,
-      subject: 'Account Deleted Confirmation',
-      text: `Your account has been deleted successfully. If this action was not initiated by you, please contact support immediately.`,
-    };
-    await sgMail.send(msg);
-  }
+    private readonly emailService: EmailService,
+  ) {}
 
   async getProfile(user: User): Promise<User> {
     const foundUser = await this.userRepo.findOne({ where: { id: user.id } });
@@ -150,7 +116,7 @@ export class UserProfileService {
     }
   
     // Send email notification
-    await this.sendPasswordChangedEmail(existingUser.email);
+    this.emailService.sendPasswordChangedEmail(existingUser.email, existingUser.firstName || 'Customer');
   
     return { message: 'Password changed successfully' };
   }
@@ -185,7 +151,7 @@ export class UserProfileService {
     const userEmail = fullUser.email;
 
     // Send deletion email
-    await this.sendAccountDeletedEmail(userEmail);
+    this.emailService.sendAccountDeletedEmail(userEmail);
 
     // Remove the user - cascade will handle all related entities:
     // - appointments, refreshTokens, businesses, referrals, cards: CASCADE DELETE
