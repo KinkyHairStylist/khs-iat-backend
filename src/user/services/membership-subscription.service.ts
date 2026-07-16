@@ -560,8 +560,8 @@ export class MembershipService {
     return { message: 'Membership cancelled successfully.' };
   }
 
-  // Upgrade membership to next available tier
-  async upgradeMembership(userId: string) {
+  // Upgrade membership to next available tier (or specific tier if tierId provided)
+  async upgradeMembership(userId: string, targetTierId?: string) {
     const subscription = await this.subscriptionRepo.findOne({
       where: { userId, status: 'active' },
       relations: ['tier'],
@@ -571,14 +571,22 @@ export class MembershipService {
       throw new NotFoundException('No active membership found.');
     }
 
-    const allTiers = await this.tierRepo.find({ order: { initialPrice: 'ASC' } });
-    const currentIndex = allTiers.findIndex(t => t.id === subscription.tier.id);
-
-    if (currentIndex === -1 || currentIndex === allTiers.length - 1) {
-      throw new BadRequestException('You are already at the highest membership tier.');
+    let nextTier;
+    if (targetTierId) {
+      nextTier = await this.tierRepo.findOne({ where: { id: targetTierId } });
+      if (!nextTier) throw new NotFoundException('Target membership tier not found');
+      if (nextTier.initialPrice <= Number(subscription.monthlyCost)) {
+        throw new BadRequestException('Target tier is not a higher tier than your current plan');
+      }
+    } else {
+      const allTiers = await this.tierRepo.find({ order: { initialPrice: 'ASC' } });
+      const currentIndex = allTiers.findIndex(t => t.id === subscription.tier.id);
+      if (currentIndex === -1 || currentIndex === allTiers.length - 1) {
+        throw new BadRequestException('You are already at the highest membership tier.');
+      }
+      nextTier = allTiers[currentIndex + 1];
     }
-
-    const nextTier = allTiers[currentIndex + 1];
+    const oldTierName = subscription.tier.name;
 
     const startDate = new Date();
     const endDate = new Date(startDate.getTime() + nextTier.durationDays * 24 * 60 * 60 * 1000);
@@ -606,7 +614,7 @@ export class MembershipService {
           nextTier.name,
           undefined,
           nextBillingDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
-          subscription.tier?.name || 'Previous',
+          oldTierName,
         );
       }
     } catch (e) {
@@ -616,8 +624,8 @@ export class MembershipService {
     return { message: `Successfully upgraded to ${nextTier.name} tier.` };
   }
 
-  // Downgrade membership to previous available tier
-  async downgradeMembership(userId: string) {
+  // Downgrade membership to previous available tier (or specific tier if tierId provided)
+  async downgradeMembership(userId: string, targetTierId?: string) {
     const subscription = await this.subscriptionRepo.findOne({
       where: { userId, status: 'active' },
       relations: ['tier'],
@@ -627,14 +635,22 @@ export class MembershipService {
       throw new NotFoundException('No active membership found.');
     }
 
-    const allTiers = await this.tierRepo.find({ order: { initialPrice: 'ASC' } });
-    const currentIndex = allTiers.findIndex(t => t.id === subscription.tier.id);
-
-    if (currentIndex === -1 || currentIndex === 0) {
-      throw new BadRequestException('You are already at the lowest membership tier.');
+    let previousTier;
+    if (targetTierId) {
+      previousTier = await this.tierRepo.findOne({ where: { id: targetTierId } });
+      if (!previousTier) throw new NotFoundException('Target membership tier not found');
+      if (previousTier.initialPrice >= Number(subscription.monthlyCost)) {
+        throw new BadRequestException('Target tier is not a lower tier than your current plan');
+      }
+    } else {
+      const allTiers = await this.tierRepo.find({ order: { initialPrice: 'ASC' } });
+      const currentIndex = allTiers.findIndex(t => t.id === subscription.tier.id);
+      if (currentIndex === -1 || currentIndex === 0) {
+        throw new BadRequestException('You are already at the lowest membership tier.');
+      }
+      previousTier = allTiers[currentIndex - 1];
     }
-
-    const previousTier = allTiers[currentIndex - 1];
+    const oldTierName = subscription.tier.name;
 
     const startDate = new Date();
     const endDate = new Date(startDate.getTime() + previousTier.durationDays * 24 * 60 * 60 * 1000);
@@ -662,7 +678,7 @@ export class MembershipService {
           previousTier.name,
           undefined,
           nextBillingDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
-          subscription.tier?.name || 'Previous',
+          oldTierName,
         );
       }
     } catch (e) {
