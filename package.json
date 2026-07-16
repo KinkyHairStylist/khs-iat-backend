@@ -7,6 +7,8 @@
   "license": "UNLICENSED",
   "scripts": {
     "drop-index": "ts-node --project tsconfig.json ./scripts/drop-index.ts",
+    "add:addr-cascade": "ts-node --project tsconfig.json ./scripts/add-user-address-cascade.ts",
+    "fix:user-fks": "ts-node --project tsconfig.json ./scripts/fix-all-user-fk-cascades.ts",
     "delete-business": "ts-node --project tsconfig.json ./scripts/delete-business.ts",
     "cleanup-tx": "ts-node --project tsconfig.json ./scripts/cleanup-transaction.ts",
     "seed:appointments": "ts-node --project tsconfig.json ./scripts/seed-appointment-management.ts",

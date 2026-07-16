@@ -1,11 +1,26 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
+  Logger,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { Appointment, AppointmentStatus, PaymentStatus } from 'src/business/entities/appointment.entity';
+import {
+  Appointment,
+  AppointmentStatus,
+  PaymentStatus,
+} from 'src/business/entities/appointment.entity';
 import { Business } from 'src/business/entities/business.entity';
 import { Service } from 'src/business/entities/service.entity';
 import { Staff } from 'src/business/entities/staff.entity';
-import { Transaction, TransactionType, PaymentMethod, TransactionStatus as TxnStatus } from 'src/business/entities/transaction.entity';
+import {
+  Transaction,
+  TransactionType,
+  PaymentMethod,
+  TransactionStatus as TxnStatus,
+} from 'src/business/entities/transaction.entity';
 import { WalletCurrency } from 'src/admin/payment/enums/wallet.enum';
 import { PlatformSettingsService } from 'src/admin/platform-settings/platform-settings.service';
 import { EmailService } from 'src/email/email.service';
@@ -20,6 +35,8 @@ import { ClientSchema, ClientType } from 'src/business/entities/client.entity';
 
 @Injectable()
 export class BookingService {
+  private readonly logger = new Logger(BookingService.name);
+
   constructor(
     @InjectRepository(Appointment)
     private bookingRepository: Repository<Appointment>,
@@ -46,7 +63,10 @@ export class BookingService {
   ) {}
 
   // Create Booking
-  async createBooking(createBookingDto: any, user: User): Promise<{ orderId: string, appointments: Appointment[] }> {
+  async createBooking(
+    createBookingDto: any,
+    user: User,
+  ): Promise<{ orderId: string; appointments: Appointment[] }> {
     // Get business
     const business = await this.businessRepository.findOne({
       where: { id: createBookingDto.salonId },
@@ -111,7 +131,11 @@ export class BookingService {
       throw new NotFoundException('No appointments found for this order ID');
     }
 
-    if (appointments.some(appointment => appointment.status === AppointmentStatus.CONFIRMED)) {
+    if (
+      appointments.some(
+        (appointment) => appointment.status === AppointmentStatus.CONFIRMED,
+      )
+    ) {
       throw new BadRequestException('Booking is already confirmed');
     }
 
@@ -120,7 +144,10 @@ export class BookingService {
     const platformFeePercent = Number(paymentsSettings.platformFee) || 0;
 
     // Calculate amounts
-    const bookingAmount = appointments.reduce((sum, appt) => sum + Number(appt.amount), 0);
+    const bookingAmount = appointments.reduce(
+      (sum, appt) => sum + Number(appt.amount),
+      0,
+    );
     const feeAmount = bookingAmount * (platformFeePercent / 100);
     const totalAmount = bookingAmount + feeAmount;
 
@@ -137,12 +164,17 @@ export class BookingService {
       });
 
       if (!gift) throw new BadRequestException('Gift card not found');
-      if (gift.status !== BusinessGiftCardStatus.ACTIVE) throw new BadRequestException('Gift card is not active');
-      if (gift.remainingAmount <= 0) throw new BadRequestException('Gift card has no balance');
+      if (gift.status !== BusinessGiftCardStatus.ACTIVE)
+        throw new BadRequestException('Gift card is not active');
+      if (gift.remainingAmount <= 0)
+        throw new BadRequestException('Gift card has no balance');
 
-      giftCardPayment = Math.min(Number(gift.remainingAmount), roundedTotalAmount);
+      giftCardPayment = Math.min(
+        Number(gift.remainingAmount),
+        roundedTotalAmount,
+      );
       remainingToPay = roundedTotalAmount - giftCardPayment;
-      
+
       // Round to avoid floating point precision issues
       remainingToPay = Math.round(remainingToPay * 100) / 100;
     }
@@ -150,7 +182,9 @@ export class BookingService {
     // Handle full gift card payment (no card needed) - check this FIRST
     if (remainingToPay <= 0) {
       return await this.dataSource.manager.transaction(async (manager) => {
-        const gift = await manager.findOne(BusinessGiftCard, { where: { code: giftCard } });
+        const gift = await manager.findOne(BusinessGiftCard, {
+          where: { code: giftCard },
+        });
         if (!gift || Number(gift.remainingAmount) < totalAmount) {
           throw new BadRequestException('Insufficient gift card balance');
         }
@@ -209,7 +243,7 @@ export class BookingService {
         try {
           const businessId = appointments[0].business.id;
           const ownerId = appointments[0].business.owner?.id;
-          
+
           if (businessId && ownerId) {
             // Try to get wallet, create if doesn't exist
             try {
@@ -223,7 +257,7 @@ export class BookingService {
                 description: 'Business wallet - auto-created from booking',
               });
             }
-            
+
             await this.walletService.addFunds({
               businessId,
               recipientId: ownerId,
@@ -239,6 +273,20 @@ export class BookingService {
           }
         } catch (walletError) {
           console.error('Failed to add funds to business wallet:', walletError);
+        }
+
+        if (user.email) {
+          const serviceNames = [
+            ...new Set(appointments.map((a) => a.serviceName)),
+          ].join(', ');
+          this.emailService.sendBookingConfirmationEmail(
+            user.email,
+            user.firstName || 'Valued Customer',
+            appointments[0].business?.businessName || 'the salon',
+            serviceNames,
+            appointments[0].date,
+            appointments[0].time,
+          );
         }
 
         return {
@@ -257,7 +305,9 @@ export class BookingService {
       return await this.dataSource.manager.transaction(async (manager) => {
         // Deduct from gift card if provided
         if (giftCard && giftCardPayment > 0) {
-          const gift = await manager.findOne(BusinessGiftCard, { where: { code: giftCard } });
+          const gift = await manager.findOne(BusinessGiftCard, {
+            where: { code: giftCard },
+          });
           if (!gift || gift.remainingAmount < giftCardPayment) {
             throw new BadRequestException('Insufficient gift card balance');
           }
@@ -331,6 +381,20 @@ export class BookingService {
           await manager.save(Transaction, feeTx);
         }
 
+        if (user.email) {
+          const serviceNames = [
+            ...new Set(appointments.map((a) => a.serviceName)),
+          ].join(', ');
+          this.emailService.sendBookingConfirmationEmail(
+            user.email,
+            user.firstName || 'Valued Customer',
+            appointments[0].business?.businessName || 'the salon',
+            serviceNames,
+            appointments[0].date,
+            appointments[0].time,
+          );
+        }
+
         return {
           message: 'Booking confirmed. Payment will be collected at venue.',
           bookingAmount,
@@ -345,7 +409,9 @@ export class BookingService {
 
     // If remaining amount exists and no card ID provided, throw error
     if (remainingToPay > 0 && !cardId) {
-      throw new BadRequestException('Payment method required for remaining amount');
+      throw new BadRequestException(
+        'Payment method required for remaining amount',
+      );
     }
 
     // Validate card if provided
@@ -364,7 +430,8 @@ export class BookingService {
 
     // Handle card payment (Paystack) - Initialize payment
     const reference = `BKG-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
-    let paystackInit: { reference: string; authorization_url: string } | null = null;
+    let paystackInit: { reference: string; authorization_url: string } | null =
+      null;
 
     if (remainingToPay > 0) {
       paystackInit = await this.paystack.initializePayment({
@@ -485,95 +552,132 @@ export class BookingService {
     const orderId = meta.orderId;
 
     // Start DB transaction
-    const result = await this.dataSource.manager.transaction(async (manager) => {
-      // Find appointments
-      const appointments = await manager.find(Appointment, {
-        where: { orderId },
-        relations: ['business', 'business.owner'],
-      });
-
-      if (appointments.length === 0) {
-        throw new NotFoundException('Appointments not found');
-      }
-
-      // Find user
-      const user = await manager.findOne(User, { where: { id: meta.userId } });
-      if (!user) throw new NotFoundException('User not found');
-
-      // Handle gift card portion if any
-      if (meta.giftCard && giftCardAmount > 0) {
-        const gift = await manager.findOne(BusinessGiftCard, {
-          where: { code: meta.giftCard },
+    const result = await this.dataSource.manager.transaction(
+      async (manager) => {
+        // Find appointments
+        const appointments = await manager.find(Appointment, {
+          where: { orderId },
+          relations: ['business', 'business.owner'],
         });
 
-        if (!gift) throw new BadRequestException('Gift card not found');
-
-        gift.remainingAmount = Number(gift.remainingAmount) - giftCardAmount;
-        if (gift.remainingAmount === 0) {
-          gift.status = BusinessGiftCardStatus.USED;
-          gift.redeemedAt = new Date();
+        if (appointments.length === 0) {
+          throw new NotFoundException('Appointments not found');
         }
-        await manager.save(BusinessGiftCard, gift);
 
-        // Update gift card transaction to COMPLETED
-        await manager.update(Transaction, {
-          referenceId: meta.reference,
-          service: 'Booking',
-          method: PaymentMethod.GIFTCARD,
-        }, {
-          status: TxnStatus.COMPLETED,
+        // Find user
+        const user = await manager.findOne(User, {
+          where: { id: meta.userId },
         });
-      }
+        if (!user) throw new NotFoundException('User not found');
 
-      // Update appointments to confirmed
-      for (const appointment of appointments) {
-        appointment.status = AppointmentStatus.CONFIRMED;
-        appointment.paymentStatus = PaymentStatus.PAID;
-      }
-      await manager.save(Appointment, appointments);
+        // Handle gift card portion if any
+        if (meta.giftCard && giftCardAmount > 0) {
+          const gift = await manager.findOne(BusinessGiftCard, {
+            where: { code: meta.giftCard },
+          });
 
-      // Update card payment transaction to COMPLETED
-      await manager.update(Transaction, {
-        referenceId: reference,
-        service: 'Booking',
-        method: PaymentMethod.PAYSTACK,
-      }, {
-        status: TxnStatus.COMPLETED,
-      });
+          if (!gift) throw new BadRequestException('Gift card not found');
 
-      // Update platform fee transaction to COMPLETED
-      if (feeAmount > 0) {
-        await manager.update(Transaction, {
-          referenceId: meta.reference,
-          service: 'Booking-Fee',
-        }, {
-          status: TxnStatus.COMPLETED,
-        });
-      }
+          gift.remainingAmount = Number(gift.remainingAmount) - giftCardAmount;
+          if (gift.remainingAmount === 0) {
+            gift.status = BusinessGiftCardStatus.USED;
+            gift.redeemedAt = new Date();
+          }
+          await manager.save(BusinessGiftCard, gift);
 
-      // Save card authorization code if available (for future recurring payments)
-      if (meta.cardId && verification.authorization?.authorization_code) {
-        await manager.update(Card, { id: meta.cardId }, {
-          paystackAuthorizationCode: verification.authorization.authorization_code,
-          paystackEmail: verification.customer?.email,
-        });
-      }
+          // Update gift card transaction to COMPLETED
+          await manager.update(
+            Transaction,
+            {
+              referenceId: meta.reference,
+              service: 'Booking',
+              method: PaymentMethod.GIFTCARD,
+            },
+            {
+              status: TxnStatus.COMPLETED,
+            },
+          );
+        }
 
-      return {
-        appointments,
-        bookingAmount,
-        platformFee: feeAmount,
-        giftCardAmountUsed: giftCardAmount,
-        cardAmountUsed: verification.amount / 100, // Convert from kobo
-        totalPaid: (verification.amount / 100) + giftCardAmount,
-      };
-    });
+        // Update appointments to confirmed
+        for (const appointment of appointments) {
+          appointment.status = AppointmentStatus.CONFIRMED;
+          appointment.paymentStatus = PaymentStatus.PAID;
+        }
+        await manager.save(Appointment, appointments);
+
+        // Update card payment transaction to COMPLETED
+        await manager.update(
+          Transaction,
+          {
+            referenceId: reference,
+            service: 'Booking',
+            method: PaymentMethod.PAYSTACK,
+          },
+          {
+            status: TxnStatus.COMPLETED,
+          },
+        );
+
+        // Update platform fee transaction to COMPLETED
+        if (feeAmount > 0) {
+          await manager.update(
+            Transaction,
+            {
+              referenceId: meta.reference,
+              service: 'Booking-Fee',
+            },
+            {
+              status: TxnStatus.COMPLETED,
+            },
+          );
+        }
+
+        // Save card authorization code if available (for future recurring payments)
+        if (meta.cardId && verification.authorization?.authorization_code) {
+          await manager.update(
+            Card,
+            { id: meta.cardId },
+            {
+              paystackAuthorizationCode:
+                verification.authorization.authorization_code,
+              paystackEmail: verification.customer?.email,
+            },
+          );
+        }
+
+        return {
+          appointments,
+          bookingAmount,
+          platformFee: feeAmount,
+          giftCardAmountUsed: giftCardAmount,
+          cardAmountUsed: verification.amount / 100, // Convert from kobo
+          totalPaid: verification.amount / 100 + giftCardAmount,
+          userEmail: user.email,
+          userFirstName: user.firstName,
+        };
+      },
+    );
+
+    if (result.userEmail) {
+      const serviceNames = [
+        ...new Set(result.appointments.map((a) => a.serviceName)),
+      ].join(', ');
+      this.emailService.sendBookingConfirmationEmail(
+        result.userEmail,
+        result.userFirstName || 'Valued Customer',
+        result.appointments[0].business?.businessName || 'the salon',
+        serviceNames,
+        result.appointments[0].date,
+        result.appointments[0].time,
+      );
+    }
 
     // Add funds to business wallet (outside transaction to avoid deadlock)
     try {
       const businessId = result.appointments[0].business.id;
       const ownerId = result.appointments[0].business.owner?.id;
-      
+
       if (businessId && ownerId) {
         // Try to get wallet, create if doesn't exist
         try {
@@ -612,7 +716,6 @@ export class BookingService {
     };
   }
 
-  
   // Get User Bookings
   async getUserBookings(userId: string): Promise<Appointment[]> {
     return await this.bookingRepository.find({
@@ -639,9 +742,15 @@ export class BookingService {
     cancellationsNote?: string,
     acceptedTerms?: boolean,
     serviceIds?: string[],
-  ): Promise<{ message: string; cancelledCount: number; remainingCount: number }> {
+  ): Promise<{
+    message: string;
+    cancelledCount: number;
+    remainingCount: number;
+  }> {
     if (!acceptedTerms) {
-      throw new BadRequestException('You must accept the cancellation terms to proceed');
+      throw new BadRequestException(
+        'You must accept the cancellation terms to proceed',
+      );
     }
 
     // Find all appointments for this orderId
@@ -707,7 +816,9 @@ export class BookingService {
 
     const firstAppt = appointmentsToCancel[0];
     if (firstAppt?.client?.email) {
-      const serviceNames = [...new Set(appointmentsToCancel.map(a => a.serviceName))].join(', ');
+      const serviceNames = [
+        ...new Set(appointmentsToCancel.map((a) => a.serviceName)),
+      ].join(', ');
       this.emailService.sendCancellationConfirmationEmail(
         firstAppt.client.email,
         firstAppt.client.firstName || 'Valued Customer',
@@ -733,23 +844,56 @@ export class BookingService {
   async restoreBooking(orderId: string): Promise<{ message: string }> {
     const appointment = await this.bookingRepository.findOne({
       where: { orderId },
+      relations: ['client'],
     });
     if (!appointment) {
       throw new NotFoundException('Appointment not found');
     }
 
     if (appointment.status !== AppointmentStatus.CANCELLED) {
-      throw new BadRequestException('Appointment is not cancelled, cannot restore');
+      throw new BadRequestException(
+        'Appointment is not cancelled, cannot restore',
+      );
     }
 
     appointment.status = AppointmentStatus.CONFIRMED; // Restore to confirmed status
     appointment.cancellationsNote = undefined; // Clear cancellation note on restore
     await this.bookingRepository.save(appointment);
+
+    if (appointment.client?.email) {
+      try {
+        this.logger.log(
+          `Sending restore confirmation email to ${appointment.client.email} for order ${orderId}`,
+        );
+        this.emailService.sendBookingRestoredEmail(
+          appointment.client.email,
+          appointment.client.firstName || 'Valued Customer',
+          appointment.business?.businessName || 'the salon',
+          appointment.serviceName || 'your service',
+          appointment.date,
+          appointment.time,
+        );
+      } catch (emailError) {
+        this.logger.error(
+          `Failed to send restore confirmation email for order ${orderId}: ${emailError.message}`,
+          emailError.stack,
+        );
+      }
+    } else {
+      this.logger.warn(
+        `No client email found for order ${orderId} — skipping restore email`,
+      );
+    }
+
     return { message: 'Appointment restored successfully' };
   }
 
   // Reschedule Booking
-  async rescheduleBooking(orderId: string, newDate: Date, newTime: string): Promise<{ message: string }> {
+  async rescheduleBooking(
+    orderId: string,
+    newDate: Date,
+    newTime: string,
+  ): Promise<{ message: string }> {
     const appointment = await this.bookingRepository.findOne({
       where: { orderId },
       relations: ['client'],
@@ -784,7 +928,12 @@ export class BookingService {
   }
 
   // Rate Business
-  async rateBusiness(orderId: string, rating: number, comment: string, user: User) {
+  async rateBusiness(
+    orderId: string,
+    rating: number,
+    comment: string,
+    user: User,
+  ) {
     const appointment = await this.bookingRepository.findOne({
       where: { orderId, client: { id: user.id } },
       relations: ['business', 'business.owner'],

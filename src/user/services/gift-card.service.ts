@@ -11,12 +11,25 @@ import { DataSource, Repository } from 'typeorm';
 import { BusinessGiftCard } from 'src/business/entities/business-giftcard.entity';
 import { Card } from 'src/all_user_entities/card.entity';
 import { User } from 'src/all_user_entities/user.entity';
-import { Transaction, TransactionType, TransactionStatus, PaymentMethod } from 'src/business/entities/transaction.entity';
+import {
+  Transaction,
+  TransactionType,
+  TransactionStatus,
+  PaymentMethod,
+} from 'src/business/entities/transaction.entity';
 import { BusinessWalletService } from 'src/business/services/wallet.service';
 import { PaystackService } from 'src/payment/paystack.service';
-import { PurchaseBusinessGiftCardDto, RedeemGiftCardDto, ValidateGiftCardDto } from '../dtos/create-gift-card.dto';
-import { BusinessGiftCardSoldStatus, BusinessGiftCardStatus } from 'src/business/enum/gift-card.enum';
+import {
+  PurchaseBusinessGiftCardDto,
+  RedeemGiftCardDto,
+  ValidateGiftCardDto,
+} from '../dtos/create-gift-card.dto';
+import {
+  BusinessGiftCardSoldStatus,
+  BusinessGiftCardStatus,
+} from 'src/business/enum/gift-card.enum';
 import { PlatformSettingsService } from '../../admin/platform-settings/platform-settings.service';
+import { EmailService } from '../../email/email.service';
 
 @Injectable()
 export class GiftCardService {
@@ -34,6 +47,7 @@ export class GiftCardService {
     private readonly walletService: BusinessWalletService,
     private readonly paystack: PaystackService,
     private readonly platformSettingsService: PlatformSettingsService,
+    private readonly emailService: EmailService,
   ) {}
 
   // ------------------------------------------------------
@@ -46,7 +60,8 @@ export class GiftCardService {
     });
 
     if (!giftCard) throw new NotFoundException('Gift card not found');
-    if (!giftCard.business.owner) throw new BadRequestException('Business could not be found');
+    if (!giftCard.business.owner)
+      throw new BadRequestException('Business could not be found');
     if (giftCard.soldStatus !== BusinessGiftCardSoldStatus.AVAILABLE)
       throw new BadRequestException('Gift card already purchased');
 
@@ -97,7 +112,8 @@ export class GiftCardService {
     giftCard.recipientEmail = dto.recipientEmail ?? 'No Email provided';
 
     // Sender is from DTO (fullName), fallback to purchaser name if missing
-    giftCard.senderName = dto.fullName ?? `${purchaser.firstName} ${purchaser.surname}`;
+    giftCard.senderName =
+      dto.fullName ?? `${purchaser.firstName} ${purchaser.surname}`;
 
     // The buyer becomes the OWNER
     giftCard.ownerId = purchaser.id;
@@ -166,11 +182,11 @@ export class GiftCardService {
       const giftCardId = meta.giftCardId;
       await this.giftCardRepo.update(
         { id: giftCardId },
-        { soldStatus: BusinessGiftCardSoldStatus.AVAILABLE }
+        { soldStatus: BusinessGiftCardSoldStatus.AVAILABLE },
       );
       await this.transactionRepo.update(
         { referenceId: reference },
-        { status: TransactionStatus.FAILED }
+        { status: TransactionStatus.FAILED },
       );
       throw new BadRequestException('Payment verification failed');
     }
@@ -180,65 +196,79 @@ export class GiftCardService {
     const feeAmount = Number(meta.feeAmount) || 0;
 
     // Start DB transaction
-    const result = await this.dataSource.manager.transaction(async (manager) => {
-      // Find gift card (without heavy relations for now)
-      const giftCard = await manager.findOne(BusinessGiftCard, {
-        where: { id: meta.giftCardId },
-      });
-      if (!giftCard) throw new NotFoundException('Gift card not found');
-      if (!giftCard.ownerId) throw new NotFoundException('Gift card business owner not found');
-      if (giftCard.soldStatus === BusinessGiftCardSoldStatus.PURCHASED)
-        throw new BadRequestException('Gift card already purchased');
+    const result = await this.dataSource.manager.transaction(
+      async (manager) => {
+        // Find gift card (without heavy relations for now)
+        const giftCard = await manager.findOne(BusinessGiftCard, {
+          where: { id: meta.giftCardId },
+        });
+        if (!giftCard) throw new NotFoundException('Gift card not found');
+        if (!giftCard.ownerId)
+          throw new NotFoundException('Gift card business owner not found');
+        if (giftCard.soldStatus === BusinessGiftCardSoldStatus.PURCHASED)
+          throw new BadRequestException('Gift card already purchased');
 
-      // Find purchaser
-      const purchaser = await manager.findOne(User, { where: { id: meta.purchaserId } });
-      if (!purchaser) throw new NotFoundException('Purchaser not found');
+        // Find purchaser
+        const purchaser = await manager.findOne(User, {
+          where: { id: meta.purchaserId },
+        });
+        if (!purchaser) throw new NotFoundException('Purchaser not found');
 
-      // Load business and owner relations after basic validations
-      const giftCardWithRelations = await manager.findOne(BusinessGiftCard, {
-        where: { id: meta.giftCardId },
-        relations: ['business', 'owner'],
-      });
-      if (!giftCardWithRelations?.owner) throw new NotFoundException('Gift card business owner not found');
+        // Load business and owner relations after basic validations
+        const giftCardWithRelations = await manager.findOne(BusinessGiftCard, {
+          where: { id: meta.giftCardId },
+          relations: ['business', 'owner'],
+        });
+        if (!giftCardWithRelations?.owner)
+          throw new NotFoundException('Gift card business owner not found');
 
-      // Assign gift card
-      const expiry = new Date();
-      expiry.setDate(expiry.getDate() + giftCard.expiryInDays);
+        // Assign gift card
+        const expiry = new Date();
+        expiry.setDate(expiry.getDate() + giftCard.expiryInDays);
 
-      giftCard.ownerId = purchaser.id;
-      giftCard.ownerEmail = purchaser.email;
-      giftCard.ownerFullName = `${purchaser.firstName} ${purchaser.surname}`;
-      giftCard.cardId = meta.cardId ?? null;
-      giftCard.soldStatus = BusinessGiftCardSoldStatus.PURCHASED;
-      giftCard.expiresAt = expiry;
+        giftCard.ownerId = purchaser.id;
+        giftCard.ownerEmail = purchaser.email;
+        giftCard.ownerFullName = `${purchaser.firstName} ${purchaser.surname}`;
+        giftCard.cardId = meta.cardId ?? null;
+        giftCard.soldStatus = BusinessGiftCardSoldStatus.PURCHASED;
+        giftCard.expiresAt = expiry;
 
-      await manager.save(BusinessGiftCard, giftCard);
+        await manager.save(BusinessGiftCard, giftCard);
 
-      // Complete gift card purchase transaction
-      await manager.update(Transaction, {
-        referenceId: reference,
-        service: 'GiftCard-Purchase'
-      }, {
-        status: TransactionStatus.COMPLETED,
-        amount: giftCardAmount
-      });
+        // Complete gift card purchase transaction
+        await manager.update(
+          Transaction,
+          {
+            referenceId: reference,
+            service: 'GiftCard-Purchase',
+          },
+          {
+            status: TransactionStatus.COMPLETED,
+            amount: giftCardAmount,
+          },
+        );
 
-      // Complete platform fee transaction
-      await manager.update(Transaction, {
-        referenceId: reference,
-        service: 'GiftCard-Fee'
-      }, {
-        status: TransactionStatus.COMPLETED,
-        amount: feeAmount
-      });
+        // Complete platform fee transaction
+        await manager.update(
+          Transaction,
+          {
+            referenceId: reference,
+            service: 'GiftCard-Fee',
+          },
+          {
+            status: TransactionStatus.COMPLETED,
+            amount: feeAmount,
+          },
+        );
 
-      return {
-        giftCard,
-        giftCardAmount: giftCardAmount,
-        platformFee: feeAmount,
-        totalPaid: giftCardAmount + feeAmount,
-      };
-    });
+        return {
+          giftCard,
+          giftCardAmount: giftCardAmount,
+          platformFee: feeAmount,
+          totalPaid: giftCardAmount + feeAmount,
+        };
+      },
+    );
 
     // Update business wallet outside the transaction to avoid deadlock
     try {
@@ -254,6 +284,20 @@ export class GiftCardService {
     } catch (walletError) {
       // Log the error but don't fail the entire operation since gift card was purchased successfully
       console.error('Failed to add funds to business wallet:', walletError);
+    }
+
+    if (result.giftCard.ownerEmail) {
+      this.emailService.sendGiftCardEmail(
+        result.giftCard.ownerEmail,
+        result.giftCard.recipientName ||
+          result.giftCard.ownerFullName ||
+          'Valued Customer',
+        'purchased',
+        result.giftCard.code,
+        result.giftCardAmount,
+        result.giftCard.recipientName || undefined,
+        result.giftCard.senderName || undefined,
+      );
     }
 
     return {
@@ -309,36 +353,53 @@ export class GiftCardService {
     const amount = Number(giftCard.remainingAmount);
 
     // Redeem inside a transaction
-    return await this.dataSource.manager.transaction(async (manager) => {
-      giftCard.remainingAmount = 0;
-      giftCard.redeemedAt = now;
-      giftCard.status = BusinessGiftCardStatus.USED;
+    const result = await this.dataSource.manager.transaction(
+      async (manager) => {
+        giftCard.remainingAmount = 0;
+        giftCard.redeemedAt = now;
+        giftCard.status = BusinessGiftCardStatus.USED;
 
-      await manager.save(BusinessGiftCard, giftCard);
+        await manager.save(BusinessGiftCard, giftCard);
 
-      // Log redemption transaction
-      const tx = this.transactionRepo.create({
-        senderId: giftCard.ownerId,
-        recipientId: user.id,
+        // Log redemption transaction
+        const tx = this.transactionRepo.create({
+          senderId: giftCard.ownerId,
+          recipientId: user.id,
+          amount,
+          type: TransactionType.EARNING,
+          currency: giftCard.currency as any,
+          description: `Redeemed gift card "${giftCard.title}"`,
+          mode: 'System',
+          referenceId: giftCard.code,
+          status: TransactionStatus.COMPLETED,
+          method: PaymentMethod.GIFTCARD,
+          service: 'GiftCard-Redemption',
+        });
+
+        await manager.save(Transaction, tx);
+
+        return {
+          message: 'Gift card redeemed',
+          amountUsed: amount,
+          redeemedAt: giftCard.redeemedAt,
+        };
+      },
+    );
+
+    if (user.email) {
+      this.emailService.sendGiftCardEmail(
+        user.email,
+        user.firstName || 'Valued Customer',
+        'redeemed',
+        giftCard.code,
         amount,
-        type: TransactionType.EARNING,
-        currency: giftCard.currency as any,
-        description: `Redeemed gift card "${giftCard.title}"`,
-        mode: 'System',
-        referenceId: giftCard.code,
-        status: TransactionStatus.COMPLETED,
-        method: PaymentMethod.GIFTCARD,
-        service: 'GiftCard-Redemption',
-      });
+        undefined,
+        undefined,
+        giftCard.remainingAmount > 0 ? Number(giftCard.remainingAmount) : 0,
+      );
+    }
 
-      await manager.save(Transaction, tx);
-
-      return {
-        message: 'Gift card redeemed',
-        amountUsed: amount,
-        redeemedAt: giftCard.redeemedAt,
-      };
-    });
+    return result;
   }
 
   /** Stats for user-owned gift cards */

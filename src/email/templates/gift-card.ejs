@@ -1,0 +1,48 @@
+<%- include('layouts/head') %>
+<% if (action === 'purchased') { %>
+<p style="margin:0 0 4px 0; font-size:13px; font-weight:600; letter-spacing:0.5px; text-transform:uppercase; color:#ED3131;">Gift card purchased</p>
+<h1 style="margin:0 0 16px 0; font-size:22px; font-weight:700; color:#18181b; line-height:1.3;">Your gift card purchase is confirmed</h1>
+<p style="margin:0 0 16px 0; font-size:15px; line-height:1.6; color:#52525b;">Hi <%= name %>,</p>
+<p style="margin:0 0 8px 0; font-size:15px; line-height:1.6; color:#52525b;">Your gift card has been purchased successfully.</p>
+<table style="margin:0 0 24px 0; width:100%; border-collapse:collapse;" cellpadding="8" cellspacing="0">
+  <tr><td style="font-size:14px; color:#52525b; border-bottom:1px solid #e4e4e7;">Code</td><td style="font-size:14px; font-weight:600; color:#18181b; border-bottom:1px solid #e4e4e7;"><%= giftCardCode %></td></tr>
+  <tr><td style="font-size:14px; color:#52525b; border-bottom:1px solid #e4e4e7;">Value</td><td style="font-size:14px; font-weight:600; color:#18181b; border-bottom:1px solid #e4e4e7;">$<%= giftCardAmount %></td></tr>
+  <% if (recipientName) { %><tr><td style="font-size:14px; color:#52525b; border-bottom:1px solid #e4e4e7;">Recipient</td><td style="font-size:14px; font-weight:600; color:#18181b; border-bottom:1px solid #e4e4e7;"><%= recipientName %></td></tr><% } %>
+  <% if (senderName) { %><tr><td style="font-size:14px; color:#52525b; border-bottom:1px solid #e4e4e7;">From</td><td style="font-size:14px; font-weight:600; color:#18181b; border-bottom:1px solid #e4e4e7;"><%= senderName %></td></tr><% } %>
+</table>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px 0;">
+  <tr>
+    <td align="center">
+      <table role="presentation" cellpadding="0" cellspacing="0">
+        <tr>
+          <td style="background-color:#ED3131; border-radius:999px;">
+            <a href="<%= frontendUrl %>/customer/gift/purchase/validate" style="display:inline-block; padding:14px 36px; font-size:15px; font-weight:600; color:#ffffff; text-decoration:none;">Redeem Gift Card</a>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+<% } else if (action === 'redeemed') { %>
+<p style="margin:0 0 4px 0; font-size:13px; font-weight:600; letter-spacing:0.5px; text-transform:uppercase; color:#ED3131;">Gift card redeemed</p>
+<h1 style="margin:0 0 16px 0; font-size:22px; font-weight:700; color:#18181b; line-height:1.3;">Your gift card has been redeemed</h1>
+<p style="margin:0 0 16px 0; font-size:15px; line-height:1.6; color:#52525b;">Hi <%= name %>,</p>
+<p style="margin:0 0 8px 0; font-size:15px; line-height:1.6; color:#52525b;">Your gift card <strong><%= giftCardCode %></strong> has been applied.</p>
+<% if (remainingBalance !== undefined && remainingBalance > 0) { %>
+<p style="margin:0 0 8px 0; font-size:15px; line-height:1.6; color:#52525b;">Remaining balance: <strong>$<%= remainingBalance %></strong></p>
+<% } %>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px 0;">
+  <tr>
+    <td align="center">
+      <table role="presentation" cellpadding="0" cellspacing="0">
+        <tr>
+          <td style="background-color:#ED3131; border-radius:999px;">
+            <a href="<%= frontendUrl %>/customer/gift/purchase/manage" style="display:inline-block; padding:14px 36px; font-size:15px; font-weight:600; color:#ffffff; text-decoration:none;">View My Gift Cards</a>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+<% } %>
+<%- include('layouts/foot', { frontendUrl, year }) %>

@@ -4,12 +4,14 @@ import { Repository } from 'typeorm';
 import { UserAddress } from '../user_entities/address.entity';
 import { CreateAddressDto, UpdateAddressDto } from '../dtos/address.dto';
 import { User } from '../../all_user_entities/user.entity';
+import { EmailService } from '../../email/email.service';
 
 @Injectable()
 export class AddressService {
   constructor(
     @InjectRepository(UserAddress)
     private addressRepository: Repository<UserAddress>,
+    private emailService: EmailService,
   ) {}
 
   async createAddress(user: User, createAddressDto: CreateAddressDto): Promise<UserAddress> {
@@ -17,7 +19,19 @@ export class AddressService {
       ...createAddressDto,
       user,
     });
-    return this.addressRepository.save(address);
+    const saved = await this.addressRepository.save(address);
+
+    if (user.email) {
+      this.emailService.sendAddressUpdateEmail(
+        user.email,
+        user.firstName || 'Customer',
+        saved.type,
+        saved.fullAddress,
+        'added',
+      );
+    }
+
+    return saved;
   }
 
   async getUserAddresses(user: User): Promise<UserAddress[]> {
@@ -26,12 +40,23 @@ export class AddressService {
     });
   }
 
-  async updateAddress(addressId: string, updateAddressDto: UpdateAddressDto): Promise<UserAddress> {
+  async updateAddress(user: User, addressId: string, updateAddressDto: UpdateAddressDto): Promise<UserAddress> {
     await this.addressRepository.update(addressId, updateAddressDto);
     const updatedAddress = await this.addressRepository.findOne({ where: { id: addressId } });
     if (!updatedAddress) {
       throw new Error('Address not found');
     }
+
+    if (user.email) {
+      this.emailService.sendAddressUpdateEmail(
+        user.email,
+        user.firstName || 'Customer',
+        updatedAddress.type,
+        updatedAddress.fullAddress,
+        'updated',
+      );
+    }
+
     return updatedAddress;
   }
 
