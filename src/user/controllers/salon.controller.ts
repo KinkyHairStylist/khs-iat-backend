@@ -74,6 +74,8 @@ export class SalonController {
   })
   @ApiQuery({ name: 'lat', required: false, type: Number, example: -33.8688 })
   @ApiQuery({ name: 'lng', required: false, type: Number, example: 151.2093 })
+  @ApiQuery({ name: 'date', required: false, type: String, example: '2026-07-14' })
+  @ApiQuery({ name: 'time', required: false, type: String, example: '14:30' })
   @ApiResponse({ status: 200, description: 'Return list of salons' })
   @UseInterceptors(CacheInterceptor) //  Apply caching
   @Public()
@@ -93,6 +95,8 @@ export class SalonController {
       sortBy: query.sortBy || 'bestMatch',
       lat: query.lat ? parseFloat(query.lat) : undefined,
       lng: query.lng ? parseFloat(query.lng) : undefined,
+      date: query.date || '',
+      time: query.time || '',
     };
 
     return this.salonService.findAll(options);
