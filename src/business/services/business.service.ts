@@ -577,10 +577,20 @@ export class BusinessService {
       relations: ['business','business.serviceList'],
     })
 
-   if (!staff) {throw new Error('No staff found')}
-   if(!staff.business){throw new Error("business not found")}
+    if (staff?.business) {
+      return staff.business;
+    }
 
-    return staff.business;
+    const ownedBusiness = await this.businessRepo.findOne({
+      where: { ownerEmail: mail },
+      relations: ['serviceList'],
+    });
+
+    if (ownedBusiness) {
+      return ownedBusiness;
+    }
+
+    throw new Error('No staff found');
   }
 
   async createBlockedTime(body: CreateBlockedTimeDto) {
