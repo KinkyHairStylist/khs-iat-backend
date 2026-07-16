@@ -356,6 +356,40 @@ export class EmailService {
     );
   }
 
+  sendMembershipEmail(
+    to: string,
+    name: string,
+    action: 'payment' | 'upgrade' | 'cancelled',
+    planName: string,
+    amount?: string,
+    nextBillingDate?: string,
+    oldPlanName?: string,
+    cancelledDate?: string,
+  ) {
+    const html = this.templateService.render('membership', {
+      name,
+      action,
+      planName,
+      amount,
+      nextBillingDate,
+      oldPlanName,
+      cancelledDate,
+      frontendUrl: this.frontendUrl,
+      year: new Date().getFullYear(),
+    });
+    const subjects: Record<string, string> = {
+      payment: 'Your membership is now active',
+      upgrade: 'Your membership has been upgraded',
+      cancelled: 'Your membership has been cancelled',
+    };
+    const texts: Record<string, string> = {
+      payment: `Hi ${name}, your ${planName} membership is now active. Amount charged: $${amount}. Next billing: ${nextBillingDate}.`,
+      upgrade: `Hi ${name}, your membership has been upgraded from ${oldPlanName} to ${planName}.`,
+      cancelled: `Hi ${name}, your ${planName} membership has been cancelled effective ${cancelledDate}.`,
+    };
+    this.sendEmail(to, subjects[action], texts[action], html, this.deliveryTeamEmail);
+  }
+
   sendRescheduleConfirmationEmail(
     to: string,
     name: string,

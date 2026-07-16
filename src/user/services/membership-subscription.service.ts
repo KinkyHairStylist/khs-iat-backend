@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { MembershipSubscription } from '../user_entities/membership-subscription.entity';
@@ -12,9 +12,12 @@ import { Transaction, TransactionType, TransactionStatus, PaymentMethod } from '
 import { PaystackService } from 'src/payment/paystack.service';
 import { WalletCurrency } from 'src/admin/payment/enums/wallet.enum';
 import { PlatformSettingsService } from 'src/admin/platform-settings/platform-settings.service';
+import { EmailService } from 'src/email/email.service';
 
 @Injectable()
 export class MembershipService {
+  private readonly logger = new Logger(MembershipService.name);
+
   constructor(
     @InjectRepository(MembershipSubscription)
     private readonly subscriptionRepo: Repository<MembershipSubscription>,
@@ -34,6 +37,7 @@ export class MembershipService {
     private readonly dataSource: DataSource,
     private readonly paystack: PaystackService,
     private readonly platformSettingsService: PlatformSettingsService,
+    private readonly emailService: EmailService,
   ) {}
 
   // ------------------------------------------------------
@@ -43,11 +47,24 @@ export class MembershipService {
     const tier = await this.tierRepo.findOne({ where: { id: dto.tierId } });
     if (!tier) throw new BadRequestException('Invalid membership tier');
 
+    // Expire subscriptions past their end date to prevent ghost blocking
+    const expiredSubs = await this.subscriptionRepo.find({
+      where: { userId: user.id, status: 'active' },
+    });
+    for (const sub of expiredSubs) {
+      if (sub.endDate && new Date(sub.endDate) < new Date()) {
+        sub.status = 'expired' as any;
+        await this.subscriptionRepo.save(sub);
+        this.logger.log(`Auto-expired subscription ${sub.id} for user ${user.id}`);
+      }
+    }
+
     const existing = await this.subscriptionRepo.findOne({
       where: { userId: user.id, status: 'active' },
     });
 
     if (existing) {
+      this.logger.warn(`User ${user.id} blocked from subscribing — active subscription ${existing.id} (endDate: ${existing.endDate}, tier: ${existing.tier?.name})`);
       throw new BadRequestException('You already have an active subscription');
     }
 
@@ -104,7 +121,7 @@ export class MembershipService {
     // Handle full gift card payment
     if (remainingToPay === 0) {
       // Complete subscription immediately with gift card
-      return await this.dataSource.manager.transaction(async (manager) => {
+      const giftCardSub = await this.dataSource.manager.transaction(async (manager) => {
         const giftCard = await manager.findOne(BusinessGiftCard, {
           where: { code: dto.giftCard },
         });
@@ -181,12 +198,31 @@ export class MembershipService {
         }
 
         return {
-          message: 'Membership subscription completed successfully with gift card',
           subscription,
           giftCardAmountUsed: totalAmount,
           success: true,
         };
       });
+
+      try {
+        this.emailService.sendMembershipEmail(
+          user.email,
+          user.firstName || 'Valued Customer',
+          'payment',
+          tier.name,
+          subscriptionAmount.toFixed(2),
+          giftCardSub.subscription.nextBillingDate
+            ? new Date(giftCardSub.subscription.nextBillingDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+            : 'N/A',
+        );
+      } catch (e) {
+        this.logger.error('Failed to send membership payment email (gift card path)', e);
+      }
+
+      return {
+        message: 'Membership subscription completed successfully with gift card',
+        ...giftCardSub,
+      };
     }
 
     // Handle partial/combined payment (gift card + card)
@@ -290,6 +326,33 @@ export class MembershipService {
   // Step 2 — Complete Subscription (Verify Payment & Create Subscription)
   // ------------------------------------------------------
   async completeSubscription(reference: string) {
+    // Atomically claim this reference — prevents race conditions from double-fires
+    const claim = await this.transactionRepo.update(
+      {
+        referenceId: reference,
+        method: PaymentMethod.PAYSTACK,
+        status: TransactionStatus.PENDING,
+      },
+      { status: TransactionStatus.PROCESSING },
+    );
+    if (claim.affected === 0) {
+      this.logger.log(`completeSubscription already claimed/processed for reference ${reference} — skipping`);
+      return { message: 'Membership subscription already completed', alreadyProcessed: true };
+    }
+
+    const lookupTx = await this.transactionRepo.findOne({
+      where: { referenceId: reference },
+    });
+    const preUserId = lookupTx?.senderId;
+    if (preUserId) {
+      const activeBefore = await this.subscriptionRepo.findOne({
+        where: { userId: preUserId, status: 'active' },
+      });
+      if (activeBefore) {
+        this.logger.warn(`User ${preUserId} has active subscription ${activeBefore.id} before Paystack verify — will upgrade inside transaction`);
+      }
+    }
+
     // Verify payment
     const verification = await this.paystack.verifyPayment(reference);
 
@@ -318,13 +381,24 @@ export class MembershipService {
       const user = await manager.findOne(User, { where: { id: meta.userId } });
       if (!user) throw new NotFoundException('User not found');
 
-      // Check if user already has active subscription
+      // Double-check inside transaction for race safety
       const existing = await manager.findOne(MembershipSubscription, {
         where: { userId: user.id, status: 'active' },
       });
 
       if (existing) {
-        throw new BadRequestException('You already have an active subscription');
+        this.logger.warn(`User ${user.id} already has active subscription ${existing.id} after Paystack verification — upgrading existing sub instead`);
+        // Update existing subscription to new tier dates/benefits
+        existing.tierId = tier.id;
+        existing.tier = tier;
+        existing.startDate = new Date();
+        existing.endDate = new Date();
+        existing.endDate.setDate(existing.startDate.getDate() + tier.durationDays);
+        existing.remainingSessions = tier.session;
+        existing.monthlyCost = tier.initialPrice;
+        existing.nextBillingDate = new Date();
+        existing.nextBillingDate.setDate(existing.startDate.getDate() + 30);
+        await manager.save(existing);
       }
 
       // Handle gift card portion if any
@@ -352,7 +426,6 @@ export class MembershipService {
         });
       }
 
-      // Create subscription
       const startDate = new Date();
       const endDate = new Date();
       endDate.setDate(startDate.getDate() + tier.durationDays);
@@ -360,18 +433,22 @@ export class MembershipService {
       const nextBillingDate = new Date(startDate);
       nextBillingDate.setDate(startDate.getDate() + 30);
 
-      const subscription = manager.create(MembershipSubscription, {
-        userId: user.id,
-        tierId: tier.id,
-        startDate,
-        endDate,
-        remainingSessions: tier.session,
-        status: 'active',
-        nextBillingDate,
-        monthlyCost: tier.initialPrice,
-      });
-
-      await manager.save(MembershipSubscription, subscription);
+      let subscription: MembershipSubscription;
+      if (existing) {
+        subscription = existing;
+      } else {
+        subscription = manager.create(MembershipSubscription, {
+          userId: user.id,
+          tierId: tier.id,
+          startDate,
+          endDate,
+          remainingSessions: tier.session,
+          status: 'active',
+          nextBillingDate,
+          monthlyCost: tier.initialPrice,
+        });
+        await manager.save(subscription);
+      }
 
       // Update card payment transaction to COMPLETED
       await manager.update(Transaction, {
@@ -394,6 +471,9 @@ export class MembershipService {
 
       return {
         subscription,
+        userEmail: user.email,
+        userName: user.firstName || 'Valued Customer',
+        tierName: tier.name,
         subscriptionAmount: subscriptionAmount,
         platformFee: feeAmount,
         giftCardAmountUsed: giftCardAmount,
@@ -401,6 +481,21 @@ export class MembershipService {
         totalPaid: (verification.amount / 100) + giftCardAmount,
       };
     });
+
+    try {
+      this.emailService.sendMembershipEmail(
+        result.userEmail,
+        result.userName,
+        'payment',
+        result.tierName,
+        result.subscriptionAmount.toFixed(2),
+        result.subscription.nextBillingDate
+          ? new Date(result.subscription.nextBillingDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+          : 'N/A',
+      );
+    } catch (e) {
+      this.logger.error('Failed to send membership payment email (completeSubscription)', e);
+    }
 
     return {
       message: 'Membership subscription completed successfully',
@@ -431,6 +526,7 @@ export class MembershipService {
   async cancelMembership(userId: string) {
     const subscription = await this.subscriptionRepo.findOne({
       where: { userId, status: 'active' },
+      relations: ['tier'],
     });
 
     if (!subscription) {
@@ -442,6 +538,24 @@ export class MembershipService {
     subscription.cancelledAt = new Date(); // Record cancellation timestamp
 
     await this.subscriptionRepo.save(subscription);
+
+    try {
+      const user = await this.dataSource.getRepository(User).findOne({ where: { id: userId } });
+      if (user?.email) {
+        this.emailService.sendMembershipEmail(
+          user.email,
+          user.firstName || 'Valued Customer',
+          'cancelled',
+          subscription.tier?.name || 'Membership',
+          undefined,
+          undefined,
+          undefined,
+          new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+        );
+      }
+    } catch (e) {
+      this.logger.error('Failed to send cancellation email', e);
+    }
 
     return { message: 'Membership cancelled successfully.' };
   }
@@ -482,6 +596,23 @@ export class MembershipService {
 
     await this.subscriptionRepo.save(subscription);
 
+    try {
+      const user = await this.dataSource.getRepository(User).findOne({ where: { id: userId } });
+      if (user?.email) {
+        this.emailService.sendMembershipEmail(
+          user.email,
+          user.firstName || 'Valued Customer',
+          'upgrade',
+          nextTier.name,
+          undefined,
+          nextBillingDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+          subscription.tier?.name || 'Previous',
+        );
+      }
+    } catch (e) {
+      this.logger.error('Failed to send upgrade email', e);
+    }
+
     return { message: `Successfully upgraded to ${nextTier.name} tier.` };
   }
 
@@ -520,6 +651,23 @@ export class MembershipService {
     subscription.nextBillingDate = nextBillingDate;
 
     await this.subscriptionRepo.save(subscription);
+
+    try {
+      const user = await this.dataSource.getRepository(User).findOne({ where: { id: userId } });
+      if (user?.email) {
+        this.emailService.sendMembershipEmail(
+          user.email,
+          user.firstName || 'Valued Customer',
+          'upgrade',
+          previousTier.name,
+          undefined,
+          nextBillingDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+          subscription.tier?.name || 'Previous',
+        );
+      }
+    } catch (e) {
+      this.logger.error('Failed to send downgrade email', e);
+    }
 
     return { message: `Successfully downgraded to ${previousTier.name} tier.` };
   }
