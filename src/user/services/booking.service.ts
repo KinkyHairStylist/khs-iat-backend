@@ -731,20 +731,21 @@ export class BookingService {
 
   // Restore Cancelled Booking
   async restoreBooking(orderId: string): Promise<{ message: string }> {
-    const appointment = await this.bookingRepository.findOne({
-      where: { orderId },
+    const cancelled = await this.bookingRepository.find({
+      where: { orderId, status: AppointmentStatus.CANCELLED },
     });
-    if (!appointment) {
-      throw new NotFoundException('Appointment not found');
-    }
 
-    if (appointment.status !== AppointmentStatus.CANCELLED) {
+    if (!cancelled.length) {
+      const exists = await this.bookingRepository.findOne({ where: { orderId } });
+      if (!exists) throw new NotFoundException('Appointment not found');
       throw new BadRequestException('Appointment is not cancelled, cannot restore');
     }
 
-    appointment.status = AppointmentStatus.CONFIRMED; // Restore to confirmed status
-    appointment.cancellationsNote = undefined; // Clear cancellation note on restore
-    await this.bookingRepository.save(appointment);
+    for (const appt of cancelled) {
+      appt.status = AppointmentStatus.CONFIRMED;
+      appt.cancellationsNote = undefined;
+    }
+    await this.bookingRepository.save(cancelled);
     return { message: 'Appointment restored successfully' };
   }
 
