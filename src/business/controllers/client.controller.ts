@@ -31,9 +31,7 @@ import {
 } from '../dtos/requests/ClientDto';
 import { ClientFormData } from '../types/client.types';
 import { ClientType } from '../entities/client.entity';
-import {
-  PreferredContactMethod,
-} from '../entities/client-settings.entity';
+import { PreferredContactMethod } from '../entities/client-settings.entity';
 import { ClientSettingsService } from '../services/client-settings.service';
 import { Roles } from 'src/middleware/roles.decorator';
 import { JwtAuthGuard } from '../../middleware/jwt-auth.guard';
@@ -442,9 +440,13 @@ export class ClientController {
       .filter((r) => r.success && r.data)
       .map((r) => r.data);
 
+    const savedCount = savedAddresses.length;
     return {
       success: true,
-      message: `${savedAddresses.length} address(es) added successfully`,
+      message:
+        savedCount === 1
+          ? 'Address added successfully'
+          : `${savedCount} addresses added successfully`,
       data: savedAddresses,
     };
   }
@@ -541,9 +543,13 @@ export class ClientController {
         message: 'No changes made to contact addresses',
       };
     } else {
+      const updatedCount = updatedAddresses.length;
       return {
         success: true,
-        message: `${updatedAddresses.length} address(es) updated successfully`,
+        message:
+          updatedCount === 1
+            ? 'Address updated successfully'
+            : `${updatedCount} addresses updated successfully`,
         data: updatedAddresses,
       };
     }

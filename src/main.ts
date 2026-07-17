@@ -15,6 +15,10 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   app.useLogger(logger);
 
+  // Configure Express to use the 'extended' query parser (qs library)
+  // to support bracket-notation array params like services[]=x
+  app.getHttpAdapter().getInstance().set('query parser', 'extended');
+
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
