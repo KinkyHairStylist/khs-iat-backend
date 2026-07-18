@@ -238,7 +238,7 @@ const upsertStaff = async (
         specialization,
         "business_id"
       )
-      VALUES ($1, $2, $3, $4, 'stylist', $5, $6, $7)
+      VALUES ($1, $2, $3, $4, 'HAIRSTYLIST', $5, $6, $7)
       ON CONFLICT (email)
       DO UPDATE SET
         "firstName" = EXCLUDED."firstName",
