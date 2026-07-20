@@ -13,6 +13,7 @@
     "cleanup-tx": "ts-node --project tsconfig.json ./scripts/cleanup-transaction.ts",
     "seed:appointments": "ts-node --project tsconfig.json ./scripts/seed-appointment-management.ts",
     "seed:rem-218": "ts-node --project tsconfig.json ./scripts/seed-rem-218-transaction.ts",
+    "seed:rem-498": "ts-node --project tsconfig.json ./scripts/seed-rem-498-gift-cards.ts",
     "seed:membership": "ts-node --project tsconfig.json ./scripts/seed-membership-management.ts",
     "seed:moderation": "ts-node --project tsconfig.json ./scripts/seed-content-moderation.ts",
     "seed:chat": "ts-node --project tsconfig.json ./scripts/seed-live-chat.ts",
