@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -32,6 +33,8 @@ import { GetUserDto } from '../dtos/GetUserDto';
 
 @Injectable()
 export class AdminService {
+  private readonly logger = new Logger(AdminService.name);
+
   constructor(
     @InjectRepository(User) private userRepo: Repository<User>,
     @InjectRepository(Business) private businessRepo: Repository<Business>,
@@ -339,7 +342,21 @@ export class AdminService {
       throw new UnauthorizedException('Application not found');
     }
     application.status = BusinessStatus.APPROVED;
-    return this.businessRepo.save(application);
+    const saved = await this.businessRepo.save(application);
+
+    try {
+      this.emailService.sendMerchantVerifiedEmail(
+        saved.ownerEmail || '',
+        saved.businessName,
+        saved.id,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to send merchant verified email: ${error.message}`,
+      );
+    }
+
+    return saved;
   }
 
   async findByFirstName(firstName: string) {

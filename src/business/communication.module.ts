@@ -5,14 +5,17 @@ import { ClientSchema } from './entities/client.entity';
 import { Communication } from './entities/communication.entity';
 import { CommunicationController } from './controllers/communication.controller';
 import { CommunicationService } from './services/communication.service';
+import { EmailModule } from 'src/email/email.module';
+import { Business } from './entities/business.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Communication, ClientSchema]), // ✅ Load Reminder repository
+    TypeOrmModule.forFeature([Communication, ClientSchema, Business]),
     ClientModule,
+    EmailModule,
   ],
-  controllers: [CommunicationController], // ✅ Expose controller
-  providers: [CommunicationService], // ✅ Provide service
-  exports: [CommunicationService], // ✅ Export if other modules need it
+  controllers: [CommunicationController],
+  providers: [CommunicationService],
+  exports: [CommunicationService],
 })
 export class CommunicationModule {}

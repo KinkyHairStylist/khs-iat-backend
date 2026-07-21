@@ -204,6 +204,81 @@ export class EmailService {
     }
   }
 
+  sendMerchantUnderReviewEmail(
+    to: string,
+    businessName: string,
+    merchantId: string,
+  ) {
+    const html = this.templateService.render('merchant-under-review', {
+      businessName,
+      frontendUrl: this.frontendUrl,
+      year: new Date().getFullYear(),
+    });
+    const text = `Hi ${businessName}, your merchant profile has been submitted and is now under review. Our team will review it within 24-48 hours and notify you once verified.`;
+    this.sendEmail(
+      to,
+      'Your merchant profile is under review',
+      text,
+      html,
+      this.deliveryTeamEmail,
+    );
+
+    const teamTo = this.deliveryTeamEmail;
+    if (teamTo) {
+      this.logger.log(
+        `Sending merchant under-review notification to delivery team at ${teamTo}`,
+      );
+      const teamHtml = this.templateService.render(
+        'merchant-team-notification',
+        {
+          merchantId,
+          email: to,
+          frontendUrl: this.frontendUrl,
+          year: new Date().getFullYear(),
+        },
+      );
+      const teamText = `Merchant #${merchantId} (${to}) is ready for verification.`;
+      const teamMsg = {
+        to: teamTo,
+        from: {
+          email: this.configService.get<string>('SENDGRID_FROM_EMAIL')!,
+          name:
+            this.configService.get<string>('SENDGRID_FROM_NAME') ||
+            'Kinky Hairstylist',
+        },
+        subject: `Merchant #${merchantId} ready for verification.`,
+        html: teamHtml,
+        text: teamText,
+      };
+
+      void this.sendWithRetry(teamMsg, 1);
+    } else {
+      this.logger.warn(
+        'DELIVERY_TEAM_EMAIL is not set — skipping delivery team notification',
+      );
+    }
+  }
+
+  sendMerchantVerifiedEmail(
+    to: string,
+    businessName: string,
+    merchantId: string,
+  ) {
+    const html = this.templateService.render('merchant-verified', {
+      businessName,
+      frontendUrl: this.frontendUrl,
+      year: new Date().getFullYear(),
+    });
+    const text = `Hi ${businessName} (Merchant #${merchantId}), congratulations! Your merchant profile has been verified. Your dashboard is now unlocked.`;
+    this.sendEmail(
+      to,
+      'Welcome to your verified merchant dashboard',
+      text,
+      html,
+      this.deliveryTeamEmail,
+    );
+  }
+
   sendLoginNotificationEmail(to: string, userName: string, timestamp?: string) {
     const now =
       timestamp ||
@@ -387,7 +462,65 @@ export class EmailService {
       upgrade: `Hi ${name}, your membership has been upgraded from ${oldPlanName} to ${planName}.`,
       cancelled: `Hi ${name}, your ${planName} membership has been cancelled effective ${cancelledDate}.`,
     };
-    this.sendEmail(to, subjects[action], texts[action], html, this.deliveryTeamEmail);
+    this.sendEmail(
+      to,
+      subjects[action],
+      texts[action],
+      html,
+      this.deliveryTeamEmail,
+    );
+  }
+
+  sendRefundRequestEmail(
+    to: string,
+    name: string,
+    reference: string,
+    amount: string,
+    currency: string,
+    reason: string,
+  ) {
+    const html = this.templateService.render('refund-request', {
+      name,
+      reference,
+      amount,
+      currency,
+      reason,
+      frontendUrl: this.frontendUrl,
+      year: new Date().getFullYear(),
+    });
+    const text = `Hi ${name}, your refund request (ref: ${reference}) for ${currency}${amount} has been received. Reason: ${reason}. Our team will review it within 3-5 business days.`;
+    this.sendEmail(
+      to,
+      'Refund request received – Kinky Hairstylist',
+      text,
+      html,
+      this.deliveryTeamEmail,
+    );
+  }
+
+  sendReferralConfirmedEmail(
+    to: string,
+    name: string,
+    referredEmail: string,
+    earning: string,
+    currency: string,
+  ) {
+    const html = this.templateService.render('referral-confirmed', {
+      name,
+      referredEmail,
+      earning,
+      currency,
+      frontendUrl: this.frontendUrl,
+      year: new Date().getFullYear(),
+    });
+    const text = `Hi ${name}, you earned ${currency}${earning} for referring ${referredEmail} to Kinky Hairstylist!`;
+    this.sendEmail(
+      to,
+      'You earned a referral reward!',
+      text,
+      html,
+      this.deliveryTeamEmail,
+    );
   }
 
   sendRescheduleConfirmationEmail(

@@ -1,16 +1,21 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Transaction, TransactionStatus, TransactionType } from 'src/business/entities/transaction.entity';
+import {
+  Transaction,
+  TransactionStatus,
+  TransactionType,
+} from 'src/business/entities/transaction.entity';
 import { User } from 'src/all_user_entities/user.entity';
 import { Refund, RefundStatus } from '../user_entities/refund.entity';
 import { TransactionPaginationDto } from '../dtos/transaction.dto';
+import { EmailService } from 'src/email/email.service';
 
 export interface TransactionSummary {
   totalSpent: number;
   successfulPaymentsCount: number;
   totalRefundAmount: number;
-  currentYear: number
+  currentYear: number;
 }
 
 export interface PaginatedTransactionResult {
@@ -26,11 +31,14 @@ export interface PaginatedTransactionResult {
 
 @Injectable()
 export class TransactionService {
+  private readonly logger = new Logger(TransactionService.name);
+
   constructor(
     @InjectRepository(Transaction)
     private readonly transactionRepository: Repository<Transaction>,
     @InjectRepository(Refund)
     private readonly refundRepository: Repository<Refund>,
+    private readonly emailService: EmailService,
   ) {}
 
   /**
@@ -64,7 +72,8 @@ export class TransactionService {
     const { limit = 50, cursor } = pagination;
 
     // Fetch one extra record to determine if there's a next page
-    const queryBuilder = this.transactionRepository.createQueryBuilder('transaction');
+    const queryBuilder =
+      this.transactionRepository.createQueryBuilder('transaction');
 
     // Filter by user as sender or recipient
     queryBuilder.andWhere(
@@ -100,21 +109,28 @@ export class TransactionService {
 
     // Determine if there's a next page
     const hasNextPage = transactions.length > limit;
-    
+
     // Remove the extra record if present
-    const paginatedTransactions = hasNextPage ? transactions.slice(0, limit) : transactions;
+    const paginatedTransactions = hasNextPage
+      ? transactions.slice(0, limit)
+      : transactions;
 
     // Generate cursors
-    const startCursor = paginatedTransactions.length > 0
-      ? this.encodeCursor(paginatedTransactions[0].createdAt, paginatedTransactions[0].id)
-      : null;
-    
-    const endCursor = paginatedTransactions.length > 0
-      ? this.encodeCursor(
-          paginatedTransactions[paginatedTransactions.length - 1].createdAt,
-          paginatedTransactions[paginatedTransactions.length - 1].id,
-        )
-      : null;
+    const startCursor =
+      paginatedTransactions.length > 0
+        ? this.encodeCursor(
+            paginatedTransactions[0].createdAt,
+            paginatedTransactions[0].id,
+          )
+        : null;
+
+    const endCursor =
+      paginatedTransactions.length > 0
+        ? this.encodeCursor(
+            paginatedTransactions[paginatedTransactions.length - 1].createdAt,
+            paginatedTransactions[paginatedTransactions.length - 1].id,
+          )
+        : null;
 
     return {
       transactions: paginatedTransactions,
@@ -128,7 +144,10 @@ export class TransactionService {
     };
   }
 
-  async getUserTransactionSummary(user: User, year?: number): Promise<TransactionSummary> {
+  async getUserTransactionSummary(
+    user: User,
+    year?: number,
+  ): Promise<TransactionSummary> {
     const currentYear = year || new Date().getFullYear();
 
     // Get transactions for the current year where user is sender (spending transactions)
@@ -140,13 +159,19 @@ export class TransactionService {
 
     // Calculate total spent (successful DEBIT transactions)
     const totalSpent = spendTransactions
-      .filter(t => t.status === TransactionStatus.COMPLETED && t.type === TransactionType.DEBIT)
+      .filter(
+        (t) =>
+          t.status === TransactionStatus.COMPLETED &&
+          t.type === TransactionType.DEBIT,
+      )
       .reduce((sum, t) => sum + parseFloat(t.amount.toString()), 0);
 
     // Count successful payments
-    const successfulPaymentsCount = spendTransactions
-      .filter(t => t.status === TransactionStatus.COMPLETED && t.type === TransactionType.DEBIT)
-      .length;
+    const successfulPaymentsCount = spendTransactions.filter(
+      (t) =>
+        t.status === TransactionStatus.COMPLETED &&
+        t.type === TransactionType.DEBIT,
+    ).length;
 
     // Calculate total refund amount (REFUND transactions received by user)
     const refundTransactions = await this.transactionRepository.find({
@@ -154,12 +179,14 @@ export class TransactionService {
         recipientId: user.id,
         type: TransactionType.REFUND,
         status: TransactionStatus.COMPLETED,
-        createdAt: new Date(`${currentYear}-01-01`) as any,
+        createdAt: new Date(`${currentYear}-01-01`),
       },
     });
 
-    const totalRefundAmount = refundTransactions
-      .reduce((sum, t) => sum + parseFloat(t.amount.toString()), 0);
+    const totalRefundAmount = refundTransactions.reduce(
+      (sum, t) => sum + parseFloat(t.amount.toString()),
+      0,
+    );
 
     return {
       totalSpent,
@@ -169,14 +196,19 @@ export class TransactionService {
     };
   }
 
-  async requestRefund(user: User, transactionId: string, reason: string, accountDetails?: {
-    bankName?: string;
-    accountNumber?: string;
-    accountHolderName?: string;
-    routingNumber?: string;
-    bankAddress?: string;
-    swiftCode?: string;
-  }): Promise<{ success: boolean; message: string }> {
+  async requestRefund(
+    user: User,
+    transactionId: string,
+    reason: string,
+    accountDetails?: {
+      bankName?: string;
+      accountNumber?: string;
+      accountHolderName?: string;
+      routingNumber?: string;
+      bankAddress?: string;
+      swiftCode?: string;
+    },
+  ): Promise<{ success: boolean; message: string }> {
     // Find the transaction
     const transaction = await this.transactionRepository.findOne({
       where: { id: transactionId },
@@ -189,12 +221,18 @@ export class TransactionService {
 
     // Check if user is the sender (who made the payment)
     if (transaction.senderId !== user.id) {
-      return { success: false, message: 'You can only request refunds for transactions you initiated' };
+      return {
+        success: false,
+        message: 'You can only request refunds for transactions you initiated',
+      };
     }
 
     // Check if transaction is eligible for refund (completed and within refund period - e.g., 30 days)
     if (transaction.status !== TransactionStatus.COMPLETED) {
-      return { success: false, message: 'Only completed transactions can be refunded' };
+      return {
+        success: false,
+        message: 'Only completed transactions can be refunded',
+      };
     }
 
     const thirtyDaysAgo = new Date();
@@ -213,7 +251,10 @@ export class TransactionService {
     });
 
     if (existingRefund && existingRefund.status !== RefundStatus.REJECTED) {
-      return { success: false, message: 'Refund already requested for this transaction' };
+      return {
+        success: false,
+        message: 'Refund already requested for this transaction',
+      };
     }
 
     // Create refund record
@@ -233,6 +274,23 @@ export class TransactionService {
     });
 
     await this.refundRepository.save(refund);
+
+    try {
+      const reference = refund.id.substring(0, 8).toUpperCase();
+      const name = `${user.firstName} ${user.surname}`;
+      this.emailService.sendRefundRequestEmail(
+        user.email,
+        name,
+        reference,
+        refund.amount.toString(),
+        refund.currency || 'NGN',
+        refund.reason,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to send refund request email: ${error.message}`,
+      );
+    }
 
     return { success: true, message: 'Refund request submitted successfully' };
   }

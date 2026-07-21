@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   BadRequestException,
   NotFoundException,
   UnauthorizedException,
@@ -42,6 +43,8 @@ type SanitizedUser = Omit<
 
 @Injectable()
 export class UserService {
+  private readonly logger = new Logger(UserService.name);
+
   constructor(
     @InjectRepository(User)
     private userRepository: Repository<User>,
@@ -64,17 +67,20 @@ export class UserService {
 
   private async updateUserLocation(userId: string, lng: number, lat: number) {
     try {
-      const response = await axios.get('https://nominatim.openstreetmap.org/reverse', {
-        params: {
-          format: 'jsonv2',
-          lat,
-          lon: lng,
+      const response = await axios.get(
+        'https://nominatim.openstreetmap.org/reverse',
+        {
+          params: {
+            format: 'jsonv2',
+            lat,
+            lon: lng,
+          },
+          timeout: 5000,
+          headers: {
+            'User-Agent': 'KHS-App/1.0 (support@khs.com)',
+          },
         },
-        timeout: 5000,
-        headers: {
-          'User-Agent': 'KHS-App/1.0 (support@khs.com)',
-        },
-      });
+      );
 
       const address = response.data?.address ?? {};
       const city = address.city || address.town || address.village || null;
@@ -93,8 +99,6 @@ export class UserService {
       console.error('Location lookup failed:', message);
     }
   }
-
-
 
   private async sendVerificationEmail(
     email: string,
@@ -121,14 +125,43 @@ export class UserService {
     const verificationCode = this.generateCode();
     const verificationExpires = new Date(Date.now() + 10 * 60 * 1000);
 
-    let user = await this.userRepository.findOne({ where: { email } });
+    const user = await this.userRepository.findOne({ where: { email } });
+
+    // Create referral record early if a referral code was provided — before early returns
+    if (dto.refCode) {
+      try {
+        const referrer = await this.userRepository.findOne({
+          where: { referralCode: dto.refCode },
+        });
+        if (referrer) {
+          await this.referralService.createReferral(
+            referrer.id,
+            email,
+            dto.refCode,
+          );
+          this.logger.log(
+            `Referral created: ${referrer.email} referred ${email}`,
+          );
+        }
+      } catch (err) {
+        this.logger.warn(
+          `Failed to create referral for refCode ${dto.refCode}: ${err.message}`,
+        );
+      }
+    }
 
     if (user && user.isVerified && user.password) {
-      return { message: 'User already exists. Please log in instead.', success: false };
+      return {
+        message: 'User already exists. Please log in instead.',
+        success: false,
+      };
     }
 
     if (user && user.isVerified && !user.password) {
-      return { message: 'Email already verified. Please complete your registration.', success: false };
+      return {
+        message: 'Email already verified. Please complete your registration.',
+        success: false,
+      };
     }
 
     if (user && !user.isVerified) {
@@ -148,7 +181,10 @@ export class UserService {
         await manager.save(locked);
         this.otpCooldowns.set(email, Date.now());
         await this.sendVerificationEmail(locked.email, verificationCode);
-        return { message: 'Verification code resent to your email.', success: true };
+        return {
+          message: 'Verification code resent to your email.',
+          success: true,
+        };
       });
     }
 
@@ -159,6 +195,7 @@ export class UserService {
       verificationExpires,
     });
     await this.userRepository.save(newUser);
+
     this.otpCooldowns.set(email, Date.now());
     await this.sendVerificationEmail(newUser.email, verificationCode);
     return { message: 'Verification code sent', success: true };
@@ -260,14 +297,12 @@ export class UserService {
       user.latitude = latitude;
     }
 
-
     // Generate referral code for the new user
     user.referralCode = await this.referralService.ensureReferralCode(user.id);
 
     // isCustomer defaults to true, so no need to set it explicitly
 
     await this.userRepository.save(user);
-
 
     if (
       typeof longitude === 'number' &&
@@ -278,9 +313,6 @@ export class UserService {
       await this.updateUserLocation(user.id, user.longitude, user.latitude);
     }
 
-
-
-
     // If a referral code was used, complete the referral and reward the referrer
     if (referralCode) {
       await this.referralService.completeReferral(email, user.id);
@@ -289,7 +321,7 @@ export class UserService {
     const { accessToken, refreshToken } = await getTokens(
       this.jwtService,
       user.id,
-      user.email
+      user.email,
     );
 
     this.emailService.sendWelcomeEmail(
@@ -338,7 +370,7 @@ export class UserService {
     const { accessToken, refreshToken } = await getTokens(
       this.jwtService,
       user.id,
-      user.email
+      user.email,
     );
 
     this.emailService.sendLoginNotificationEmail(
@@ -467,7 +499,7 @@ export class UserService {
       const { accessToken, refreshToken: newRefreshToken } = await getTokens(
         this.jwtService,
         user.id,
-        user.email
+        user.email,
       );
 
       return {
@@ -513,7 +545,7 @@ export class UserService {
         message: 'User updated successfully',
       };
     } catch (error) {
-            return {
+      return {
         success: false,
         message: 'Failed to update user',
         error: error.message,

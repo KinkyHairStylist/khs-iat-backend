@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import * as crypto from 'crypto';
@@ -6,10 +6,16 @@ import { NotFoundException } from '@nestjs/common';
 
 import { Referral } from '../user_entities/referrals.entity';
 import { User } from '../../all_user_entities/user.entity';
-import { Appointment, AppointmentStatus } from 'src/business/entities/appointment.entity';
+import {
+  Appointment,
+  AppointmentStatus,
+} from 'src/business/entities/appointment.entity';
+import { EmailService } from 'src/email/email.service';
 
 @Injectable()
 export class ReferralService {
+  private readonly logger = new Logger(ReferralService.name);
+
   constructor(
     @InjectRepository(Referral)
     private readonly referralRepository: Repository<Referral>,
@@ -19,6 +25,8 @@ export class ReferralService {
 
     @InjectRepository(Appointment)
     private readonly appointmentRepository: Repository<Appointment>,
+
+    private readonly emailService: EmailService,
   ) {}
 
   // Generate unique referral code
@@ -28,7 +36,7 @@ export class ReferralService {
 
   // Ensure user has a referral code
   async ensureReferralCode(id: string): Promise<string> {
-    let user = await this.userRepository.findOne({ where: { id: id } });
+    const user = await this.userRepository.findOne({ where: { id: id } });
     if (!user) {
       throw new NotFoundException('User not found');
     }
@@ -41,9 +49,12 @@ export class ReferralService {
     return user.referralCode;
   }
 
-
   //  When a user registers through a referral link
-  async createReferral(referrerId: string, referredEmail: string, referralCode: string) {
+  async createReferral(
+    referrerId: string,
+    referredEmail: string,
+    referralCode: string,
+  ) {
     const referral = this.referralRepository.create({
       referrerId,
       referredEmail,
@@ -77,6 +88,21 @@ export class ReferralService {
 
     await this.userRepository.save(referrer);
 
+    try {
+      const referrerName = `${referrer.firstName} ${referrer.surname}`;
+      this.emailService.sendReferralConfirmedEmail(
+        referrer.email,
+        referrerName,
+        referral.referredEmail,
+        referral.earning.toString(),
+        'NGN',
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to send referral confirmed email: ${error.message}`,
+      );
+    }
+
     return referral;
   }
 
@@ -90,8 +116,10 @@ export class ReferralService {
     const totalReferrals = referrals.length;
 
     // Get all referred user IDs (only for completed referrals)
-    const completedReferrals = referrals.filter(r => r.status === 'completed' && r.referredUserId);
-    const referredUserIds = completedReferrals.map(r => r.referredUserId);
+    const completedReferrals = referrals.filter(
+      (r) => r.status === 'completed' && r.referredUserId,
+    );
+    const referredUserIds = completedReferrals.map((r) => r.referredUserId);
 
     // Count successful bookings from referred users
     const successfulBookings = referredUserIds.length
@@ -122,19 +150,41 @@ export class ReferralService {
       order: { createdAt: 'DESC' },
     });
 
-    return referrals.map((ref) => ({
-      referredEmail: ref.referredEmail,
-      referredUserId: ref.referredUserId,
-      referredName: ref.referredUserId ? `${ref.referrer.firstName} ${ref.referrer.surname}` : 'Pending user',
-      dateReferred: ref.createdAt,
-      status: ref.status,
-      earning: Number(ref.earning),
-    }));
+    const referredUserIds = referrals
+      .filter((r) => r.referredUserId)
+      .map((r) => r.referredUserId);
+
+    const referredUsers = referredUserIds.length
+      ? await this.userRepository.find({
+          where: { id: In(referredUserIds) },
+        })
+      : [];
+
+    const referredUserMap = new Map(
+      referredUsers.map((u) => [u.id, u]),
+    );
+
+    return referrals.map((ref) => {
+      const referredUser = ref.referredUserId
+        ? referredUserMap.get(ref.referredUserId)
+        : null;
+
+      return {
+        referredEmail: ref.referredEmail,
+        referredUserId: ref.referredUserId,
+        referredName: referredUser
+          ? `${referredUser.firstName} ${referredUser.surname}`
+          : 'Pending user',
+        dateReferred: ref.createdAt,
+        status: ref.status,
+        earning: Number(ref.earning),
+      };
+    });
   }
 
-  // Get referral link 
+  // Get referral link
   async getReferralLink(userId: string): Promise<string> {
     const referralCode = await this.ensureReferralCode(userId);
-    return `${process.env.FRONTEND_URL}api/auth/get-started?ref=${referralCode}`;
+    return `${process.env.FRONTEND_URL}/?ref=${referralCode}`;
   }
 }
