@@ -1,10 +1,12 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import sgMail from '@sendgrid/mail';
 import { ClientSchema } from '../entities/client.entity';
+import { Business } from '../entities/business.entity';
 import { capitalizeString } from '../utils/client.utils';
 import { Communication } from '../entities/communication.entity';
+import { TemplateService } from 'src/email/template.service';
 import {
   SendBulkMessageDto,
   SendDirectMessageDto,
@@ -12,7 +14,9 @@ import {
 
 @Injectable()
 export class CommunicationService {
+  private readonly logger = new Logger(CommunicationService.name);
   private fromEmail: string;
+  private fromName: string;
 
   constructor(
     @InjectRepository(Communication)
@@ -20,9 +24,15 @@ export class CommunicationService {
 
     @InjectRepository(ClientSchema)
     private readonly clientRepo: Repository<ClientSchema>,
+
+    @InjectRepository(Business)
+    private readonly businessRepo: Repository<Business>,
+
+    private readonly templateService: TemplateService,
   ) {
     const apiKey = process.env.SENDGRID_API_KEY;
     const fromEmail = process.env.SENDGRID_FROM_EMAIL;
+    const fromName = process.env.SENDGRID_FROM_NAME;
 
     if (!apiKey || !fromEmail) {
       throw new Error('SENDGRID_API_KEY and SENDGRID_FROM_EMAIL must be set');
@@ -30,6 +40,20 @@ export class CommunicationService {
 
     sgMail.setApiKey(apiKey);
     this.fromEmail = fromEmail;
+    this.fromName = fromName || 'Kinky Hairstylist';
+  }
+
+  private async getBusinessName(businessId?: string): Promise<string> {
+    if (!businessId) return 'Kinky Hairstylist';
+    try {
+      const business = await this.businessRepo.findOne({
+        where: { id: businessId },
+        select: ['businessName'],
+      });
+      return business?.businessName || 'Kinky Hairstylist';
+    } catch {
+      return 'Kinky Hairstylist';
+    }
   }
 
   async sendDirectMessage(payload: SendDirectMessageDto) {
@@ -161,20 +185,26 @@ export class CommunicationService {
   private async sendDirectMessageEmail(
     data: SendDirectMessageDto,
   ): Promise<void> {
-    const emailText = `Dear ${data.clientName ?? 'Valued Client'},\n\n${data.message}\n\nPlease let us know if you have any questions or require additional support.\n\n${data.closingRemarks ?? 'Thank you'}.`;
+    const businessName = await this.getBusinessName(data.businessId);
+    const subject = capitalizeString(data.messageSubject);
+    const text = `Dear ${data.clientName ?? 'Valued Client'},\n\n${data.message}\n\n${data.closingRemarks ?? 'Thank you'}.`;
+
+    const html = this.templateService.render('communication-bulk', {
+      businessName,
+      clientName: data.clientName ?? 'Valued Client',
+      subject,
+      message: data.message,
+      closingRemarks: data.closingRemarks ?? 'Thank you',
+      frontendUrl: process.env.FRONTEND_URL || 'https://kinkyhairstylists.com',
+      year: new Date().getFullYear(),
+    });
 
     const msg = {
       to: data.clientEmail,
-      from: this.fromEmail,
-      subject: `${capitalizeString(data.messageSubject)}`,
-      text: emailText,
-      html: `
-        <p>Dear <strong>${data.clientName ?? 'Valued Client'}</strong>,</p>
-        <p>${data.message}</p>
-        <p>Please let us know if you have any questions or require additional support.</p>
-        <p>If you need assistance or wish to make changes, feel free to contact us.</p>
-        <p><strong>${data.closingRemarks ?? 'Thank you'}.</strong></p>
-      `,
+      from: { email: this.fromEmail, name: this.fromName },
+      subject,
+      text,
+      html,
     };
 
     await sgMail.send(msg);
@@ -187,23 +217,37 @@ export class CommunicationService {
       throw new Error('No recipients provided');
     }
 
+    const businessName = await this.getBusinessName(data.businessId);
+    const subject = capitalizeString(data.messageSubject);
+    const frontendUrl = process.env.FRONTEND_URL || 'https://kinkyhairstylists.com';
+    const year = new Date().getFullYear();
     const BATCH_SIZE = 1000; // SendGrid's limit per request
 
     for (let i = 0; i < data.recipients.length; i += BATCH_SIZE) {
       const batch = data.recipients.slice(i, i + BATCH_SIZE);
 
-      const messages = batch.map((user) => ({
-        to: user.clientEmail,
-        from: this.fromEmail,
-        subject: capitalizeString(data.messageSubject),
-        text: `Dear ${user.clientName ?? 'Valued Client'},\n\n${data.message}\n\nPlease let us know if you have any questions or require additional support.\n\n${data.closingRemarks ?? 'Thank you'}.`,
-        html: `
-        <p>Dear <strong>${user.clientName ?? 'Valued Client'}</strong>,</p>
-        <p>${data.message}</p>
-        <p>Please let us know if you have any questions or require additional support.</p>
-        <p><strong>${data.closingRemarks ?? 'Thank you'}.</strong></p>
-      `,
-      }));
+      const messages = batch.map((user) => {
+        const clientName = user.clientName ?? 'Valued Client';
+        const text = `Dear ${clientName},\n\n${data.message}\n\n${data.closingRemarks ?? 'Thank you'}.`;
+
+        const html = this.templateService.render('communication-bulk', {
+          businessName,
+          clientName,
+          subject,
+          message: data.message,
+          closingRemarks: data.closingRemarks ?? 'Thank you',
+          frontendUrl,
+          year,
+        });
+
+        return {
+          to: user.clientEmail,
+          from: { email: this.fromEmail, name: this.fromName },
+          subject,
+          text,
+          html,
+        };
+      });
 
       await sgMail.send(messages);
     }

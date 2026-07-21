@@ -1,13 +1,14 @@
 import {
     IsNotEmpty,
+    IsOptional,
 } from 'class-validator';
 
 
 export class CreateBlockedTimeDto {
-    @IsNotEmpty()
+    @IsOptional()
     type: string;
 
-    @IsNotEmpty()
+    @IsOptional()
     title: string;
 
     @IsNotEmpty({ message: 'date must not be empty.' })
@@ -19,10 +20,10 @@ export class CreateBlockedTimeDto {
     @IsNotEmpty()
     endTime: string;
 
-    @IsNotEmpty()
+    @IsOptional()
     teamMember: string;
 
-    @IsNotEmpty()
+    @IsOptional()
     description: string;
 
     ownerMail?: string;

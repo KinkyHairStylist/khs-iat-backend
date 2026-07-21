@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -106,6 +107,18 @@ export class BusinessService {
     business.ownerPhone = owner?.phoneNumber || '';
 
     await this.businessRepo.save(business);
+
+    try {
+      this.emailService.sendMerchantUnderReviewEmail(
+        business.ownerEmail || owner.email,
+        business.businessName,
+        business.id,
+      );
+    } catch (error) {
+      Logger.error(
+        `Failed to send merchant under-review email: ${error.message}`,
+      );
+    }
 
     // Automatically create wallet
     await this.walletService.createWalletForBusiness({
@@ -402,7 +415,7 @@ export class BusinessService {
     }
 
     // Check if user with this email already exists
-    let user = await this.userRepo.findOne({
+    const user = await this.userRepo.findOne({
       where: { email: staffEmail },
     });
 

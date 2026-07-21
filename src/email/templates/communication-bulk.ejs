@@ -1,0 +1,50 @@
+<%- include('layouts/head') %>
+
+<% /* --- Sender badge --- */ %>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px 0;">
+  <tr>
+    <td align="center">
+      <table role="presentation" cellpadding="0" cellspacing="0">
+        <tr>
+          <td style="padding:6px 18px; background-color:#fef2f2; border-radius:999px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:13px; font-weight:600; color:#ED3131; letter-spacing:0.3px;">
+            &#9997; Message from <span style="color:#18181b;"><%= businessName %></span>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+
+<% /* --- Subject --- */ %>
+<h1 style="margin:0 0 20px 0; font-size:24px; font-weight:700; color:#18181b; line-height:1.35; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;"><%= subject %></h1>
+
+<% /* --- Greeting --- */ %>
+<p style="margin:0 0 6px 0; font-size:15px; line-height:1.6; color:#52525b; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">Hi <strong style="color:#18181b;"><%= clientName %></strong>,</p>
+
+<% /* --- Message card --- */ %>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:20px 0;">
+  <tr>
+    <td style="padding:24px 28px; background-color:#fafafa; border-left:4px solid #ED3131; border-radius:8px; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:15px; line-height:1.8; color:#3f3f46; white-space:pre-line;"><%= message %></td>
+  </tr>
+</table>
+
+<% /* --- Closing remarks --- */ %>
+<% if (closingRemarks) { %>
+<p style="margin:0 0 24px 0; font-size:15px; line-height:1.6; color:#52525b; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;"><strong><%= closingRemarks %></strong></p>
+<% } %>
+
+<% /* --- Divider --- */ %>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px 0;">
+  <tr><td style="border-bottom:1px solid #f1f1f1; line-height:1px; font-size:0;">&nbsp;</td></tr>
+</table>
+
+<% /* --- Business footer --- */ %>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 4px 0;">
+  <tr>
+    <td style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:13px; line-height:1.6; color:#a1a1aa;">
+      This message was sent to you by <strong style="color:#71717a;"><%= businessName %></strong> via Kinky Hairstylist. If you have any questions, please reach out to them directly.
+    </td>
+  </tr>
+</table>
+
+<%- include('layouts/foot', { frontendUrl, year }) %>

@@ -132,7 +132,7 @@ export class BusinessGiftCardsController {
           HttpStatus.UNAUTHORIZED,
         );
       }
-      const result = await this.giftCardsService.getBusinessSummary();
+      const result = await this.giftCardsService.getBusinessSummary(ownerId);
 
       return {
         success: true,
@@ -168,7 +168,7 @@ export class BusinessGiftCardsController {
         );
       }
 
-      const result = await this.giftCardsService.getGiftCardsList(filters);
+      const result = await this.giftCardsService.getGiftCardsList(filters, ownerId);
 
       return {
         success: true,

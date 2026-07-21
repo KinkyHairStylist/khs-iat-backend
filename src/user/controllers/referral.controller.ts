@@ -34,7 +34,7 @@ export class ReferralController {
   })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   async getReferralStats(@Req() req) {
-    const userId = req.user.sub; // Extracted from JWT payload
+    const userId = req.user.id; // Full user entity from JwtAuthGuard
     return this.referralService.getReferralStats(userId);
   }
 
@@ -43,7 +43,7 @@ export class ReferralController {
   @ApiOperation({ summary: 'Get all referrals for the authenticated user' })
   @ApiResponse({ status: 200, description: 'List of referrals retrieved successfully' })
   async getMyReferrals(@Req() req) {
-    const userId = req.user.sub; // Extracted from JWT payload
+    const userId = req.user.id; // Full user entity from JwtAuthGuard
     return await this.referralService.getUserReferrals(userId);
   }
 
@@ -61,7 +61,7 @@ export class ReferralController {
     },
   })
   async getReferralLink(@Req() req) {
-    const userId = req.user.sub; // Prefer using JWT payload instead of session
+    const userId = req.user.id; // Full user entity from JwtAuthGuard
     const link = await this.referralService.getReferralLink(userId);
     return { referralLink: link };
   }

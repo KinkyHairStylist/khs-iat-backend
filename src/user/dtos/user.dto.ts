@@ -5,7 +5,7 @@ import {
   Matches,
   IsOptional,
   IsEnum,
-  IsNumber
+  IsNumber,
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { Role } from '../../middleware/role.enum';
@@ -22,6 +22,15 @@ export class GetStartedDto {
   @IsEmail()
   @IsNotEmpty()
   email: string;
+
+  @ApiProperty({
+    example: '1A2B3C4D',
+    description: 'Referral code if user was invited',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  refCode?: string;
 }
 
 /**
