@@ -73,11 +73,22 @@ export class BusinessGiftCardsService {
     return await this.giftCardRepository.save(giftCard);
   }
 
-  async getBusinessSummary(): Promise<any> {
-    // Fetch all cards EXCEPT deleted
+  async getBusinessSummary(ownerId: string): Promise<any> {
+    const business = await this.businessRepository.findOne({
+      where: { ownerId },
+    });
+
+    if (!business) {
+      throw new BadRequestException(`No business found for this user`);
+    }
+
+    // Fetch all cards for this business EXCEPT deleted
     const allCards = await this.giftCardRepository
       .createQueryBuilder('giftCard')
       .where('giftCard.status != :deleted', { deleted: 'deleted' })
+      .andWhere('giftCard.businessId = :businessId', {
+        businessId: business.id,
+      })
       .getMany();
 
     const now = new Date();
@@ -147,7 +158,15 @@ export class BusinessGiftCardsService {
   /**
    * Get gift card list with filtering and pagination
    */
-  async getGiftCardsList(filters: BusinessGiftCardFiltersDto) {
+  async getGiftCardsList(filters: BusinessGiftCardFiltersDto, ownerId: string) {
+    const business = await this.businessRepository.findOne({
+      where: { ownerId },
+    });
+
+    if (!business) {
+      throw new BadRequestException(`No business found for this user`);
+    }
+
     const {
       search,
       sortBy = 'createdAt',
@@ -163,6 +182,11 @@ export class BusinessGiftCardsService {
     /* --------- ALWAYS exclude deleted ---------- */
     queryBuilder.andWhere('giftCard.status != :deletedStatus', {
       deletedStatus: 'deleted',
+    });
+
+    /* --------- SCOPE TO THIS MERCHANT'S BUSINESS ---------- */
+    queryBuilder.andWhere('giftCard.businessId = :businessId', {
+      businessId: business.id,
     });
 
     /* --------- RELATIONS ---------- */
