@@ -11,9 +11,13 @@ import { CloudinaryService } from 'src/helpers/cloudinary-massage-image-helper';
 import { ChatController } from './chat.controller';
 import { Appointment } from 'src/business/entities/appointment.entity';
 import { Business } from 'src/business/entities/business.entity';
+import { SlackModule } from 'src/slack/slack.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([ChatMessage, UserStatus, Appointment, Business, User, Ticket])],
+  imports: [
+    TypeOrmModule.forFeature([ChatMessage, UserStatus, Appointment, Business, User, Ticket]),
+    SlackModule,
+  ],
   providers: [ChatService, ChatGateway, CloudinaryService],
   controllers: [ChatController],
 })

@@ -5,6 +5,7 @@ import {
   ConnectedSocket,
   MessageBody,
 } from '@nestjs/websockets';
+import { Inject, forwardRef } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { ChatService } from './chat.service';
 import { TicketResponseDto } from './send-message.dto';
@@ -16,7 +17,10 @@ export class ChatGateway {
 
   private onlineUsers = new Map<string, string>();
 
-  constructor(private readonly chatService: ChatService) {}
+  constructor(
+    @Inject(forwardRef(() => ChatService))
+    private readonly chatService: ChatService,
+  ) {}
 
   @SubscribeMessage('join')
   async handleJoin(
@@ -50,5 +54,13 @@ export class ChatGateway {
   // it up live — mirrors how user_status is already broadcast to everyone.
   notifyTicketClosed(ticket: TicketResponseDto) {
     this.server.emit('ticket_closed', ticket);
+  }
+
+  // Broadcast so the Team Inbox can prepend a brand-new ticket live —
+  // receive_message alone can't do this, since it only updates a ticket
+  // already present in an admin's list (a new ticket has no existing row
+  // to update), which was why new tickets required a hard refresh to see.
+  notifyTicketCreated(ticket: TicketResponseDto) {
+    this.server.emit('ticket_created', ticket);
   }
 }

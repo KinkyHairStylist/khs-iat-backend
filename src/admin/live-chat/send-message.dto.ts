@@ -74,6 +74,8 @@ export class TicketCustomerSummaryDto {
   name: string;
   avatarUrl?: string | null;
   isOnline: boolean;
+  // Merchant tickets are surfaced as higher-priority in the Team Inbox.
+  isMerchant: boolean;
 }
 
 // Never the raw User entity — that includes the password hash and other

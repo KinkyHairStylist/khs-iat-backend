@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { ILike, Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 
@@ -9,6 +9,8 @@ import { Ticket, TicketStatus } from 'src/all_user_entities/ticket.entity';
 import { ChatMessageResponseDto, ChatUserInfoDto, StaffContactDto, TicketResponseDto } from './send-message.dto';
 import { Appointment } from 'src/business/entities/appointment.entity';
 import { Business } from 'src/business/entities/business.entity';
+import { ChatGateway } from './chat.gateway';
+import { SlackService } from 'src/slack/slack.service';
 
 const TICKET_NUMBER_SEQUENCE = 'ticket_number_seq';
 
@@ -44,6 +46,11 @@ export class ChatService {
 
     @InjectRepository(Ticket)
     private ticketRepo: Repository<Ticket>,
+
+    @Inject(forwardRef(() => ChatGateway))
+    private readonly chatGateway: ChatGateway,
+
+    private readonly slackService: SlackService,
   ) {}
 
   // Store a new message
@@ -99,7 +106,12 @@ export class ChatService {
       const name =
         `${ticket.customer.firstName ?? ''} ${ticket.customer.surname ?? ''}`.trim() ||
         'Unknown';
-      dto.customer = { name, avatarUrl: ticket.customer.avatarUrl ?? null, isOnline };
+      dto.customer = {
+        name,
+        avatarUrl: ticket.customer.avatarUrl ?? null,
+        isOnline,
+        isMerchant: !!ticket.customer.isMerchant,
+      };
 
       const lastMessage = await this.chatRepo.findOne({
         where: { ticket: { id: ticket.id } },
@@ -153,9 +165,71 @@ export class ChatService {
     });
 
     const saved = await this.ticketRepo.save(ticket);
-    saved.customer = { id: customerId } as User;
-    if (assignedAdminId) saved.assignedAdmin = { id: assignedAdminId } as User;
-    return this.toResponseDto(saved);
+
+    // toResponseDto's withCustomerSummary path reads ticket.customer.firstName
+    // etc. — the bare { id } stub above doesn't have those loaded, so
+    // re-fetch with relations to get the real customer/assignedAdmin rows.
+    const withRelations = await this.ticketRepo.findOne({
+      where: { id: saved.id },
+      relations: ['customer', 'assignedAdmin', 'closedBy'],
+    });
+    const dto = await this.toResponseDto(withRelations!, true);
+
+    // Team Inbox needs to know about brand-new tickets live — receive_message
+    // alone can't add a new row to an admin's list (see chat.gateway.ts).
+    this.chatGateway.notifyTicketCreated(dto);
+
+    const assignedAdminName = withRelations!.assignedAdmin
+      ? `${withRelations!.assignedAdmin.firstName ?? ''} ${withRelations!.assignedAdmin.surname ?? ''}`.trim() || 'Unknown'
+      : null;
+    this.slackService.notify(this.formatTicketCreatedSlackMessage(dto, assignedAdminName));
+
+    return dto;
+  }
+
+  // Matches c2c's standard Slack notification template (header + LOC/
+  // TRIGGER/DETAILS/TIMESTAMP), simplified — KHS doesn't need the
+  // node/provider/severity taxonomy from that codebase, just a clear
+  // ticket-opened alert.
+  private nowInWAT(): string {
+    return new Intl.DateTimeFormat('en-GB', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+      timeZone: 'Africa/Lagos',
+    }).format(new Date());
+  }
+
+  private formatTicketCreatedSlackMessage(
+    ticket: TicketResponseDto,
+    assignedAdminName: string | null,
+  ): string {
+    const customerName = ticket.customer?.name ?? 'Unknown';
+    const assignedLine = assignedAdminName
+      ? `• Assigned to: ${assignedAdminName}`
+      : '• Assigned to: _unassigned_';
+
+    return `[KHS] [SUPPORT] [INFO] [TICKET_CREATED]
+*TRIGGER:* \`${customerName}\`
+*DETAILS:*
+New support ticket opened: *${ticket.ticketNumber}*
+• Customer: ${customerName}
+${assignedLine}
+*TIMESTAMP:* \`${this.nowInWAT()} (WAT)\``;
+  }
+
+  private formatTicketClosedSlackMessage(
+    ticket: TicketResponseDto,
+    closedByName: string,
+  ): string {
+    const customerName = ticket.customer?.name ?? 'Unknown';
+
+    return `[KHS] [SUPPORT] [INFO] [TICKET_CLOSED]
+*TRIGGER:* \`${closedByName}\`
+*DETAILS:*
+Ticket closed: *${ticket.ticketNumber}*
+• Customer: ${customerName}
+• Closed by: ${closedByName}
+*TIMESTAMP:* \`${this.nowInWAT()} (WAT)\``;
   }
 
   // Used by sendMessage — resolves to a ticket without ever silently
@@ -195,7 +269,22 @@ export class ChatService {
     ticket.closedBy = { id: closedByAdminId } as User;
 
     const saved = await this.ticketRepo.save(ticket);
-    return this.toResponseDto(saved, true);
+
+    // Same reason as createTicket — the bare { id } stub above has no
+    // firstName/surname loaded, so re-fetch to get the real closedBy name
+    // for the Slack notification.
+    const withRelations = await this.ticketRepo.findOne({
+      where: { id: saved.id },
+      relations: ['customer', 'assignedAdmin', 'closedBy'],
+    });
+    const dto = await this.toResponseDto(withRelations!, true);
+
+    const closedByName = withRelations!.closedBy
+      ? `${withRelations!.closedBy.firstName ?? ''} ${withRelations!.closedBy.surname ?? ''}`.trim() || 'Unknown'
+      : 'Unknown';
+    this.slackService.notify(this.formatTicketClosedSlackMessage(dto, closedByName));
+
+    return dto;
   }
 
   // Case-insensitive — an admin searching by number may have gotten it
