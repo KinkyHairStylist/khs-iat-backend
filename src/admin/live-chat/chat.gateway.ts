@@ -7,6 +7,7 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { ChatService } from './chat.service';
+import { TicketResponseDto } from './send-message.dto';
 
 @WebSocketGateway({ cors: true })
 export class ChatGateway {
@@ -18,14 +19,20 @@ export class ChatGateway {
   constructor(private readonly chatService: ChatService) {}
 
   @SubscribeMessage('join')
-  async handleJoin(@ConnectedSocket() client: Socket, userId: string) {
+  async handleJoin(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() userId: string,
+  ) {
     this.onlineUsers.set(userId, client.id);
     await this.chatService.setUserOnline(userId, true);
     this.server.emit('user_status', { userId, isOnline: true });
   }
 
   @SubscribeMessage('leave')
-  async handleLeave(@ConnectedSocket() client: Socket, userId: string) {
+  async handleLeave(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() userId: string,
+  ) {
     this.onlineUsers.delete(userId);
     await this.chatService.setUserOnline(userId, false);
     this.server.emit('user_status', { userId, isOnline: false });
@@ -36,5 +43,12 @@ export class ChatGateway {
     if (receiverSocketId) {
       this.server.to(receiverSocketId).emit('receive_message', message);
     }
+  }
+
+  // Broadcast so both the customer (whose input should now disable) and
+  // any admin with this ticket open (whose tab should move to Closed) pick
+  // it up live — mirrors how user_status is already broadcast to everyone.
+  notifyTicketClosed(ticket: TicketResponseDto) {
+    this.server.emit('ticket_closed', ticket);
   }
 }

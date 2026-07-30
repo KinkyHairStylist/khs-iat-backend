@@ -1,13 +1,16 @@
-import { Injectable } from '@nestjs/common';
-import { Repository } from 'typeorm';
+import { Injectable, BadRequestException } from '@nestjs/common';
+import { ILike, Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import { ChatMessage } from 'src/all_user_entities/chat-message.entity';
 import { UserStatus } from 'src/all_user_entities/user-status.entity';
 import { User } from 'src/all_user_entities/user.entity';
-import { ChatMessageResponseDto, ChatUserInfoDto } from './send-message.dto';
+import { Ticket, TicketStatus } from 'src/all_user_entities/ticket.entity';
+import { ChatMessageResponseDto, ChatUserInfoDto, StaffContactDto, TicketResponseDto } from './send-message.dto';
 import { Appointment } from 'src/business/entities/appointment.entity';
 import { Business } from 'src/business/entities/business.entity';
+
+const TICKET_NUMBER_SEQUENCE = 'ticket_number_seq';
 
 export interface ChatListItem {
   userId: string;
@@ -35,10 +38,17 @@ export class ChatService {
 
     @InjectRepository(UserStatus)
     private statusRepo: Repository<UserStatus>,
+
+    @InjectRepository(User)
+    private userRepo: Repository<User>,
+
+    @InjectRepository(Ticket)
+    private ticketRepo: Repository<Ticket>,
   ) {}
 
   // Store a new message
   async storeMessage(data: {
+    ticket?: Ticket;
     sender: User;
     receiver: User;
     message?: string;
@@ -46,6 +56,177 @@ export class ChatService {
   }): Promise<ChatMessage> {
     const msg = this.chatRepo.create(data);
     return this.chatRepo.save(msg);
+  }
+
+  // ─── Tickets ────────────────────────────────────────────────────────────
+
+  // Sequential, human-searchable ticket numbers (TCK-1001, TCK-1002, ...).
+  // Uses a real Postgres sequence so concurrent ticket creation can never
+  // collide — created once, idempotently, the first time it's needed.
+  private async nextTicketNumber(): Promise<string> {
+    await this.ticketRepo.query(
+      `CREATE SEQUENCE IF NOT EXISTS ${TICKET_NUMBER_SEQUENCE} START 1001`,
+    );
+    const [{ nextval }] = await this.ticketRepo.query(
+      `SELECT nextval('${TICKET_NUMBER_SEQUENCE}') AS nextval`,
+    );
+    return `TCK-${nextval}`;
+  }
+
+  // Never return the raw Ticket entity from a controller — its customer/
+  // assignedAdmin/closedBy relations are full User rows (password hash
+  // included). This is the only shape that should leave the service.
+  // withCustomerSummary is only needed by admin-facing listing/search, not
+  // the customer widget's own findOrCreateOpenTicket/closeTicket calls.
+  private async toResponseDto(
+    ticket: Ticket,
+    withCustomerSummary = false,
+  ): Promise<TicketResponseDto> {
+    const dto: TicketResponseDto = {
+      id: ticket.id,
+      ticketNumber: ticket.ticketNumber,
+      status: ticket.status,
+      customerId: ticket.customer.id,
+      assignedAdminId: ticket.assignedAdmin?.id ?? null,
+      closedById: ticket.closedBy?.id ?? null,
+      closedAt: ticket.closedAt ? ticket.closedAt.toISOString() : null,
+      createdAt: ticket.createdAt.toISOString(),
+      updatedAt: ticket.updatedAt.toISOString(),
+    };
+
+    if (withCustomerSummary) {
+      const isOnline = await this.getUserStatus(ticket.customer.id);
+      const name =
+        `${ticket.customer.firstName ?? ''} ${ticket.customer.surname ?? ''}`.trim() ||
+        'Unknown';
+      dto.customer = { name, avatarUrl: ticket.customer.avatarUrl ?? null, isOnline };
+
+      const lastMessage = await this.chatRepo.findOne({
+        where: { ticket: { id: ticket.id } },
+        order: { createdAt: 'DESC' },
+      });
+      dto.lastMessage = lastMessage
+        ? lastMessage.message || (lastMessage.imageUrl ? '[Image]' : '')
+        : null;
+    }
+
+    return dto;
+  }
+
+  static readonly MAX_OPEN_TICKETS_PER_CUSTOMER = 2;
+
+  // All of this customer's currently-open tickets (0, 1, or up to the cap).
+  async getMyOpenTickets(customerId: string): Promise<TicketResponseDto[]> {
+    const tickets = await this.ticketRepo.find({
+      where: { customer: { id: customerId }, status: TicketStatus.OPEN },
+      relations: ['customer', 'assignedAdmin', 'closedBy'],
+      order: { createdAt: 'DESC' },
+    });
+    return Promise.all(tickets.map((t) => this.toResponseDto(t)));
+  }
+
+  // Creates a new ticket for this customer — but only if they're under the
+  // open-ticket cap. Enforced here, not just in the UI, since sendMessage
+  // also goes through this path. assignedAdminId records who the customer
+  // picked from "Talk to our team" — the frontend needs this to restore
+  // who a resumed ticket's conversation is with.
+  async createTicket(
+    customerId: string,
+    assignedAdminId?: string,
+  ): Promise<TicketResponseDto> {
+    const openCount = await this.ticketRepo.count({
+      where: { customer: { id: customerId }, status: TicketStatus.OPEN },
+    });
+
+    if (openCount >= ChatService.MAX_OPEN_TICKETS_PER_CUSTOMER) {
+      throw new BadRequestException(
+        `You already have ${ChatService.MAX_OPEN_TICKETS_PER_CUSTOMER} open conversations. Close one before starting another.`,
+      );
+    }
+
+    const ticketNumber = await this.nextTicketNumber();
+    const ticket = this.ticketRepo.create({
+      ticketNumber,
+      customer: { id: customerId } as User,
+      assignedAdmin: assignedAdminId ? ({ id: assignedAdminId } as User) : undefined,
+      status: TicketStatus.OPEN,
+    });
+
+    const saved = await this.ticketRepo.save(ticket);
+    saved.customer = { id: customerId } as User;
+    if (assignedAdminId) saved.assignedAdmin = { id: assignedAdminId } as User;
+    return this.toResponseDto(saved);
+  }
+
+  // Used by sendMessage — resolves to a ticket without ever silently
+  // creating a second one when the caller didn't ask for that. If the
+  // customer has exactly one open ticket, use it. If they have none,
+  // create one (respecting the cap, though 0 -> 1 never hits it). If they
+  // have more than one open, the caller MUST specify which ticket via
+  // ticketId — sendMessage enforces this before calling here.
+  async getSingleOpenTicketOrCreate(customerId: string): Promise<TicketResponseDto> {
+    const open = await this.getMyOpenTickets(customerId);
+    if (open.length === 1) return open[0];
+    if (open.length === 0) return this.createTicket(customerId);
+    throw new BadRequestException(
+      'You have multiple open conversations — specify which ticket this message belongs to.',
+    );
+  }
+
+  async getTicketById(ticketId: string): Promise<TicketResponseDto | null> {
+    const ticket = await this.ticketRepo.findOne({
+      where: { id: ticketId },
+      relations: ['customer', 'assignedAdmin', 'closedBy'],
+    });
+    return ticket ? this.toResponseDto(ticket) : null;
+  }
+
+  async closeTicket(ticketId: string, closedByAdminId: string): Promise<TicketResponseDto> {
+    const ticket = await this.ticketRepo.findOne({
+      where: { id: ticketId },
+      relations: ['customer', 'assignedAdmin', 'closedBy'],
+    });
+    if (!ticket) {
+      throw new BadRequestException('Ticket not found');
+    }
+
+    ticket.status = TicketStatus.CLOSED;
+    ticket.closedAt = new Date();
+    ticket.closedBy = { id: closedByAdminId } as User;
+
+    const saved = await this.ticketRepo.save(ticket);
+    return this.toResponseDto(saved, true);
+  }
+
+  // Case-insensitive — an admin searching by number may have gotten it
+  // from a screenshot, an email, or dictated over the phone, and shouldn't
+  // hit a false "not found" over casing alone.
+  async getTicketByNumber(ticketNumber: string): Promise<TicketResponseDto | null> {
+    const ticket = await this.ticketRepo.findOne({
+      where: { ticketNumber: ILike(ticketNumber.trim()) },
+      relations: ['customer', 'assignedAdmin', 'closedBy'],
+    });
+    return ticket ? this.toResponseDto(ticket, true) : null;
+  }
+
+  async listTickets(status: TicketStatus): Promise<TicketResponseDto[]> {
+    const tickets = await this.ticketRepo.find({
+      where: { status },
+      relations: ['customer', 'assignedAdmin', 'closedBy'],
+      order: { createdAt: 'DESC' },
+    });
+    return Promise.all(tickets.map((t) => this.toResponseDto(t, true)));
+  }
+
+  // The customer's own ticket history — every ticket they've ever opened,
+  // not just the currently-open one findOrCreateOpenTicket resumes.
+  async listMyTickets(customerId: string): Promise<TicketResponseDto[]> {
+    const tickets = await this.ticketRepo.find({
+      where: { customer: { id: customerId } },
+      relations: ['customer', 'assignedAdmin', 'closedBy'],
+      order: { createdAt: 'DESC' },
+    });
+    return Promise.all(tickets.map((t) => this.toResponseDto(t)));
   }
 
   // Get user online/offline status
@@ -87,6 +268,25 @@ export class ChatService {
     return msg;
   }
 
+  // Mark every message the other party sent to this user as read (called
+  // when the user opens/reselects that conversation).
+  async markConversationAsRead(userId: string, otherUserId: string) {
+    const unread = await this.chatRepo.find({
+      where: {
+        sender: { id: otherUserId },
+        receiver: { id: userId },
+        read: false,
+      },
+    });
+
+    if (unread.length === 0) return;
+
+    await this.chatRepo.update(
+      unread.map((msg) => msg.id),
+      { read: true },
+    );
+  }
+
   // Get all messages between two users
   async getMessagesBetween(userId1: string, userId2: string): Promise<ChatMessage[]> {
     return this.chatRepo.find({
@@ -96,6 +296,36 @@ export class ChatService {
       ],
       order: { createdAt: 'ASC' },
     });
+  }
+
+  // Staff a customer can start a new conversation with — separate from
+  // getChatList, which only shows conversations that already have messages.
+  async getAllStaffContacts(): Promise<StaffContactDto[]> {
+    const staff = await this.userRepo.find({ where: { isStaff: true } });
+
+    const contacts: StaffContactDto[] = [];
+    for (const member of staff) {
+      const isOnline = await this.getUserStatus(member.id);
+      const name = `${member.firstName ?? ''} ${member.surname ?? ''}`.trim() || 'Admin';
+      const initials = name
+        .split(' ')
+        .map((n) => n.charAt(0).toUpperCase())
+        .join('')
+        .toUpperCase();
+
+      contacts.push({
+        id: member.id,
+        name,
+        avatarUrl: member.avatarUrl,
+        initials,
+        email: member.email,
+        phone: member.phoneNumber,
+        isOnline,
+        lastSeen: member.createdAt.toISOString(),
+      });
+    }
+
+    return contacts;
   }
 
   // Get chat list for the signed-in user
@@ -171,6 +401,7 @@ export class ChatService {
       .toLocaleUpperCase();
 
     return {
+      userId: user.id,
       name,
       initials,
       email: user.email,
@@ -183,26 +414,18 @@ export class ChatService {
     };
   }
 
-  async getChatMessageWithUserInfo(
-    authUserId: string, 
-    otherUserId: string
+  // Shared by both getChatMessageWithUserInfo and getMessagesByTicket —
+  // enriches a set of already-fetched messages with booking counts and
+  // business ratings for whichever users appear in them.
+  private async toMessageResponseDtos(
+    messages: ChatMessage[],
   ): Promise<ChatMessageResponseDto[]> {
-    
-    // Fetch messages only between the two users
-    const messages = await this.chatRepo
-      .createQueryBuilder('msg')
-      .leftJoinAndSelect('msg.sender', 'sender')
-      .leftJoinAndSelect('msg.receiver', 'receiver')
-      .where(
-        '(sender.id = :authUserId AND receiver.id = :otherUserId) OR (sender.id = :otherUserId AND receiver.id = :authUserId)',
-        { authUserId, otherUserId }
-      )
-      .orderBy('msg.createdAt', 'ASC')
-      .getMany();
+    const userIds = Array.from(
+      new Set(messages.flatMap((m) => [m.sender.id, m.receiver.id])),
+    );
 
-    const userIds = [authUserId, otherUserId];
+    if (userIds.length === 0) return [];
 
-    // Booking counts for both users
     const bookingCounts = await this.appointmentRepo
       .createQueryBuilder('a')
       .select('a.client_id', 'clientId')
@@ -216,7 +439,6 @@ export class ChatService {
       return acc;
     }, {});
 
-    // Business ratings for both users
     const businessRatings = await this.businessRepo
       .createQueryBuilder('b')
       .select('b.owner_id', 'ownerId')
@@ -230,7 +452,6 @@ export class ChatService {
       return acc;
     }, {});
 
-    // Map messages to DTO
     return messages.map((msg) => ({
       id: msg.id,
       messages: msg.message,
@@ -248,5 +469,38 @@ export class ChatService {
         ratingMap[msg.receiver.id] || 0
       ),
     }));
+  }
+
+  async getChatMessageWithUserInfo(
+    authUserId: string,
+    otherUserId: string
+  ): Promise<ChatMessageResponseDto[]> {
+    // Fetch messages only between the two users
+    const messages = await this.chatRepo
+      .createQueryBuilder('msg')
+      .leftJoinAndSelect('msg.sender', 'sender')
+      .leftJoinAndSelect('msg.receiver', 'receiver')
+      .where(
+        '(sender.id = :authUserId AND receiver.id = :otherUserId) OR (sender.id = :otherUserId AND receiver.id = :authUserId)',
+        { authUserId, otherUserId }
+      )
+      .orderBy('msg.createdAt', 'ASC')
+      .getMany();
+
+    return this.toMessageResponseDtos(messages);
+  }
+
+  // Ticket-scoped — the real boundary a closed ticket needs. Messages sent
+  // before ticketing existed have no ticketId and never show up here.
+  async getMessagesByTicket(ticketId: string): Promise<ChatMessageResponseDto[]> {
+    const messages = await this.chatRepo
+      .createQueryBuilder('msg')
+      .leftJoinAndSelect('msg.sender', 'sender')
+      .leftJoinAndSelect('msg.receiver', 'receiver')
+      .where('msg.ticketId = :ticketId', { ticketId })
+      .orderBy('msg.createdAt', 'ASC')
+      .getMany();
+
+    return this.toMessageResponseDtos(messages);
   }
 }
