@@ -178,6 +178,9 @@ export class Business {
   @OneToMany(() => Withdrawal, (w) => w.business)
   withdrawals: Withdrawal[];
 
+  @Column({ type: 'numeric', precision: 10, scale: 2, default: 10000.00 })
+  revenueGoal: number;
+
   @CreateDateColumn()
   createdAt: Date;
 

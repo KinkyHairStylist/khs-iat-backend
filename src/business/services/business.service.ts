@@ -32,6 +32,7 @@ import { Service } from '../entities/service.entity';
 import { AdvertisementPlan } from '../entities/advertisement-plan.entity';
 import { CreateStaffDto } from '../dtos/requests/AddStaffDto';
 import { EmergencyContact } from '../entities/emergency-contact.entity';
+import { ClientSchema } from '../entities/client.entity';
 import { Address } from '../entities/address.entity';
 import { EditStaffDto } from '../dtos/requests/EditStaffDto';
 import { GoogleCalendarService } from 'src/integration/services/google-calendar.service';
@@ -69,6 +70,9 @@ export class BusinessService {
 
     @InjectRepository(Address)
     private addressRepo: Repository<Address>,
+
+    @InjectRepository(ClientSchema)
+    private clientSchemaRepo: Repository<ClientSchema>,
 
     private googleCalendarService: GoogleCalendarService,
     private mailchimpService: MailchimpService,
@@ -137,19 +141,23 @@ export class BusinessService {
   async completeBooking(id: string) {
     const appointment = await this.appointmentRepo.findOne({
       where: { id },
-      relations: ['business'],
+      relations: ['business', 'client', 'businessClient'],
     });
     if (!appointment) {
       throw new NotFoundException('Appointment Not Found');
     }
 
-    appointment.status = AppointmentStatus.COMPLETED;
-    await this.emailService.sendEmail(
-      appointment.client.email,
-      `Appointment with ${appointment.business.businessName} `,
-      `your appointment has been completed on ${appointment.date} `,
-      '',
-    );
+    const recipientEmail =
+      appointment.client?.email ?? appointment.businessClient?.email;
+
+    if (recipientEmail) {
+      await this.emailService.sendEmail(
+        recipientEmail,
+        `Appointment with ${appointment.business.businessName} `,
+        `your appointment has been completed on ${appointment.date} `,
+        '',
+      );
+    }
 
     appointment.status = AppointmentStatus.COMPLETED;
 
@@ -201,20 +209,20 @@ export class BusinessService {
     dto: CreateBookingDto,
     clientId: string,
   ): Promise<Appointment> {
-    let client: any = null;
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clientId || '');
-    if (isUuid) {
-      client = await this.userRepo.findOne({ where: { id: clientId } });
-    }
-    if (!client) {
-      client = await this.userRepo.findOne({ where: { isMerchant: true } }) || await this.userRepo.findOne({ where: {} });
-    }
-    if (!client) throw new NotFoundException('Client user not found');
-
     const business = await this.businessRepo.findOne({
       where: { id: dto.businessId },
     });
     if (!business) throw new NotFoundException('Business not found');
+
+    // clientId comes from Client Management (a CRM record scoped to this
+    // business's owner), not a platform User — look it up accordingly.
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clientId || '');
+    const client = isUuid
+      ? await this.clientSchemaRepo.findOne({
+          where: { id: clientId, ownerId: business.ownerId, isActive: true },
+        })
+      : null;
+    if (!client) throw new NotFoundException('Client not found');
 
     let staff: Staff[] = [];
     if (dto.staffIds && dto.staffIds.length > 0) {
@@ -237,7 +245,7 @@ export class BusinessService {
     const orderId = `BKID-${Math.floor(1000000 + Math.random() * 9000000)}`;
 
     const appointment = this.appointmentRepo.create({
-      client,
+      businessClient: client,
       business,
       staff,
       serviceName: dto.serviceName,
@@ -845,7 +853,7 @@ export class BusinessService {
         business: { id: business.id },
         isActive: true,
       },
-      relations: ['business'],
+      relations: ['business', 'addresses', 'emergencyContacts'],
     });
   }
 
@@ -1106,14 +1114,14 @@ export class BusinessService {
         business: { id: business.id },
         status: AppointmentStatus.RESCHEDULED,
       },
-      relations: ['business', 'staff', 'client'],
+      relations: ['business', 'staff', 'client', 'businessClient'],
       order: {
         createdAt: 'DESC',
       },
     });
   }
 
-  async getBookings(userId: string) {
+  async getBookings(userId: string, date?: string) {
     let business = await this.businessRepo.findOne({
       where: { owner: { id: userId } },
     });
@@ -1134,8 +1142,9 @@ export class BusinessService {
     return await this.appointmentRepo.find({
       where: {
         business: { id: business.id },
+        ...(date ? { date } : {}),
       },
-      relations: ['business', 'staff', 'client'],
+      relations: ['business', 'staff', 'client', 'businessClient'],
       order: {
         createdAt: 'DESC',
       },

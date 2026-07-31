@@ -39,6 +39,15 @@ export class UpdateBusinessNameDto {
   @MinLength(10)
   @MaxLength(1000)
   description?: string;
+
+  @ApiProperty({
+    description: 'Revenue goal',
+    example: 10000,
+    required: false,
+  })
+  @IsOptional()
+  @IsNumber()
+  revenueGoal?: number;
 }
 
 export class UpdateBusinessContactDto {

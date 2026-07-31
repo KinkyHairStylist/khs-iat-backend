@@ -24,6 +24,7 @@ import { AdvertisementPlan } from './entities/advertisement-plan.entity';
 import { Address } from './entities/address.entity';
 import { Service } from './entities/service.entity';
 import { EmergencyContact } from './entities/emergency-contact.entity';
+import { ClientSchema } from './entities/client.entity';
 import { GoogleCalendarModule } from 'src/integration/google-calendar.module';
 import { MailchimpModule } from 'src/integration/mail-chimp.module';
 import { BusinessOwnerSettingsModule } from './business-owner-settings.module';
@@ -45,6 +46,7 @@ import { ZohoBooksModule } from 'src/integration/zohobooks.module';
       BookingDay,
       Service,
       EmergencyContact,
+      ClientSchema,
     ]),
     JwtModule.register({}),
     EmailModule,

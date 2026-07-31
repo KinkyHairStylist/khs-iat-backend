@@ -28,7 +28,7 @@ export class ReviewController {
 
   @Get('/client/:clientId')
   async getClientReviews(@Request() req, @Param('clientId') clientId: string) {
-    const ownerId = req.user.sub || req.user.userId;
+    const ownerId = req.user.id;
     if (!ownerId) {
       throw new HttpException(
         'User not authenticated',
@@ -47,7 +47,7 @@ export class ReviewController {
     @Param('clientId') clientId: string,
     @Param('reviewId') reviewId: string,
   ) {
-    const ownerId = req.user.sub || req.user.userId;
+    const ownerId = req.user.id;
     if (!ownerId) {
       throw new HttpException(
         'User not authenticated',
@@ -71,7 +71,7 @@ export class ReviewController {
     @Param('clientId') clientId: string,
     @Param('reviewId') reviewId: string,
   ) {
-    const ownerId = req.user.sub || req.user.userId;
+    const ownerId = req.user.id;
 
     if (!ownerId) {
       throw new HttpException(

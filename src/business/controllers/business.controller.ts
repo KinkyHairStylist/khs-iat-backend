@@ -59,8 +59,8 @@ export class BusinessController {
   @Roles(Role.Merchant, Role.Staff, Role.BusinessStaff)
   @RequirePermission(Permission.VIEW_BOOKINGS)
   @Post('getBookings')
-  async getBookings(@Req() req: RequestWithUser) {
-    return this.businessService.getBookings(req.user.id);
+  async getBookings(@Req() req: RequestWithUser, @Body() body: { date?: string }) {
+    return this.businessService.getBookings(req.user.id, body?.date);
   }
 
   @ApiBearerAuth('access-token')

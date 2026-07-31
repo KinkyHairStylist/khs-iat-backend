@@ -34,6 +34,7 @@ export class EditStaffDto {
     employmentType?: 'full-time' | 'part-time' | 'contract';
 
     @IsArray()
+    @IsOptional()
     addresses?:any;
 
     @IsOptional()
