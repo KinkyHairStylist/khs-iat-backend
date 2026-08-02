@@ -135,7 +135,10 @@ export class BusinessService {
   }
 
   async getBooking(id: string) {
-    return await this.appointmentRepo.findOne({ where: { id } });
+    return await this.appointmentRepo.findOne({
+      where: { id },
+      relations: ['client', 'businessClient'],
+    });
   }
 
   async completeBooking(id: string) {
