@@ -22,6 +22,7 @@ import { PaymentService } from './payment/payment.service';
 import { CloudinaryModule } from '../user/modules/cloudinary.module';
 import { BusinessWalletModule } from 'src/business/wallet.module';
 import { Transaction } from 'src/business/entities/transaction.entity';
+import { PaymentModule as ProviderPaymentModule } from 'src/payment/payment.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { Transaction } from 'src/business/entities/transaction.entity';
     CloudinaryModule,
     BusinessWalletModule,
     EmailModule,
+    ProviderPaymentModule,
   ],
   controllers: [AdminController, ArticleController, AdminAuthController],
   providers: [

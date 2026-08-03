@@ -4,6 +4,7 @@ import {
   BadRequestException,
   Logger,
   InternalServerErrorException,
+  Inject,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -23,6 +24,8 @@ import {
   TransactionType,
 } from 'src/business/entities/transaction.entity';
 import { WalletCurrency } from './enums/wallet.enum';
+import { PAYMENT_PROVIDER } from 'src/payment/payment-provider.interface';
+import type { PaymentProvider } from 'src/payment/payment-provider.interface';
 
 @Injectable()
 export class PaymentService {
@@ -39,6 +42,8 @@ export class PaymentService {
     @InjectRepository(Transaction)
     private readonly transactionRepo: Repository<Transaction>,
     private readonly businessWalletService: BusinessWalletService,
+    @Inject(PAYMENT_PROVIDER)
+    private readonly paymentProvider: PaymentProvider,
   ) {
     this.frontendUrl = process.env.FRONTEND_URL ?? '';
     this.paystackAcessKey = process.env.PAYSTACK_SECRET_KEY!;
@@ -298,6 +303,21 @@ export class PaymentService {
     });
 
     if (!payment) throw new NotFoundException('Payment not found');
+
+    if (payment.status === TransactionStatus.COMPLETED && payment.type === TransactionType.REFUND) {
+      throw new BadRequestException('This transaction has already been refunded');
+    }
+
+    if (!payment.referenceId) {
+      throw new BadRequestException(
+        'This transaction has no payment provider reference and cannot be refunded automatically',
+      );
+    }
+
+    // Actually issue the refund with whichever provider processed this
+    // payment — previously this only rewrote the DB row with no real
+    // money movement at all.
+    await this.paymentProvider.refundTransaction(payment.referenceId);
 
     payment.type = TransactionType.REFUND;
     payment.status = TransactionStatus.COMPLETED;

@@ -86,11 +86,20 @@ export class StripeService implements PaymentProvider {
 
   async refundTransaction(reference: string): Promise<void> {
     const session = await this.stripe.checkout.sessions.retrieve(reference);
-    if (typeof session.payment_intent === 'string') {
-      await this.stripe.refunds.create({
-        payment_intent: session.payment_intent,
-      });
-    }
+    if (typeof session.payment_intent !== 'string') return;
+
+    // If this was a split destination charge (transfer_data set), the
+    // merchant's share already left our platform account — reverse_transfer
+    // tells Stripe to claw that back too, otherwise the refund can fail or
+    // leave the platform account short.
+    const paymentIntent = await this.stripe.paymentIntents.retrieve(
+      session.payment_intent,
+    );
+
+    await this.stripe.refunds.create({
+      payment_intent: session.payment_intent,
+      reverse_transfer: !!paymentIntent.transfer_data,
+    });
   }
 
   // ─── Connect (merchant payouts) ────────────────────────────────────────
