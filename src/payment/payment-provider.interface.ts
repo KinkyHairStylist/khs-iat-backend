@@ -25,12 +25,23 @@ export interface VerifyPaymentResult {
 }
 
 export interface PaymentProvider {
+  // True for providers that support routing part of a payment directly to
+  // a merchant's own connected account (Stripe Connect). Callers use this
+  // to decide whether a merchant-payout-onboarding check even applies —
+  // for a provider that can't split payments at all (Paystack), it never
+  // does.
+  readonly supportsPaymentSplitting: boolean;
+
   initializePayment(payload: {
     email: string;
     amount: number;
     callbackUrl?: string; // where to redirect after a SUCCESSFUL payment
     cancelUrl?: string; // where to redirect if the customer cancels/backs out
     metadata?: any;
+    // Marketplace payment-splitting (Stripe Connect). Providers without an
+    // equivalent (Paystack) should safely ignore these rather than error.
+    destinationAccountId?: string; // the merchant's connected account
+    applicationFeeAmount?: number; // platform's cut, in the smallest currency unit
   }): Promise<InitializePaymentResult>;
 
   verifyPayment(reference: string): Promise<VerifyPaymentResult>;

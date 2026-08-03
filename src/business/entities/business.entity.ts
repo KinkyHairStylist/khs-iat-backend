@@ -125,6 +125,14 @@ export class Business {
   @Column({ type: 'boolean', nullable: true, default: null })
   luxuryOverride: boolean | null;
 
+  // Stripe Connect Express account this business's payouts go through.
+  // Null until the merchant completes "Connect your payout account".
+  @Column({ nullable: true })
+  stripeAccountId?: string;
+
+  @Column({ type: 'boolean', default: false })
+  stripeOnboardingComplete: boolean;
+
   @Column({ type: 'float', default: 0 })
   revenue: number;
 

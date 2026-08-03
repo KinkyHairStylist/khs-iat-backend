@@ -192,6 +192,55 @@ export class BusinessWalletController {
     return result;
   }
 
+  @Post('/payout-onboarding-link')
+  async createPayoutOnboardingLink(
+    @Request() req,
+    @Body() body: { refreshUrl: string; returnUrl: string },
+  ) {
+    const ownerId = req.user.id || req.user.sub;
+    const ownerEmail = req.user.email;
+
+    if (!ownerId) {
+      throw new HttpException('User not authenticated', HttpStatus.UNAUTHORIZED);
+    }
+
+    const result = await this.walletService.createPayoutOnboardingLink(
+      ownerId,
+      ownerEmail,
+      body.refreshUrl,
+      body.returnUrl,
+    );
+
+    if (!result.success) {
+      throw new HttpException(
+        { message: result.message, error: result.error },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    return result;
+  }
+
+  @Get('/payout-onboarding-status')
+  async getPayoutOnboardingStatus(@Request() req) {
+    const ownerId = req.user.id || req.user.sub;
+
+    if (!ownerId) {
+      throw new HttpException('User not authenticated', HttpStatus.UNAUTHORIZED);
+    }
+
+    const result = await this.walletService.confirmPayoutOnboarding(ownerId);
+
+    if (!result.success) {
+      throw new HttpException(
+        { message: result.message, error: result.error },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    return result;
+  }
+
   @Patch('/debit')
   async debitWallet(@Request() req, @Body() body: DebitWalletRequestDto) {
     const ownerId = req.user.id || req.user.sub;

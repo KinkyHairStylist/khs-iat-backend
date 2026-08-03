@@ -8,6 +8,8 @@ import {
 
 @Injectable()
 export class StripeService implements PaymentProvider {
+  readonly supportsPaymentSplitting = true;
+
   private readonly stripe: Stripe;
 
   constructor() {
@@ -24,6 +26,8 @@ export class StripeService implements PaymentProvider {
     callbackUrl?: string;
     cancelUrl?: string;
     metadata?: any;
+    destinationAccountId?: string;
+    applicationFeeAmount?: number;
   }): Promise<InitializePaymentResult> {
     const session = await this.stripe.checkout.sessions.create({
       mode: 'payment',
@@ -41,6 +45,15 @@ export class StripeService implements PaymentProvider {
       success_url: payload.callbackUrl || 'https://example.com/success',
       cancel_url: payload.cancelUrl || payload.callbackUrl || 'https://example.com/cancel',
       metadata: payload.metadata,
+      // Destination charge: KHS's account briefly holds the full amount,
+      // Stripe automatically transfers everything except the platform fee
+      // to the merchant's connected account as part of the same charge.
+      payment_intent_data: payload.destinationAccountId
+        ? {
+            application_fee_amount: payload.applicationFeeAmount ?? 0,
+            transfer_data: { destination: payload.destinationAccountId },
+          }
+        : undefined,
     });
 
     return {
@@ -78,5 +91,51 @@ export class StripeService implements PaymentProvider {
         payment_intent: session.payment_intent,
       });
     }
+  }
+
+  // ─── Connect (merchant payouts) ────────────────────────────────────────
+  // Stripe-specific — no Paystack equivalent, so this lives here rather
+  // than on the shared PaymentProvider interface.
+
+  /**
+   * Creates a new Express Connect account for a merchant (if one doesn't
+   * already exist) and returns a one-time hosted onboarding link. The
+   * merchant enters their bank/business details on Stripe's own page —
+   * none of it touches our backend.
+   */
+  async createConnectAccountLink(payload: {
+    email: string;
+    businessId: string;
+    existingAccountId?: string;
+    refreshUrl: string;
+    returnUrl: string;
+  }): Promise<{ accountId: string; onboardingUrl: string }> {
+    const accountId =
+      payload.existingAccountId ??
+      (
+        await this.stripe.accounts.create({
+          type: 'express',
+          email: payload.email,
+          metadata: { businessId: payload.businessId },
+        })
+      ).id;
+
+    const accountLink = await this.stripe.accountLinks.create({
+      account: accountId,
+      refresh_url: payload.refreshUrl,
+      return_url: payload.returnUrl,
+      type: 'account_onboarding',
+    });
+
+    return {
+      accountId,
+      onboardingUrl: accountLink.url,
+    };
+  }
+
+  /** True once Stripe considers the account fully able to receive payouts. */
+  async isConnectAccountOnboarded(accountId: string): Promise<boolean> {
+    const account = await this.stripe.accounts.retrieve(accountId);
+    return account.details_submitted && account.payouts_enabled;
   }
 }

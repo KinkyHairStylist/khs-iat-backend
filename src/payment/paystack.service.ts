@@ -8,6 +8,8 @@ import {
 
 @Injectable()
 export class PaystackService implements PaymentProvider {
+  readonly supportsPaymentSplitting = false;
+
   private readonly secretKey = process.env.PAYSTACK_SECRET_KEY;
   private readonly baseUrl = process.env.PAYSTACK_BASE_URL;
 
@@ -18,6 +20,11 @@ export class PaystackService implements PaymentProvider {
   }
 
   /** Initialize Paystack Payment */
+  // Note: payload may include destinationAccountId/applicationFeeAmount
+  // (Stripe Connect payment-splitting) — Paystack has no equivalent, so
+  // those fields are simply not read here. A booking for a merchant who
+  // requires split payments must not reach this provider in the first
+  // place (see BookingService.confirmBooking's onboarding check).
   async initializePayment(payload: {
     email: string;
     amount: number; // in kobo

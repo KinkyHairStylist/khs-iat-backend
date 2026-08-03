@@ -434,11 +434,28 @@ export class BookingService {
       }
     }
 
-    // Handle card payment (Paystack) - Initialize payment
+    // Handle card payment - Initialize payment
     const reference = `BKG-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
     let paystackInit: InitializePaymentResult | null = null;
 
     if (remainingToPay > 0) {
+      const business = appointments[0].business;
+
+      // Split-payment providers (Stripe Connect) can only route money to a
+      // merchant who has completed payout onboarding — a booking can't be
+      // paid for online until that's done. Providers without split-payment
+      // support (Paystack) have no such requirement; whether the active
+      // provider needs this is exactly what supportsPaymentSplitting()
+      // tells us, so this check doesn't fire for Paystack at all.
+      if (
+        this.paymentProvider.supportsPaymentSplitting &&
+        !business.stripeOnboardingComplete
+      ) {
+        throw new BadRequestException(
+          'This business has not finished setting up payouts yet and cannot accept card payments right now.',
+        );
+      }
+
       paystackInit = await this.paymentProvider.initializePayment({
         email: user.email,
         amount: Math.round(remainingToPay * 100), // Convert to kobo
@@ -453,6 +470,8 @@ export class BookingService {
           feeAmount,
           reference,
         },
+        destinationAccountId: business.stripeAccountId,
+        applicationFeeAmount: Math.round(feeAmount * 100),
       });
 
       if (!paystackInit?.reference) {

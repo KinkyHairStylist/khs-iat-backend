@@ -29,6 +29,7 @@ import {
 import { WalletPaymentMethod } from '../entities/payment-method.entity';
 import { Withdrawal } from 'src/admin/withdrawal/entities/withdrawal.entity';
 import { Business } from '../entities/business.entity';
+import { StripeService } from 'src/payment/stripe.service';
 
 @Injectable()
 export class BusinessWalletService {
@@ -41,7 +42,78 @@ export class BusinessWalletService {
     private paymentMethodRepository: Repository<WalletPaymentMethod>,
     @InjectRepository(Withdrawal)
     private withdrawalRepository: Repository<Withdrawal>,
+    @InjectRepository(Business)
+    private businessRepository: Repository<Business>,
+    private readonly stripeService: StripeService,
   ) {}
+
+  // ─── Stripe Connect (merchant payout onboarding) ─────────────────────
+
+  /**
+   * Starts (or resumes) Stripe Express onboarding for the merchant that
+   * owns `ownerId`'s business. Returns the URL the frontend should
+   * redirect the merchant to.
+   */
+  async createPayoutOnboardingLink(
+    ownerId: string,
+    ownerEmail: string,
+    refreshUrl: string,
+    returnUrl: string,
+  ): Promise<ApiResponse<{ onboardingUrl: string }>> {
+    const business = await this.businessRepository.findOne({
+      where: { ownerId },
+    });
+
+    if (!business) {
+      return { success: false, message: 'Business not found', error: 'NOT_FOUND' };
+    }
+
+    const { accountId, onboardingUrl } =
+      await this.stripeService.createConnectAccountLink({
+        email: ownerEmail,
+        businessId: business.id,
+        existingAccountId: business.stripeAccountId,
+        refreshUrl,
+        returnUrl,
+      });
+
+    if (business.stripeAccountId !== accountId) {
+      business.stripeAccountId = accountId;
+      await this.businessRepository.save(business);
+    }
+
+    return { success: true, data: { onboardingUrl } };
+  }
+
+  /**
+   * Called when the merchant returns from Stripe's onboarding flow.
+   * Confirms with Stripe (not just trusting the redirect happened) that
+   * the account can actually receive payouts, and records that.
+   */
+  async confirmPayoutOnboarding(ownerId: string): Promise<ApiResponse<{ onboardingComplete: boolean }>> {
+    const business = await this.businessRepository.findOne({
+      where: { ownerId },
+    });
+
+    if (!business) {
+      return { success: false, message: 'Business not found', error: 'NOT_FOUND' };
+    }
+
+    if (!business.stripeAccountId) {
+      return { success: false, message: 'No Stripe account connected yet', error: 'NOT_CONNECTED' };
+    }
+
+    const onboardingComplete = await this.stripeService.isConnectAccountOnboarded(
+      business.stripeAccountId,
+    );
+
+    if (business.stripeOnboardingComplete !== onboardingComplete) {
+      business.stripeOnboardingComplete = onboardingComplete;
+      await this.businessRepository.save(business);
+    }
+
+    return { success: true, data: { onboardingComplete } };
+  }
 
   async createWalletForBusiness(
     createWalletDto: CreateWalletDto,
