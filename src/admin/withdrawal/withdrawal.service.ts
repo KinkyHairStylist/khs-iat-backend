@@ -11,6 +11,13 @@ import { Transaction, TransactionType, TransactionStatus } from 'src/business/en
 import { Withdrawal } from './entities/withdrawal.entity';
 import { CreateWithdrawalDto } from './dto/create-withdrawal.dto';
 import { BusinessGiftCard } from 'src/business/entities/business-giftcard.entity';
+import { Business } from 'src/business/entities/business.entity';
+import { StripeService } from 'src/payment/stripe.service';
+
+// Currencies Stripe Connect transfers support. Any wallet in a currency
+// outside this list has no real payout path yet — approve() must reject
+// it rather than silently fail at Stripe's end with a confusing error.
+const STRIPE_SUPPORTED_CURRENCIES = ['usd', 'eur', 'aud', 'gbp'];
 
 @Injectable()
 export class WithdrawalService {
@@ -26,6 +33,11 @@ export class WithdrawalService {
 
     @InjectRepository(BusinessGiftCard)
     private readonly giftCardRepo: Repository<BusinessGiftCard>, // 👈 inject giftcard repo
+
+    @InjectRepository(Business)
+    private readonly businessRepo: Repository<Business>,
+
+    private readonly stripeService: StripeService,
   ) {}
 
   // ✅ Get all withdrawals
@@ -72,17 +84,64 @@ export class WithdrawalService {
     return this.withdrawalRepo.save(withdrawal);
   }
 
-  // ✅ Approve and process payout
+  // ✅ Approve and process payout — actually transfers real money to the
+  // merchant's Stripe Connect account. This only covers money that
+  // centralized in KHS's own wallet (gift cards, memberships); booking
+  // payments made via Stripe Connect already transfer directly to the
+  // merchant at checkout time via destination charges and never create a
+  // Withdrawal at all.
   async approve(id: string): Promise<Withdrawal> {
     const withdrawal = await this.findOne(id);
+
+    if (withdrawal.status !== 'Pending') {
+      throw new BadRequestException(
+        `Cannot approve a withdrawal with status "${withdrawal.status}"`,
+      );
+    }
+
+    const business = await this.businessRepo.findOne({
+      where: { id: withdrawal.businessId },
+    });
+
+    if (!business) {
+      throw new NotFoundException('Business not found for this withdrawal');
+    }
+
+    if (!business.stripeAccountId || !business.stripeOnboardingComplete) {
+      throw new BadRequestException(
+        'This merchant has not finished connecting their payout account yet',
+      );
+    }
+
+    const wallet = withdrawal.bankDetails
+      ? await this.walletRepo.findOne({ where: { id: withdrawal.bankDetails.walletId } })
+      : null;
+    const currency = (wallet?.currency ?? 'usd').toLowerCase();
+
+    if (!STRIPE_SUPPORTED_CURRENCIES.includes(currency)) {
+      throw new BadRequestException(
+        `Payouts in ${currency.toUpperCase()} are not supported yet`,
+      );
+    }
+
     withdrawal.status = 'Processing';
     await this.withdrawalRepo.save(withdrawal);
 
-    // Simulate payout processing delay
-    setTimeout(async () => {
-      withdrawal.status = 'Completed';
+    try {
+      await this.stripeService.transferToConnectAccount({
+        accountId: business.stripeAccountId,
+        amount: Math.round(Number(withdrawal.amount) * 100),
+        currency,
+        metadata: { withdrawalId: withdrawal.id, businessId: business.id },
+      });
+    } catch (err) {
+      withdrawal.status = 'Pending';
       await this.withdrawalRepo.save(withdrawal);
-    }, 3000);
+      throw new BadRequestException(`Payout failed: ${err.message}`);
+    }
+
+    withdrawal.status = 'Completed';
+    await this.withdrawalRepo.save(withdrawal);
 
     return withdrawal;
   }

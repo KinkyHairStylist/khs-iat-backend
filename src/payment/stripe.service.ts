@@ -149,6 +149,29 @@ export class StripeService implements PaymentProvider {
   }
 
   /**
+   * Moves money from KHS's own Stripe balance directly into a merchant's
+   * connected account — used for wallet withdrawals (money that centralized
+   * in KHS's platform account, e.g. from gift cards/memberships), as
+   * opposed to split booking payments, which already transfer automatically
+   * via destination charges and never need this.
+   */
+  async transferToConnectAccount(payload: {
+    accountId: string;
+    amount: number; // in the smallest currency unit (cents)
+    currency: string;
+    metadata?: any;
+  }): Promise<{ transferId: string }> {
+    const transfer = await this.stripe.transfers.create({
+      amount: payload.amount,
+      currency: payload.currency.toLowerCase(),
+      destination: payload.accountId,
+      metadata: payload.metadata,
+    });
+
+    return { transferId: transfer.id };
+  }
+
+  /**
    * Verifies a webhook request actually came from Stripe (not a forged
    * request) using the signature in the stripe-signature header, and
    * decodes it into a real event. Throws if verification fails — callers
