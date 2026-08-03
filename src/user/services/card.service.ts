@@ -1,10 +1,12 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Card } from '../../all_user_entities/card.entity';
 import { CreateCardDto } from '../dtos/create-card.dto';
 import { User } from '../../all_user_entities/user.entity';
 import { MembershipSubscription } from '../user_entities/membership-subscription.entity';
+import { PAYMENT_PROVIDER } from 'src/payment/payment-provider.interface';
+import type { PaymentProvider } from 'src/payment/payment-provider.interface';
 
 @Injectable()
 export class CardService {
@@ -13,26 +15,53 @@ export class CardService {
     private readonly cardRepo: Repository<Card>,
     @InjectRepository(MembershipSubscription)
     private readonly subscriptionRepo: Repository<MembershipSubscription>,
+    @Inject(PAYMENT_PROVIDER)
+    private readonly paymentProvider: PaymentProvider,
   ) {}
 
+  // The card number/CVV never reach this backend. `dto.reference` is the
+  // Paystack transaction ID from a small (50 kobo) verification charge run
+  // client-side, directly against Paystack's popup. We verify that charge
+  // really happened, pull the reusable authorization_code out of Paystack's
+  // response, save only that, then refund the charge.
   async createCard(dto: CreateCardDto, user: User): Promise<Card> {
-    // derive last four digits
-    const lastFour = dto.cardNumber.slice(-4);
+    const verification = await this.paymentProvider.verifyPayment(dto.reference);
+
+    if (verification.status !== 'success') {
+      throw new BadRequestException('Card verification failed');
+    }
+
+    if (!verification.authorizationCode) {
+      throw new BadRequestException(
+        'Card verification did not return a reusable authorization',
+      );
+    }
+
+    // Paystack returns card_type as a lowercase scheme name ("visa",
+    // "mastercard") — capitalized here so it displays cleanly and matches
+    // the brand-icon detection the frontend already does on this field.
+    const providerName = verification.cardType
+      ? verification.cardType.charAt(0).toUpperCase() + verification.cardType.slice(1)
+      : 'Card';
 
     const newCard = this.cardRepo.create({
-      providerName: dto.providerName,
-      type: dto.type,
-      cardHolderName: dto.cardHolderName,
-      cardNumber: dto.cardNumber, // will be encrypted automatically
-      expiryMonth: dto.expiryMonth,
-      expiryYear: dto.expiryYear,
-      cvv: dto.cvv,
-      billingAddress: dto.billingAddress,
-      lastFourDigits: lastFour,
+      providerName,
+      type: 'credit',
+      cardHolderName: `${user.firstName ?? ''} ${user.surname ?? ''}`.trim(),
+      expiryMonth: verification.cardExpiryMonth,
+      expiryYear: verification.cardExpiryYear,
+      lastFourDigits: verification.cardLast4,
+      paystackAuthorizationCode: verification.authorizationCode,
+      paystackEmail: verification.customerEmail,
       user,
     });
 
-    return await this.cardRepo.save(newCard);
+    const savedCard = await this.cardRepo.save(newCard);
+
+    // Best-effort — the card is already saved even if this hiccups.
+    await this.paymentProvider.refundTransaction(dto.reference);
+
+    return savedCard;
   }
 
   async getAllAuthCards(user: User): Promise<Card[]> {

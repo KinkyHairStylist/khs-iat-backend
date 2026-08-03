@@ -5,62 +5,10 @@ import {
   OneToMany,
   CreateDateColumn,
   UpdateDateColumn,
-  ValueTransformer,
   ManyToOne,
 } from 'typeorm';
 import { GiftCard } from './gift-card.entity';
-import * as crypto from 'crypto';
 import { User } from './user.entity';
-
-/**
- * AES Encryption/Decryption Transformer
- * Automatically encrypts values before saving,
- * and decrypts them when reading from the database.
- */
-const IV_LENGTH = 16; // AES block size
-
-const getKey = () => {
-  const key = process.env.CARD_ENCRYPTION_KEY;
-  if (!key) {
-    // Fallback for local development if the key is not set.
-    // Must be exactly 32 bytes for aes-256-cbc.
-    return Buffer.from('01234567890123456789012345678901', 'utf8');
-  }
-
-  const decodedKey = Buffer.from(key, 'base64');
-  if (decodedKey.length !== 32) {
-    throw new Error(
-      `CARD_ENCRYPTION_KEY must be a base64-encoded 32-byte key. ` +
-        `Got ${decodedKey.length} bytes after base64 decoding.`,
-    );
-  }
-
-  return decodedKey;
-};
-
-const encrypt = (value: string): string => {
-  if (!value) return value;
-  const iv = crypto.randomBytes(IV_LENGTH);
-  const cipher = crypto.createCipheriv('aes-256-cbc', getKey(), iv);
-  let encrypted = cipher.update(value, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  return `${iv.toString('hex')}:${encrypted}`;
-};
-
-const decrypt = (value: string): string => {
-  if (!value) return value;
-  const [ivHex, encryptedText] = value.split(':');
-  const iv = Buffer.from(ivHex, 'hex');
-  const decipher = crypto.createDecipheriv('aes-256-cbc', getKey(), iv);
-  let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
-  decrypted += decipher.final('utf8');
-  return decrypted;
-};
-
-const encryptionTransformer: ValueTransformer = {
-  to: (value: string) => encrypt(value),
-  from: (value: string) => decrypt(value),
-};
 
 @Entity()
 export class Card {
@@ -76,23 +24,17 @@ export class Card {
   @Column()
   cardHolderName: string;
 
-  @Column({ transformer: encryptionTransformer })
-  cardNumber: string; // stored encrypted in DB
-
   @Column()
   expiryMonth: string; // e.g. "07"
 
   @Column()
   expiryYear: string; // e.g. "2027"
 
-  @Column({ nullable: true, transformer: encryptionTransformer })
-  cvv?: string; // also encrypted — do NOT expose in any API response
-
   @Column({ nullable: true })
   billingAddress?: string;
 
   @Column({ nullable: true })
-  lastFourDigits?: string; // Derived from decrypted cardNumber
+  lastFourDigits?: string;
 
   @OneToMany(() => GiftCard, (giftCard) => giftCard.card)
   giftCards: GiftCard[];
@@ -111,9 +53,13 @@ export class Card {
   @Column({ default: false })
   isDefault: boolean;
 
+  // The reusable token from Paystack's authorization object — this is what
+  // actually lets KHS charge this card again. The raw card number and CVV
+  // are never sent to this backend at all (see CardService.createCard) and
+  // so are never stored here, encrypted or otherwise.
   @Column({ nullable: true })
-  paystackAuthorizationCode?: string; // For Paystack recurring charges
+  paystackAuthorizationCode?: string;
 
   @Column({ nullable: true })
-  paystackEmail?: string; // Email used for Paystack payment
+  paystackEmail?: string;
 }

@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, ForbiddenException, Logger, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { MembershipSubscription } from '../user_entities/membership-subscription.entity';
@@ -9,7 +9,11 @@ import { Card } from 'src/all_user_entities/card.entity';
 import { BusinessGiftCard } from 'src/business/entities/business-giftcard.entity';
 import { BusinessGiftCardStatus } from 'src/business/enum/gift-card.enum';
 import { Transaction, TransactionType, TransactionStatus, PaymentMethod } from 'src/business/entities/transaction.entity';
-import { PaystackService } from 'src/payment/paystack.service';
+import { PAYMENT_PROVIDER } from 'src/payment/payment-provider.interface';
+import type {
+  PaymentProvider,
+  InitializePaymentResult,
+} from 'src/payment/payment-provider.interface';
 import { WalletCurrency } from 'src/admin/payment/enums/wallet.enum';
 import { PlatformSettingsService } from 'src/admin/platform-settings/platform-settings.service';
 import { EmailService } from 'src/email/email.service';
@@ -35,7 +39,8 @@ export class MembershipService {
     private readonly giftCardRepo: Repository<BusinessGiftCard>,
 
     private readonly dataSource: DataSource,
-    private readonly paystack: PaystackService,
+    @Inject(PAYMENT_PROVIDER)
+    private readonly paymentProvider: PaymentProvider,
     private readonly platformSettingsService: PlatformSettingsService,
     private readonly emailService: EmailService,
   ) {}
@@ -226,12 +231,12 @@ export class MembershipService {
     }
 
     // Handle partial/combined payment (gift card + card)
-    let paystackInit: { reference: string; authorization_url: string } | null = null;
+    let paystackInit: InitializePaymentResult | null = null;
     if (remainingToPay > 0) {
-      paystackInit = await this.paystack.initializePayment({
+      paystackInit = await this.paymentProvider.initializePayment({
         email: user.email,
         amount: Math.round(remainingToPay * 100), // Convert to kobo and round to integer
-        callback_url: `${process.env.NEXT_PUBLIC_BASE_URL}customer/membership/complete?reference=${reference}`,
+        callbackUrl: `${process.env.NEXT_PUBLIC_BASE_URL}customer/membership/complete?reference=${reference}`,
         metadata: {
           subscriptionTierId: tier.id,
           userId: user.id,
@@ -317,7 +322,7 @@ export class MembershipService {
       totalAmount: totalAmount,
       giftCardAmountUsed: giftCardPayment,
       cardAmountToPay: remainingToPay,
-      authorizationUrl: paystackInit?.authorization_url || null,
+      authorizationUrl: paystackInit?.authorizationUrl || null,
       reference: reference,
     };
   }
@@ -354,7 +359,7 @@ export class MembershipService {
     }
 
     // Verify payment
-    const verification = await this.paystack.verifyPayment(reference);
+    const verification = await this.paymentProvider.verifyPayment(reference);
 
     if (!verification || verification.status !== 'success') {
       await this.transactionRepo.update(
@@ -364,6 +369,9 @@ export class MembershipService {
       throw new BadRequestException('Payment verification failed');
     }
 
+    if (!verification.metadata) {
+      throw new BadRequestException('Payment verification is missing metadata');
+    }
     const meta = verification.metadata;
     const subscriptionAmount = Number(meta.subscriptionAmount) || 0;
     const feeAmount = Number(meta.feeAmount) || 0;

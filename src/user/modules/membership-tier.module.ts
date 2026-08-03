@@ -9,7 +9,7 @@ import { MembershipSubscriptionController } from '../controllers/membership-subs
 import { Card } from 'src/all_user_entities/card.entity';
 import { Transaction } from 'src/business/entities/transaction.entity';
 import { BusinessGiftCard } from 'src/business/entities/business-giftcard.entity';
-import { PaystackService } from 'src/payment/paystack.service';
+import { PaymentModule } from 'src/payment/payment.module';
 import { PlatformSettingsModule } from 'src/admin/platform-settings/platform-settings.module';
 import { EmailModule } from 'src/email/email.module';
 
@@ -18,9 +18,10 @@ import { EmailModule } from 'src/email/email.module';
     TypeOrmModule.forFeature([MembershipTier, MembershipSubscription, Card, Transaction, BusinessGiftCard]),
     PlatformSettingsModule,
     EmailModule,
+    PaymentModule,
   ],
   controllers: [MembershipTierController, MembershipSubscriptionController],
-  providers: [MembershipTierService, MembershipService, PaystackService],
+  providers: [MembershipTierService, MembershipService],
   exports: [MembershipTierService, MembershipService],
 })
 export class MembershipModule implements OnModuleInit {

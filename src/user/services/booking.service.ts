@@ -4,6 +4,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Logger,
+  Inject,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -24,7 +25,11 @@ import {
 import { WalletCurrency } from 'src/admin/payment/enums/wallet.enum';
 import { PlatformSettingsService } from 'src/admin/platform-settings/platform-settings.service';
 import { EmailService } from 'src/email/email.service';
-import { PaystackService } from 'src/payment/paystack.service';
+import { PAYMENT_PROVIDER } from 'src/payment/payment-provider.interface';
+import type {
+  PaymentProvider,
+  InitializePaymentResult,
+} from 'src/payment/payment-provider.interface';
 import { Card } from 'src/all_user_entities/card.entity';
 import { BusinessGiftCard } from 'src/business/entities/business-giftcard.entity';
 import { BusinessGiftCardStatus } from 'src/business/enum/gift-card.enum';
@@ -57,7 +62,8 @@ export class BookingService {
     private platformSettingsService: PlatformSettingsService,
     private reviewService: ReviewService,
     private readonly dataSource: DataSource,
-    private readonly paystack: PaystackService,
+    @Inject(PAYMENT_PROVIDER)
+    private readonly paymentProvider: PaymentProvider,
     private readonly walletService: BusinessWalletService,
     private readonly emailService: EmailService,
   ) {}
@@ -430,14 +436,13 @@ export class BookingService {
 
     // Handle card payment (Paystack) - Initialize payment
     const reference = `BKG-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
-    let paystackInit: { reference: string; authorization_url: string } | null =
-      null;
+    let paystackInit: InitializePaymentResult | null = null;
 
     if (remainingToPay > 0) {
-      paystackInit = await this.paystack.initializePayment({
+      paystackInit = await this.paymentProvider.initializePayment({
         email: user.email,
         amount: Math.round(remainingToPay * 100), // Convert to kobo
-        callback_url: `${process.env.NEXT_PUBLIC_BASE_URL}customer/salonListing/${appointments[0].business.id}/payment?orderId=${orderId}`,
+        callbackUrl: `${process.env.NEXT_PUBLIC_BASE_URL}customer/salonListing/${appointments[0].business.id}/payment?orderId=${orderId}`,
         metadata: {
           orderId,
           userId: user.id,
@@ -523,7 +528,7 @@ export class BookingService {
       totalAmount: roundedTotalAmount,
       giftCardAmountUsed: giftCardPayment,
       cardAmountToPay: remainingToPay,
-      authorizationUrl: paystackInit?.authorization_url || null,
+      authorizationUrl: paystackInit?.authorizationUrl || null,
       reference: paystackInit?.reference, // Return Paystack reference for completion
       internalReference: reference, // Internal reference for tracking
     };
@@ -534,7 +539,7 @@ export class BookingService {
   // ------------------------------------------------------
   async completeBooking(reference: string) {
     // Verify payment with Paystack
-    const verification = await this.paystack.verifyPayment(reference);
+    const verification = await this.paymentProvider.verifyPayment(reference);
 
     if (!verification || verification.status !== 'success') {
       // Update transaction status to failed
@@ -545,6 +550,9 @@ export class BookingService {
       throw new BadRequestException('Payment verification failed');
     }
 
+    if (!verification.metadata) {
+      throw new BadRequestException('Payment verification is missing metadata');
+    }
     const meta = verification.metadata;
     const bookingAmount = Number(meta.bookingAmount) || 0;
     const feeAmount = Number(meta.feeAmount) || 0;
@@ -634,14 +642,13 @@ export class BookingService {
         }
 
         // Save card authorization code if available (for future recurring payments)
-        if (meta.cardId && verification.authorization?.authorization_code) {
+        if (meta.cardId && verification.authorizationCode) {
           await manager.update(
             Card,
             { id: meta.cardId },
             {
-              paystackAuthorizationCode:
-                verification.authorization.authorization_code,
-              paystackEmail: verification.customer?.email,
+              paystackAuthorizationCode: verification.authorizationCode,
+              paystackEmail: verification.customerEmail,
             },
           );
         }

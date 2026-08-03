@@ -16,7 +16,7 @@ import { BusinessWalletModule } from 'src/business/wallet.module';
 import { Review } from 'src/business/entities/review.entity';
 import { ClientSchema } from 'src/business/entities/client.entity';
 import { Card } from 'src/all_user_entities/card.entity';
-import { PaystackService } from 'src/payment/paystack.service';
+import { PaymentModule } from 'src/payment/payment.module';
 
 @Module({
   imports: [
@@ -24,8 +24,9 @@ import { PaystackService } from 'src/payment/paystack.service';
     ReviewModule,
     BusinessWalletModule,
     EmailModule,
+    PaymentModule,
   ],
   controllers: [BookingController],
-  providers: [BookingService, PlatformSettingsService, PaystackService],
+  providers: [BookingService, PlatformSettingsService],
 })
 export class BookingModule {}

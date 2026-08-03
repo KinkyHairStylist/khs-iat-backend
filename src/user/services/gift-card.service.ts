@@ -4,6 +4,7 @@ import {
   BadRequestException,
   ForbiddenException,
   InternalServerErrorException,
+  Inject,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
@@ -18,7 +19,8 @@ import {
   PaymentMethod,
 } from 'src/business/entities/transaction.entity';
 import { BusinessWalletService } from 'src/business/services/wallet.service';
-import { PaystackService } from 'src/payment/paystack.service';
+import { PAYMENT_PROVIDER } from 'src/payment/payment-provider.interface';
+import type { PaymentProvider } from 'src/payment/payment-provider.interface';
 import {
   PurchaseBusinessGiftCardDto,
   RedeemGiftCardDto,
@@ -45,7 +47,8 @@ export class GiftCardService {
 
     private readonly dataSource: DataSource,
     private readonly walletService: BusinessWalletService,
-    private readonly paystack: PaystackService,
+    @Inject(PAYMENT_PROVIDER)
+    private readonly paymentProvider: PaymentProvider,
     private readonly platformSettingsService: PlatformSettingsService,
     private readonly emailService: EmailService,
   ) {}
@@ -86,10 +89,10 @@ export class GiftCardService {
     const roundedTotalAmount = Math.round(totalAmount * 100) / 100;
 
     // Initialize Paystack payment with total amount (gift card + fee)
-    const init = await this.paystack.initializePayment({
+    const init = await this.paymentProvider.initializePayment({
       email: purchaser.email,
       amount: Math.round(roundedTotalAmount * 100), // Convert to kobo and round to integer
-      callback_url: `${process.env.NEXT_PUBLIC_BASE_URL}customer/gift/purchase?template=${giftCard.template}&code=${giftCard.code}&amount=${giftCard.amount}`,
+      callbackUrl: `${process.env.NEXT_PUBLIC_BASE_URL}customer/gift/purchase?template=${giftCard.template}&code=${giftCard.code}&amount=${giftCard.amount}`,
       metadata: {
         giftCardId: giftCard.id,
         purchaserId: purchaser.id,
@@ -165,7 +168,7 @@ export class GiftCardService {
       giftCardAmount: giftCardAmount,
       platformFee: feeAmount,
       totalAmount: totalAmount,
-      authorizationUrl: init.authorization_url,
+      authorizationUrl: init.authorizationUrl,
       reference: init.reference,
     };
   }
@@ -175,15 +178,16 @@ export class GiftCardService {
   // ------------------------------------------------------
   async completeGiftCardPurchase(reference: string) {
     // Verify payment
-    const verification = await this.paystack.verifyPayment(reference);
+    const verification = await this.paymentProvider.verifyPayment(reference);
 
     if (!verification || verification.status !== 'success') {
-      const meta = verification.metadata;
-      const giftCardId = meta.giftCardId;
-      await this.giftCardRepo.update(
-        { id: giftCardId },
-        { soldStatus: BusinessGiftCardSoldStatus.AVAILABLE },
-      );
+      const giftCardId = verification?.metadata?.giftCardId;
+      if (giftCardId) {
+        await this.giftCardRepo.update(
+          { id: giftCardId },
+          { soldStatus: BusinessGiftCardSoldStatus.AVAILABLE },
+        );
+      }
       await this.transactionRepo.update(
         { referenceId: reference },
         { status: TransactionStatus.FAILED },
@@ -191,6 +195,9 @@ export class GiftCardService {
       throw new BadRequestException('Payment verification failed');
     }
 
+    if (!verification.metadata) {
+      throw new BadRequestException('Payment verification is missing metadata');
+    }
     const meta = verification.metadata;
     const giftCardAmount = Number(meta.giftCardAmount) || 0;
     const feeAmount = Number(meta.feeAmount) || 0;

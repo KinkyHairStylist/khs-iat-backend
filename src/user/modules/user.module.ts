@@ -40,7 +40,7 @@ import { PhoneVerification } from 'src/business/entities/phone-verification.enti
 import { CloudinaryModule } from './cloudinary.module';
 import { PreferencesModule } from './preferences.module';
 import { PasswordUtil } from 'src/business/utils/password.util';
-import { PaystackService } from 'src/payment/paystack.service';
+import { PaymentModule } from 'src/payment/payment.module';
 import { BusinessModule } from 'src/business/business.module';
 import { BusinessWalletModule } from 'src/business/wallet.module';
 import { PlatformSettingsModule } from '../../admin/platform-settings/platform-settings.module';
@@ -69,6 +69,7 @@ import { AdminChatModule } from './admin-chat.module';
     PreferencesModule,
     PlatformSettingsModule,
     AdminChatModule,
+    PaymentModule,
   ],
   controllers: [
     UserController,
@@ -89,7 +90,6 @@ import { AdminChatModule } from './admin-chat.module';
     // TicketService,
     UserProfileService,
     PasswordUtil,
-    PaystackService, // keep PaystackService here
   ],
   exports: [UserService, GiftCardService], // <-- export GiftCardService if needed elsewhere
 })
