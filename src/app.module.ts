@@ -68,10 +68,17 @@ import { LandingModule } from './landing/landing.module';
       }),
       inject: [ConfigService],
     }),
+    // Global default — generous enough that normal UI usage (e.g. a
+    // settings page firing several quick save requests) doesn't trip it.
+    // Genuinely sensitive endpoints (login, signup, password reset, OTP)
+    // override this with a much stricter limit via @Throttle() instead of
+    // this number being tightened, since one shared limit across every
+    // endpoint forces an unworkable tradeoff between UX and brute-force
+    // protection.
     ThrottlerModule.forRoot([
       {
         ttl: 30_000, // 30 seconds
-        limit: 10, // 20 requests per minute
+        limit: 40,
       },
     ]),
 
