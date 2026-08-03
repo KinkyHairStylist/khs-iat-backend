@@ -62,14 +62,6 @@ export class TransactionController {
       user,
       dto.transactionId,
       dto.reason,
-      {
-        bankName: dto.bankName,
-        accountNumber: dto.accountNumber,
-        accountHolderName: dto.accountHolderName,
-        routingNumber: dto.routingNumber,
-        bankAddress: dto.bankAddress,
-        swiftCode: dto.swiftCode,
-      },
     );
 
     const statusCode = result.success ? HttpStatus.OK : HttpStatus.BAD_REQUEST;

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import {
@@ -10,6 +10,8 @@ import { User } from 'src/all_user_entities/user.entity';
 import { Refund, RefundStatus } from '../user_entities/refund.entity';
 import { TransactionPaginationDto } from '../dtos/transaction.dto';
 import { EmailService } from 'src/email/email.service';
+import { PAYMENT_PROVIDER } from 'src/payment/payment-provider.interface';
+import type { PaymentProvider } from 'src/payment/payment-provider.interface';
 
 export interface TransactionSummary {
   totalSpent: number;
@@ -39,6 +41,8 @@ export class TransactionService {
     @InjectRepository(Refund)
     private readonly refundRepository: Repository<Refund>,
     private readonly emailService: EmailService,
+    @Inject(PAYMENT_PROVIDER)
+    private readonly paymentProvider: PaymentProvider,
   ) {}
 
   /**
@@ -200,14 +204,6 @@ export class TransactionService {
     user: User,
     transactionId: string,
     reason: string,
-    accountDetails?: {
-      bankName?: string;
-      accountNumber?: string;
-      accountHolderName?: string;
-      routingNumber?: string;
-      bankAddress?: string;
-      swiftCode?: string;
-    },
   ): Promise<{ success: boolean; message: string }> {
     // Find the transaction
     const transaction = await this.transactionRepository.findOne({
@@ -257,20 +253,35 @@ export class TransactionService {
       };
     }
 
-    // Create refund record
+    if (!transaction.referenceId) {
+      return {
+        success: false,
+        message: 'This transaction cannot be refunded automatically',
+      };
+    }
+
+    // Actually issue the refund with whichever provider processed this
+    // payment, back to the original payment method — same pattern as the
+    // admin refund path (admin/payment/payment.service.ts refund()).
+    try {
+      await this.paymentProvider.refundTransaction(transaction.referenceId);
+    } catch (error) {
+      this.logger.error(`Refund failed for transaction ${transactionId}: ${error.message}`);
+      return { success: false, message: 'Refund could not be processed. Please try again later.' };
+    }
+
+    transaction.type = TransactionType.REFUND;
+    await this.transactionRepository.save(transaction);
+
+    // Kept for the customer-facing refund history/audit trail — no bank
+    // details, since the refund goes back to the original payment method.
     const refund = this.refundRepository.create({
       transactionId: transactionId,
       userId: user.id,
       amount: parseFloat(transaction.amount.toString()),
       currency: transaction.currency,
       reason,
-      status: RefundStatus.PENDING,
-      bankName: accountDetails?.bankName,
-      accountNumber: accountDetails?.accountNumber,
-      accountHolderName: accountDetails?.accountHolderName,
-      routingNumber: accountDetails?.routingNumber,
-      bankAddress: accountDetails?.bankAddress,
-      swiftCode: accountDetails?.swiftCode,
+      status: RefundStatus.PROCESSED,
     });
 
     await this.refundRepository.save(refund);
@@ -292,6 +303,6 @@ export class TransactionService {
       );
     }
 
-    return { success: true, message: 'Refund request submitted successfully' };
+    return { success: true, message: 'Refund processed successfully' };
   }
 }
