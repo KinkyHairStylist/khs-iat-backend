@@ -1,5 +1,6 @@
-import { Controller, Post, Body, Headers, BadRequestException, Logger } from '@nestjs/common';
+import { Controller, Post, Body, Headers, BadRequestException, Logger, Req } from '@nestjs/common';
 import { GiftCardService } from 'src/user/services/gift-card.service';
+import { Public } from 'src/business/middlewares/public.decorator';
 
 @Controller('webhooks/paystack')
 export class PaystackWebhookController {
@@ -7,13 +8,24 @@ export class PaystackWebhookController {
 
   constructor(private readonly giftCardService: GiftCardService) {}
 
+  @Public()
   @Post()
-  async handleWebhook(@Headers('x-paystack-signature') signature: string, @Body() body: any) {
+  async handleWebhook(
+    @Req() req: any,
+    @Headers('x-paystack-signature') signature: string,
+    @Body() body: any,
+  ) {
     try {
-      // Verify signature
-      const rawBody = Buffer.from(JSON.stringify(body));
+      // Verify against the exact bytes Paystack sent (main.ts's
+      // express.json verify hook captures this) — re-serializing the
+      // already-parsed body is not guaranteed to match the original bytes.
+      if (!req.rawBody) {
+        throw new BadRequestException(
+          'Raw request body unavailable — cannot verify Paystack signature',
+        );
+      }
       const hash = require('crypto').createHmac('sha512', process.env.PAYSTACK_SECRET_KEY)
-        .update(rawBody)
+        .update(req.rawBody)
         .digest('hex');
 
       if (hash !== signature) throw new BadRequestException('Invalid Paystack signature');

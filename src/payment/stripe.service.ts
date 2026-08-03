@@ -147,4 +147,22 @@ export class StripeService implements PaymentProvider {
     const account = await this.stripe.accounts.retrieve(accountId);
     return account.details_submitted && account.payouts_enabled;
   }
+
+  /**
+   * Verifies a webhook request actually came from Stripe (not a forged
+   * request) using the signature in the stripe-signature header, and
+   * decodes it into a real event. Throws if verification fails — callers
+   * must not act on an event that failed this check.
+   *
+   * `rawBody` MUST be the raw, unparsed request body — signature
+   * verification breaks if it's been JSON.parsed and re-stringified,
+   * since even whitespace differences change the signature.
+   */
+  constructWebhookEvent(rawBody: Buffer, signature: string): Stripe.Event {
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+    if (!webhookSecret) {
+      throw new Error('STRIPE_WEBHOOK_SECRET must be set');
+    }
+    return this.stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
+  }
 }

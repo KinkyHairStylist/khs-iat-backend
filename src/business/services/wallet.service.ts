@@ -85,6 +85,23 @@ export class BusinessWalletService {
     return { success: true, data: { onboardingUrl } };
   }
 
+  /** Shared by both entry points below — checks with Stripe and persists
+   * the result if it changed. Never trusts a cached/stale value. */
+  private async refreshPayoutOnboardingStatus(business: Business): Promise<boolean> {
+    if (!business.stripeAccountId) return false;
+
+    const onboardingComplete = await this.stripeService.isConnectAccountOnboarded(
+      business.stripeAccountId,
+    );
+
+    if (business.stripeOnboardingComplete !== onboardingComplete) {
+      business.stripeOnboardingComplete = onboardingComplete;
+      await this.businessRepository.save(business);
+    }
+
+    return onboardingComplete;
+  }
+
   /**
    * Called when the merchant returns from Stripe's onboarding flow.
    * Confirms with Stripe (not just trusting the redirect happened) that
@@ -103,16 +120,29 @@ export class BusinessWalletService {
       return { success: false, message: 'No Stripe account connected yet', error: 'NOT_CONNECTED' };
     }
 
-    const onboardingComplete = await this.stripeService.isConnectAccountOnboarded(
-      business.stripeAccountId,
-    );
+    const onboardingComplete = await this.refreshPayoutOnboardingStatus(business);
+    return { success: true, data: { onboardingComplete } };
+  }
 
-    if (business.stripeOnboardingComplete !== onboardingComplete) {
-      business.stripeOnboardingComplete = onboardingComplete;
-      await this.businessRepository.save(business);
+  /**
+   * Called from the Stripe webhook (account.updated) — proactively syncs
+   * onboarding status the moment Stripe reports a change, instead of only
+   * finding out next time the merchant happens to visit the wallet page.
+   */
+  async syncPayoutOnboardingStatus(stripeAccountId: string): Promise<void> {
+    const business = await this.businessRepository.findOne({
+      where: { stripeAccountId },
+    });
+
+    if (!business) {
+      // Not necessarily an error — Stripe sends account.updated for every
+      // change on every connected account tied to the platform token, so
+      // an account we don't recognize is simply not one of ours (or was
+      // never fully linked to a Business row).
+      return;
     }
 
-    return { success: true, data: { onboardingComplete } };
+    await this.refreshPayoutOnboardingStatus(business);
   }
 
   async createWalletForBusiness(

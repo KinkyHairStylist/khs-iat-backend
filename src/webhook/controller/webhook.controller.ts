@@ -64,10 +64,13 @@ export class WebhookController {
     try {
       this.logger.log('Paystack webhook received');
 
-      // Process the webhook
+      // Process the webhook — rawBody (the exact, unparsed bytes Paystack
+      // sent) is what the signature was actually computed over; req.body
+      // is only used to read the already-parsed event/data afterward.
       const result = await this.webhookService.handlePayStackWebhook(
         signature,
         req.body,
+        req.rawBody,
       );
 
       // Always return 200 OK to acknowledge receipt

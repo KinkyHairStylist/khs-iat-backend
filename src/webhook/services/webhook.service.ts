@@ -276,12 +276,18 @@ export class WebhookService {
   async handlePayStackWebhook(
     signature: string,
     bodyPayload: any,
+    rawBody?: Buffer,
   ): Promise<any> {
-    // Verify webhook authenticity
-    const rawBody =
-      bodyPayload instanceof Buffer
-        ? bodyPayload
-        : Buffer.from(JSON.stringify(bodyPayload));
+    // Verify webhook authenticity against the exact bytes Paystack sent —
+    // re-serializing the already-parsed body with JSON.stringify() is NOT
+    // guaranteed to match (key order, number formatting, whitespace can
+    // all differ), which would make this check unreliable. rawBody is the
+    // untouched buffer captured by main.ts's express.json verify hook.
+    if (!rawBody) {
+      throw new BadRequestException(
+        'Raw request body unavailable — cannot verify Paystack signature',
+      );
+    }
 
     const hash = crypto
       .createHmac('sha512', this.paystackAcessKey)

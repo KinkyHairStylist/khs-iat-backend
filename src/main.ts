@@ -20,7 +20,19 @@ async function bootstrap() {
   // to support bracket-notation array params like services[]=x
   app.getHttpAdapter().getInstance().set('query parser', 'extended');
 
-  app.use(express.json({ limit: '10mb' }));
+  // Webhook signature verification (Stripe, and — once fixed — Paystack)
+  // needs the exact raw bytes of the request body, since re-serializing an
+  // already-parsed JSON object isn't guaranteed to match what the sender
+  // originally hashed. `verify` runs before parsing and lets us stash the
+  // untouched buffer on the request for webhook controllers to use.
+  app.use(
+    express.json({
+      limit: '10mb',
+      verify: (req: any, _res, buf) => {
+        req.rawBody = buf;
+      },
+    }),
+  );
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
   // Global Prefix
