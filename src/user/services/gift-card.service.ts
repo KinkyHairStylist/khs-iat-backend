@@ -445,6 +445,7 @@ export class GiftCardService {
         soldStatus: BusinessGiftCardSoldStatus.AVAILABLE,
         status: BusinessGiftCardStatus.ACTIVE,
       },
+      relations: ['business'],
       order: { createdAt: 'DESC' },
     });
   }
