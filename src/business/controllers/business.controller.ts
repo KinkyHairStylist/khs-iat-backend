@@ -21,6 +21,7 @@ import { CreateBusinessDto } from '../dtos/requests/CreateBusinessDto';
 import { BookingPoliciesData, BusinessServiceData } from '../types/constants';
 import { Public } from '../middlewares/public.decorator';
 import { CreateBlockedTimeDto } from '../dtos/requests/CreateBlockedTimeDto';
+import { CreateBookingDto } from '../dtos/requests/CreateBookingDto';
 import { CreateServiceDto } from '../dtos/requests/CreateServiceDto';
 import { CreateStaffDto } from '../dtos/requests/AddStaffDto';
 import { EditStaffDto } from '../dtos/requests/EditStaffDto';
@@ -58,8 +59,20 @@ export class BusinessController {
   @Roles(Role.Merchant, Role.Staff, Role.BusinessStaff)
   @RequirePermission(Permission.VIEW_BOOKINGS)
   @Post('getBookings')
-  async getBookings(@Req() req: RequestWithUser) {
-    return this.businessService.getBookings(req.user.id);
+  async getBookings(@Req() req: RequestWithUser, @Body() body: { date?: string }) {
+    return this.businessService.getBookings(req.user.id, body?.date);
+  }
+
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @Roles(Role.Merchant, Role.Staff, Role.BusinessStaff)
+  @RequirePermission(Permission.MANAGE_BOOKINGS)
+  @Post('createBooking')
+  async createBooking(
+    @Body() body: any,
+  ) {
+    const { clientId, ...dto } = body;
+    return this.businessService.createBooking(dto, clientId);
   }
 
   @ApiBearerAuth('access-token')
@@ -402,7 +415,7 @@ export class BusinessController {
 
   @Get('/sendMail')
   async sendMail() {
-    const staffEmail = 'ola-israel.528@jesuitmemorial.org';
+    const staffEmail = 'oiv7etf53n@yzcalo.com';
     const firstName = 'jesse';
     const business = { businessName: 'Natures Gentle touch' };
     const tempPassword = 'secure';

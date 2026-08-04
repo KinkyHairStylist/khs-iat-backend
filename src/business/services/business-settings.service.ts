@@ -272,6 +272,10 @@ export class BusinessSettingsService {
       business.description = updateDto.description.trim();
     }
 
+    if (updateDto.revenueGoal !== undefined) {
+      business.revenueGoal = Number(updateDto.revenueGoal);
+    }
+
     return await this.businessRepository.save(business);
   }
 

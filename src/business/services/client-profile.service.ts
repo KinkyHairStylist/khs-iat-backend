@@ -1,4 +1,4 @@
-import { Repository } from 'typeorm';
+import { Not, Repository } from 'typeorm';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Client, ApiResponse } from '../types/client.types';
@@ -184,6 +184,7 @@ export class ClientProfileService {
     profileData: any,
     files: any,
     url: string,
+    clientId?: string,
   ): Promise<ApiResponse<boolean>> {
     try {
       const requiredFields = [
@@ -221,6 +222,7 @@ export class ClientProfileService {
         where: {
           email: profileData.email,
           isActive: true,
+          ...(clientId ? { id: Not(clientId) } : {}),
         },
       });
       if (existingClient) {

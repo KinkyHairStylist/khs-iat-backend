@@ -5,7 +5,7 @@ import * as bcrypt from 'bcrypt';
 
 dotenv.config();
 
-const MERCHANT_EMAIL = 'prospectkhs14@yopmail.com';
+const MERCHANT_EMAIL = 'proiquovizoiho-6823@yopmail.com';
 const CLIENT_PASSWORD = 'TestPassword123!';
 
 const AppDataSource = new DataSource({
@@ -15,9 +15,7 @@ const AppDataSource = new DataSource({
   username: process.env.DB_USERNAME ?? 'postgres',
   password: process.env.DB_PASSWORD ?? 'password',
   database: process.env.DB_DATABASE ?? 'khs',
-  ssl: process.env.NODE_ENV === 'production'
-    ? { rejectUnauthorized: false }
-    : false,
+  ssl: { rejectUnauthorized: false },
 });
 
 const CLIENTS = [
@@ -134,9 +132,9 @@ async function seed() {
 
   // 5. Create staff (stylists)
   const staffList = [
-    { firstName: 'Grace', lastName: 'Okoro', email: 'grace.staff@test.com', role: 'HAIRSTYLIST' },
-    { firstName: 'Femi', lastName: 'Adebayo', email: 'femi.staff@test.com', role: 'HAIRSTYLIST' },
-    { firstName: 'Tola', lastName: 'Bamidele', email: 'tola.staff@test.com', role: 'MANAGER' },
+    { firstName: 'Grace', lastName: 'Okoro', email: 'grace.staff@test.com', role: 'stylist' },
+    { firstName: 'Femi', lastName: 'Adebayo', email: 'femi.staff@test.com', role: 'stylist' },
+    { firstName: 'Tola', lastName: 'Bamidele', email: 'tola.staff@test.com', role: 'manager' },
   ];
 
   const staffIds: string[] = [];

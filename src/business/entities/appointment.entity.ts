@@ -14,6 +14,7 @@ import { Service } from './service.entity'
 import { User } from 'src/all_user_entities/user.entity';
 import { Business } from './business.entity';
 import { Staff } from './staff.entity';
+import { ClientSchema } from './client.entity';
 
 export enum AppointmentStatus {
   CONFIRMED = 'Confirmed',
@@ -33,12 +34,24 @@ export class Appointment {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  // Client (User)
+  // Client (signed-up platform user) — set for self-service bookings made
+  // by a customer through their own account.
   @ManyToOne(() => User, (user) => user.clientAppointments, {
+    nullable: true,
     onDelete: 'CASCADE',
   })
   @JoinColumn({ name: 'client_id' })
-  client: User;
+  client?: User;
+
+  // Business client (CRM record under Client Management) — set for bookings
+  // a merchant creates on behalf of a client who may not have a platform
+  // account (walk-ins etc).
+  @ManyToOne(() => ClientSchema, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
+  @JoinColumn({ name: 'business_client_id' })
+  businessClient?: ClientSchema;
 
   @Column({ type: 'varchar', nullable: true })
   orderId: string;

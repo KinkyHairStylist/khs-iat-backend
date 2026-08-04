@@ -113,12 +113,21 @@ export class MailchimpService {
   async syncContact(appointmentId: string): Promise<void> {
     const appointment = await this.appointmentRepo.findOne({
       where: { id: appointmentId },
-      relations: ['business', 'client'],
+      relations: ['business', 'client', 'businessClient'],
     });
 
     if (!appointment) {
       throw new BadRequestException('Appointment not found');
     }
+
+    const email = appointment.client?.email ?? appointment.businessClient?.email;
+    if (!email) return; // no contact info to sync (shouldn't normally happen)
+
+    const firstName =
+      appointment.client?.firstName ?? appointment.businessClient?.firstName ?? '';
+    const lastName = appointment.client
+      ? appointment.client.surname?.split(' ').slice(1).join(' ') || ''
+      : appointment.businessClient?.lastName || '';
 
     const { client: mc, audienceId } = await this.getClient(
       appointment.business.id,
@@ -131,16 +140,16 @@ export class MailchimpService {
     try {
       const subscriberHash = require('crypto')
         .createHash('md5')
-        .update(appointment.client.email.toLowerCase())
+        .update(email.toLowerCase())
         .digest('hex');
 
       // Add or update contact
       await mc.lists.setListMember(audienceId, subscriberHash, {
-        email_address: appointment.client.email,
+        email_address: email,
         status_if_new: 'subscribed',
         merge_fields: {
-          FNAME: appointment.client.firstName.split(' ')[0],
-          LNAME: appointment.client.surname.split(' ').slice(1).join(' ') || '',
+          FNAME: firstName.split(' ')[0],
+          LNAME: lastName,
         },
         tags: ['customer', 'appointment-booked'],
       });
@@ -156,12 +165,17 @@ export class MailchimpService {
   async sendAppointmentConfirmation(appointmentId: string): Promise<void> {
     const appointment = await this.appointmentRepo.findOne({
       where: { id: appointmentId },
-      relations: ['business', 'client', 'staff'],
+      relations: ['business', 'client', 'businessClient', 'staff'],
     });
 
     if (!appointment) {
       throw new BadRequestException('Appointment not found');
     }
+
+    const email = appointment.client?.email ?? appointment.businessClient?.email;
+    const firstName =
+      appointment.client?.firstName ?? appointment.businessClient?.firstName;
+    if (!email) return; // no contactable email for this booking
 
     const { client: mc } = await this.getClient(appointment.business.id);
 
@@ -170,7 +184,7 @@ export class MailchimpService {
         message: {
           subject: `Appointment Confirmation - ${appointment.serviceName}`,
           text: `
-Hi ${appointment.client.firstName},
+Hi ${firstName},
 
 Your appointment has been confirmed!
 
@@ -194,8 +208,8 @@ ${appointment.business.businessName}
           from_email: appointment.business.ownerEmail,
           to: [
             {
-              email: appointment.client.email,
-              name: appointment.client.firstName,
+              email,
+              name: firstName,
               type: 'to',
             },
           ],
@@ -212,10 +226,15 @@ ${appointment.business.businessName}
   async sendAppointmentReminder(appointmentId: string): Promise<void> {
     const appointment = await this.appointmentRepo.findOne({
       where: { id: appointmentId },
-      relations: ['business', 'client', 'staff'],
+      relations: ['business', 'client', 'businessClient', 'staff'],
     });
 
     if (!appointment) return;
+
+    const email = appointment.client?.email ?? appointment.businessClient?.email;
+    const firstName =
+      appointment.client?.firstName ?? appointment.businessClient?.firstName;
+    if (!email) return;
 
     const { client: mc } = await this.getClient(appointment.business.id);
 
@@ -224,7 +243,7 @@ ${appointment.business.businessName}
         message: {
           subject: `Reminder: Appointment Tomorrow - ${appointment.serviceName}`,
           text: `
-Hi ${appointment.client.firstName},
+Hi ${firstName},
 
 This is a friendly reminder about your upcoming appointment tomorrow!
 
@@ -241,8 +260,8 @@ ${appointment.business.businessName}
           from_email: appointment.business.ownerEmail,
           to: [
             {
-              email: appointment.client.email,
-              name: appointment.client.firstName,
+              email,
+              name: firstName,
               type: 'to',
             },
           ],
@@ -259,12 +278,17 @@ ${appointment.business.businessName}
   async sendAppointmentAcceptance(appointmentId: string): Promise<void> {
     const appointment = await this.appointmentRepo.findOne({
       where: { id: appointmentId },
-      relations: ['business', 'client', 'staff'],
+      relations: ['business', 'client', 'businessClient', 'staff'],
     });
 
     if (!appointment) {
       throw new BadRequestException('Appointment not found');
     }
+
+    const email = appointment.client?.email ?? appointment.businessClient?.email;
+    const firstName =
+      appointment.client?.firstName ?? appointment.businessClient?.firstName;
+    if (!email) return;
 
     const { client: mc } = await this.getClient(appointment.business.id);
 
@@ -273,7 +297,7 @@ ${appointment.business.businessName}
         message: {
           subject: `Appointment Approved - ${appointment.serviceName}`,
           text: `
-Hi ${appointment.client.firstName},
+Hi ${firstName},
 
 Great news! Your appointment request has been approved.
 
@@ -301,8 +325,8 @@ ${appointment.business.ownerEmail}
           from_email: appointment.business.ownerEmail,
           to: [
             {
-              email: appointment.client.email,
-              name: appointment.client.firstName,
+              email,
+              name: firstName,
               type: 'to',
             },
           ],
@@ -325,12 +349,17 @@ ${appointment.business.ownerEmail}
   ): Promise<void> {
     const appointment = await this.appointmentRepo.findOne({
       where: { id: appointmentId },
-      relations: ['business', 'client', 'staff'],
+      relations: ['business', 'client', 'businessClient', 'staff'],
     });
 
     if (!appointment) {
       throw new BadRequestException('Appointment not found');
     }
+
+    const email = appointment.client?.email ?? appointment.businessClient?.email;
+    const firstName =
+      appointment.client?.firstName ?? appointment.businessClient?.firstName;
+    if (!email) return;
 
     const { client: mc } = await this.getClient(appointment.business.id);
 
@@ -339,7 +368,7 @@ ${appointment.business.ownerEmail}
         message: {
           subject: `Appointment Request Declined - ${appointment.serviceName}`,
           text: `
-Hi ${appointment.client.firstName},
+Hi ${firstName},
 
 We regret to inform you that your appointment request has been declined.
 
@@ -360,8 +389,8 @@ ${appointment.business.ownerEmail}
           from_email: appointment.business.ownerEmail,
           to: [
             {
-              email: appointment.client.email,
-              name: appointment.client.firstName,
+              email,
+              name: firstName,
               type: 'to',
             },
           ],
