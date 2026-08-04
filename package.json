@@ -7,6 +7,7 @@
   "license": "UNLICENSED",
   "scripts": {
     "drop-index": "ts-node --project tsconfig.json ./scripts/drop-index.ts",
+    "fix:service-price-column": "ts-node --project tsconfig.json ./scripts/fix-service-price-column-type.ts",
     "add:addr-cascade": "ts-node --project tsconfig.json ./scripts/add-user-address-cascade.ts",
     "fix:user-fks": "ts-node --project tsconfig.json ./scripts/fix-all-user-fk-cascades.ts",
     "delete-business": "ts-node --project tsconfig.json ./scripts/delete-business.ts",
@@ -50,6 +51,7 @@
     "@paypal/checkout-server-sdk": "^1.0.3",
     "@prisma/client": "^6.17.1",
     "@sendgrid/mail": "^8.1.6",
+    "@slack/web-api": "^8.0.0",
     "@types/streamifier": "^0.1.2",
     "argon2": "^0.44.0",
     "axios": "^1.13.2",
