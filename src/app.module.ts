@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
 import { EmailModule } from './email/email.module';
+import { SlackModule } from './slack/slack.module';
 import { BusinessModule } from './business/business.module';
 import { AdminModule } from './admin/admin.module';
 import { GiftcardModule } from './admin/giftcard/admin_giftcard.module';
@@ -83,6 +84,7 @@ import { LandingModule } from './landing/landing.module';
     ]),
 
     EmailModule,
+    SlackModule,
     BusinessModule,
     AdminModule,
     GiftcardModule,
