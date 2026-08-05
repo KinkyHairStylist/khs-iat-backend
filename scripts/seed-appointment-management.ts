@@ -238,7 +238,7 @@ const upsertStaff = async (
         specialization,
         "business_id"
       )
-      VALUES ($1, $2, $3, $4, 'stylist', $5, $6, $7)
+      VALUES ($1, $2, $3, $4, 'HAIRSTYLIST', $5, $6, $7)
       ON CONFLICT (email)
       DO UPDATE SET
         "firstName" = EXCLUDED."firstName",
@@ -371,7 +371,11 @@ const seedAppointments = async () => {
       },
     ];
 
-    const clientIds: string[] = [];
+    // Also attach seeded appointments to the developer's real logged-in
+    // test account (claude.test.membership@khs.local) so they show up
+    // immediately when testing in the browser, not just for the throwaway
+    // seed client accounts.
+    const clientIds: string[] = ['118d198f-8297-4cd0-b135-920ad4ba28ab'];
     for (const user of clientUsers) {
       const id = await upsertUser(client, user);
       clientIds.push(id);

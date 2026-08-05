@@ -24,6 +24,7 @@ import {
 import { WalletCurrency } from 'src/admin/payment/enums/wallet.enum';
 import { PlatformSettingsService } from 'src/admin/platform-settings/platform-settings.service';
 import { EmailService } from 'src/email/email.service';
+import { NotificationSettingsService } from './notification-settings.service';
 import { PaystackService } from 'src/payment/paystack.service';
 import { Card } from 'src/all_user_entities/card.entity';
 import { BusinessGiftCard } from 'src/business/entities/business-giftcard.entity';
@@ -60,7 +61,16 @@ export class BookingService {
     private readonly paystack: PaystackService,
     private readonly walletService: BusinessWalletService,
     private readonly emailService: EmailService,
+    private readonly notificationSettingsService: NotificationSettingsService,
   ) {}
+
+  // Booking confirmation emails should only be sent if the customer hasn't
+  // turned them off in Settings — defaults to true (matches the entity's
+  // column default) if they've never saved a preference.
+  private async shouldSendBookingConfirmationEmail(user: User): Promise<boolean> {
+    const settings = await this.notificationSettingsService.getSettings(user);
+    return settings.emailBookingConfirmations;
+  }
 
   // Create Booking
   async createBooking(
@@ -275,7 +285,7 @@ export class BookingService {
           console.error('Failed to add funds to business wallet:', walletError);
         }
 
-        if (user.email) {
+        if (user.email && (await this.shouldSendBookingConfirmationEmail(user))) {
           const serviceNames = [
             ...new Set(appointments.map((a) => a.serviceName)),
           ].join(', ');
@@ -381,7 +391,7 @@ export class BookingService {
           await manager.save(Transaction, feeTx);
         }
 
-        if (user.email) {
+        if (user.email && (await this.shouldSendBookingConfirmationEmail(user))) {
           const serviceNames = [
             ...new Set(appointments.map((a) => a.serviceName)),
           ].join(', ');
@@ -655,11 +665,12 @@ export class BookingService {
           totalPaid: verification.amount / 100 + giftCardAmount,
           userEmail: user.email,
           userFirstName: user.firstName,
+          shouldSendConfirmationEmail: await this.shouldSendBookingConfirmationEmail(user),
         };
       },
     );
 
-    if (result.userEmail) {
+    if (result.userEmail && result.shouldSendConfirmationEmail) {
       const serviceNames = [
         ...new Set(result.appointments.map((a) => a.serviceName)),
       ].join(', ');

@@ -1,10 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Card } from '../../all_user_entities/card.entity';
 import { CreateCardDto } from '../dtos/create-card.dto';
 import { User } from '../../all_user_entities/user.entity';
 import { MembershipSubscription } from '../user_entities/membership-subscription.entity';
+import { PaystackService } from 'src/payment/paystack.service';
 
 @Injectable()
 export class CardService {
@@ -13,22 +14,43 @@ export class CardService {
     private readonly cardRepo: Repository<Card>,
     @InjectRepository(MembershipSubscription)
     private readonly subscriptionRepo: Repository<MembershipSubscription>,
+    private readonly paystackService: PaystackService,
   ) {}
 
+  // `dto.reference` is the Paystack transaction reference from a small
+  // verification charge run client-side, directly against Paystack's popup
+  // (see AddPaymentMethodModal on the frontend) — the raw card number/CVV
+  // never reach this backend at all. We verify the charge really happened
+  // with Paystack directly, then save only the reusable authorization code.
   async createCard(dto: CreateCardDto, user: User): Promise<Card> {
-    // derive last four digits
-    const lastFour = dto.cardNumber.slice(-4);
+    const verification = await this.paystackService.verifyPayment(dto.reference);
+
+    if (verification?.status !== 'success') {
+      throw new BadRequestException('Card verification failed');
+    }
+
+    const authorization = verification.authorization;
+    if (!authorization?.authorization_code) {
+      throw new BadRequestException(
+        'Card verification did not return a reusable authorization',
+      );
+    }
+
+    // Paystack returns card_type as a lowercase scheme name ("visa",
+    // "mastercard") — capitalized here so it displays cleanly.
+    const providerName = authorization.card_type
+      ? authorization.card_type.charAt(0).toUpperCase() + authorization.card_type.slice(1)
+      : 'Card';
 
     const newCard = this.cardRepo.create({
-      providerName: dto.providerName,
-      type: dto.type,
-      cardHolderName: dto.cardHolderName,
-      cardNumber: dto.cardNumber, // will be encrypted automatically
-      expiryMonth: dto.expiryMonth,
-      expiryYear: dto.expiryYear,
-      cvv: dto.cvv,
-      billingAddress: dto.billingAddress,
-      lastFourDigits: lastFour,
+      providerName,
+      type: 'credit',
+      cardHolderName: `${user.firstName ?? ''} ${user.surname ?? ''}`.trim(),
+      expiryMonth: authorization.exp_month,
+      expiryYear: authorization.exp_year,
+      lastFourDigits: authorization.last4,
+      paystackAuthorizationCode: authorization.authorization_code,
+      paystackEmail: verification.customer?.email,
       user,
     });
 
