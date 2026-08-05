@@ -5,10 +5,10 @@ async function run() {
   const client = new Client({
     host: process.env.DB_HOST || 'localhost',
     port: parseInt(process.env.DB_PORT || '5432'),
-    user: process.env.DB_USERNAME || 'postgres',
+    user: process.env.DB_USER || process.env.DB_USERNAME || 'postgres',
     password: process.env.DB_PASSWORD,
-    database: process.env.DB_DATABASE || 'khs',
-    ssl: false,
+    database: 'khs_iat',
+    ssl: { rejectUnauthorized: false },
   });
 
   await client.connect();

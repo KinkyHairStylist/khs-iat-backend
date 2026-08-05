@@ -253,8 +253,7 @@ export class UserService {
 
     user.verificationCode = this.generateCode();
     user.verificationExpires = new Date(Date.now() + 10 * 60 * 1000);
-    await this.userRepository.save(user);
-
+    await this.userRepository.save(user);    
     await this.sendVerificationEmail(user.email, user.verificationCode);
 
     return { message: 'New verification code sent', success: true };
