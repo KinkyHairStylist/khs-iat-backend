@@ -899,6 +899,28 @@ export class BookingService {
     return { message: 'Appointment restored successfully' };
   }
 
+  // Client confirms their own intent to attend
+  async confirmAvailability(
+    orderId: string,
+    user: User,
+  ): Promise<{ message: string; clientConfirmedAt: Date }> {
+    const appointments = await this.bookingRepository.find({
+      where: { orderId, client: { id: user.id } },
+    });
+
+    if (appointments.length === 0) {
+      throw new NotFoundException('No appointments found for this order ID');
+    }
+
+    const clientConfirmedAt = new Date();
+    for (const appointment of appointments) {
+      appointment.clientConfirmedAt = clientConfirmedAt;
+    }
+    await this.bookingRepository.save(appointments);
+
+    return { message: 'Availability confirmed', clientConfirmedAt };
+  }
+
   // Reschedule Booking
   async rescheduleBooking(
     orderId: string,

@@ -21,7 +21,29 @@ async function main() {
   await AppDataSource.query(
     'ALTER TABLE "businesses" ADD COLUMN IF NOT EXISTS "revenueGoal" numeric(10,2) DEFAULT \'10000.00\';'
   );
-  
+
+  console.log('Altering appointments table to add business_client_id column...');
+  await AppDataSource.query(
+    'ALTER TABLE "appointments" ADD COLUMN IF NOT EXISTS "business_client_id" uuid;'
+  );
+  await AppDataSource.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'FK_appointments_business_client_id'
+      ) THEN
+        ALTER TABLE "appointments"
+          ADD CONSTRAINT "FK_appointments_business_client_id"
+          FOREIGN KEY ("business_client_id") REFERENCES "clients"("id") ON DELETE SET NULL;
+      END IF;
+    END $$;
+  `);
+
+  console.log('Altering appointments table to add clientConfirmedAt column...');
+  await AppDataSource.query(
+    'ALTER TABLE "appointments" ADD COLUMN IF NOT EXISTS "clientConfirmedAt" timestamptz;'
+  );
+
   console.log('Successfully altered table! Destroying connection...');
   await AppDataSource.destroy();
   console.log('Done!');
