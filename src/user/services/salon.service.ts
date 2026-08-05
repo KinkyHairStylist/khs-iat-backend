@@ -109,9 +109,16 @@ export class SalonService {
             ("business"."luxuryOverride" IS NULL AND COALESCE((business.performance->>'rating')::FLOAT, 0) >= 4.5))`,
       );
     }
-    // Filter by services using the real Service relation
-    if (services.length > 0) {
-      services.forEach((service, index) => {
+    // Filter by services using the real Service relation. Silently drop
+    // any value that isn't a real ServiceType — comparing an enum column
+    // to an invalid value throws at the Postgres level (invalid input
+    // value for enum), which otherwise surfaces as an unhandled 500
+    // instead of just excluding the bad filter.
+    const validServices = services.filter((service) =>
+      Object.values(ServiceType).includes(service as ServiceType),
+    );
+    if (validServices.length > 0) {
+      validServices.forEach((service, index) => {
         query = query.leftJoin('business.serviceList', `serviceList${index}`);
         query = query.andWhere(
           `serviceList${index}.serviceType = :service${index}`,
@@ -179,7 +186,7 @@ export class SalonService {
       business.serviceList = await this.serviceRepo.find({
         where: {
           business: { id: business.id },
-          ...(services.length > 0 ? { serviceType: In(services) } : {}),
+          ...(validServices.length > 0 ? { serviceType: In(validServices) } : {}),
         },
       });
     }
