@@ -853,7 +853,10 @@ export class BookingService {
   // Unlike completeBooking (Paystack), this does NOT credit the business
   // wallet — Stripe-funded bookings stay HELD until the appointment is
   // marked Completed (see BusinessService.completeBooking's release hook).
-  async handleStripePaymentSucceeded(paymentIntentId: string): Promise<void> {
+  async handleStripePaymentSucceeded(
+    paymentIntentId: string,
+    chargeId?: string | null,
+  ): Promise<void> {
     const spi = await this.stripePaymentIntentRepository.findOne({
       where: { stripePaymentIntentId: paymentIntentId },
     });
@@ -867,6 +870,10 @@ export class BookingService {
     // Webhooks can be delivered more than once — no-op if already processed.
     if (spi.status !== StripeEscrowStatus.PENDING) {
       return;
+    }
+
+    if (chargeId) {
+      spi.stripeChargeId = chargeId;
     }
 
     const orderId = spi.orderId;
@@ -944,6 +951,29 @@ export class BookingService {
     );
   }
 
+  // Refund policy: the customer gets back the service amount minus KHS's
+  // own platform fee minus Stripe's real processing fee for that specific
+  // charge (looked up from Stripe, not estimated — the exact rate varies
+  // by card type/country). Returns the refundable amount in cents: 0 or
+  // negative means there's nothing left to refund after those deductions.
+  private async calculateStripeRefundAmountCents(
+    spi: StripePaymentIntent,
+  ): Promise<number> {
+    if (!spi.stripeChargeId) {
+      throw new BadRequestException(
+        `Stripe charge ID missing for payment intent ${spi.stripePaymentIntentId} — cannot compute refund`,
+      );
+    }
+
+    const stripeFeeCents = await this.stripeService.getChargeFee(
+      spi.stripeChargeId,
+    );
+    const bookingAmountCents = Math.round(spi.bookingAmount * 100);
+    const platformFeeCents = Math.round(spi.feeAmount * 100);
+
+    return bookingAmountCents - platformFeeCents - stripeFeeCents;
+  }
+
   // Get User Bookings
   // Appointments are created as PENDING the moment a client picks a date/
   // time, before payment — holding the slot while they go through the
@@ -1002,6 +1032,12 @@ export class BookingService {
     message: string;
     cancelledCount: number;
     remainingCount: number;
+    refund?: {
+      amount: number;
+      currency: string;
+      platformFeeWithheld: number;
+      stripeFeeWithheld: number;
+    };
   }> {
     if (!acceptedTerms) {
       throw new BadRequestException(
@@ -1060,6 +1096,27 @@ export class BookingService {
       );
     }
 
+    // Pre-flight: work out the actual refund amount for any Stripe escrow
+    // held on this booking BEFORE cancelling anything. The customer gets
+    // back the service amount minus KHS's own platform fee minus Stripe's
+    // real processing fee (looked up from the charge, not estimated) — if
+    // that math goes to zero or negative, the whole cancellation is
+    // blocked rather than silently refunding nothing.
+    const heldPaymentIntents = await this.stripePaymentIntentRepository.find({
+      where: { orderId, status: StripeEscrowStatus.HELD },
+    });
+
+    const refundPlans: { spi: StripePaymentIntent; refundAmountCents: number }[] = [];
+    for (const spi of heldPaymentIntents) {
+      const refundAmountCents = await this.calculateStripeRefundAmountCents(spi);
+      if (refundAmountCents <= 0) {
+        throw new BadRequestException(
+          `Cannot cancel: after deducting the platform fee and Stripe's processing fee, no refundable amount remains for order ${orderId}. Contact an admin to review.`,
+        );
+      }
+      refundPlans.push({ spi, refundAmountCents });
+    }
+
     // Update status and add cancellation note
     for (const appointment of appointmentsToCancel) {
       appointment.status = AppointmentStatus.CANCELLED;
@@ -1075,19 +1132,32 @@ export class BookingService {
     // StripePaymentIntent row. Nothing was ever credited to the wallet at
     // HELD time, so unlike Paystack there's no wallet balance to reverse
     // here — only the Stripe-side charge itself needs refunding.
-    try {
-      const heldPaymentIntents = await this.stripePaymentIntentRepository.find({
-        where: { orderId, status: StripeEscrowStatus.HELD },
-      });
+    let refundSummary:
+      | { amount: number; currency: string; platformFeeWithheld: number; stripeFeeWithheld: number }
+      | undefined;
 
-      for (const spi of heldPaymentIntents) {
+    try {
+      for (const { spi, refundAmountCents } of refundPlans) {
         const stripeRefund = await this.stripeService.createRefund({
           paymentIntentId: spi.stripePaymentIntentId,
+          amount: refundAmountCents,
         });
 
         spi.status = StripeEscrowStatus.REFUNDED;
         spi.refundedAt = new Date();
         await this.stripePaymentIntentRepository.save(spi);
+
+        const bookingAmountCents = Math.round(spi.bookingAmount * 100);
+        const platformFeeCents = Math.round(spi.feeAmount * 100);
+        const stripeFeeCents =
+          bookingAmountCents - platformFeeCents - refundAmountCents;
+
+        refundSummary = {
+          amount: refundAmountCents / 100,
+          currency: spi.currency.toUpperCase(),
+          platformFeeWithheld: platformFeeCents / 100,
+          stripeFeeWithheld: stripeFeeCents / 100,
+        };
 
         const debitTx = await this.transactionRepository.findOne({
           where: {
@@ -1102,10 +1172,10 @@ export class BookingService {
             this.refundRepository.create({
               transactionId: debitTx.id,
               userId: spi.userId,
-              amount: spi.amount,
+              amount: refundAmountCents / 100,
               currency: spi.currency.toUpperCase(),
               reason: cancellationsNote || 'Booking cancelled before completion',
-              adminNote: `Stripe refund ${stripeRefund.id}`,
+              adminNote: `Stripe refund ${stripeRefund.id} (platform fee + Stripe processing fee withheld)`,
               status: RefundStatus.PROCESSED,
               refundMethod: RefundMethod.CARD_REFUND,
             }),
@@ -1142,6 +1212,7 @@ export class BookingService {
       message: `${appointmentsToCancel.length} appointment(s) cancelled successfully`,
       cancelledCount: appointmentsToCancel.length,
       remainingCount,
+      refund: refundSummary,
     };
   }
 

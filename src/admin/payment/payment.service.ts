@@ -394,6 +394,28 @@ export class PaymentService {
 
   // Manually refund Stripe escrow for a booking — support override for
   // cases needing a refund outside the normal cancellation flow.
+  // Refund policy: the customer gets back the service amount minus KHS's
+  // own platform fee minus Stripe's real processing fee for that specific
+  // charge (looked up from Stripe, not estimated). 0 or negative means
+  // nothing is left to refund after those deductions.
+  private async calculateStripeRefundAmountCents(
+    spi: StripePaymentIntent,
+  ): Promise<number> {
+    if (!spi.stripeChargeId) {
+      throw new BadRequestException(
+        `Stripe charge ID missing for payment intent ${spi.stripePaymentIntentId} — cannot compute refund`,
+      );
+    }
+
+    const stripeFeeCents = await this.stripeService.getChargeFee(
+      spi.stripeChargeId,
+    );
+    const bookingAmountCents = Math.round(spi.bookingAmount * 100);
+    const platformFeeCents = Math.round(spi.feeAmount * 100);
+
+    return bookingAmountCents - platformFeeCents - stripeFeeCents;
+  }
+
   async refundStripeEscrow(orderId: string, reason?: string) {
     const heldPaymentIntents = await this.stripePaymentIntentRepo.find({
       where: { orderId, status: StripeEscrowStatus.HELD },
@@ -405,10 +427,24 @@ export class PaymentService {
       );
     }
 
-    const refunded: string[] = [];
+    // Pre-flight: compute every refund amount before refunding anything,
+    // so a blocked one doesn't leave the order in a half-refunded state.
+    const refundPlans: { spi: StripePaymentIntent; refundAmountCents: number }[] = [];
     for (const spi of heldPaymentIntents) {
+      const refundAmountCents = await this.calculateStripeRefundAmountCents(spi);
+      if (refundAmountCents <= 0) {
+        throw new BadRequestException(
+          `Cannot refund: after deducting the platform fee and Stripe's processing fee, no refundable amount remains for order ${orderId}.`,
+        );
+      }
+      refundPlans.push({ spi, refundAmountCents });
+    }
+
+    const refunded: string[] = [];
+    for (const { spi, refundAmountCents } of refundPlans) {
       const stripeRefund = await this.stripeService.createRefund({
         paymentIntentId: spi.stripePaymentIntentId,
+        amount: refundAmountCents,
       });
 
       spi.status = StripeEscrowStatus.REFUNDED;
@@ -428,10 +464,10 @@ export class PaymentService {
           this.refundRepo.create({
             transactionId: debitTx.id,
             userId: spi.userId,
-            amount: spi.amount,
+            amount: refundAmountCents / 100,
             currency: spi.currency.toUpperCase(),
             reason: reason || 'Admin-initiated refund',
-            adminNote: `Stripe refund ${stripeRefund.id}`,
+            adminNote: `Stripe refund ${stripeRefund.id} (platform fee + Stripe processing fee withheld)`,
             status: RefundStatus.PROCESSED,
             refundMethod: RefundMethod.CARD_REFUND,
           }),

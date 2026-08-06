@@ -73,6 +73,28 @@ export class StripeService {
     }
   }
 
+  /**
+   * Returns the exact fee Stripe kept from a charge (in cents), via the
+   * charge's balance_transaction. Not a fixed/estimated rate — the real
+   * amount, which varies slightly by card type/country.
+   */
+  async getChargeFee(chargeId: string): Promise<number> {
+    try {
+      const charge = await this.stripe.charges.retrieve(chargeId, {
+        expand: ['balance_transaction'],
+      });
+      const balanceTransaction = charge.balance_transaction;
+      if (!balanceTransaction || typeof balanceTransaction === 'string') {
+        throw new Error('balance_transaction was not expanded');
+      }
+      return balanceTransaction.fee;
+    } catch (error) {
+      throw new BadRequestException(
+        `Unable to retrieve Stripe charge fee: ${error.message}`,
+      );
+    }
+  }
+
   /** Verifies and parses a webhook payload — requires the raw request body, not parsed JSON */
   constructWebhookEvent(rawBody: Buffer, signature: string): Stripe.Event {
     if (!this.webhookSecret) {

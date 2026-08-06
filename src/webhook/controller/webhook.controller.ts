@@ -55,9 +55,13 @@ export class WebhookController {
     try {
       switch (event.type) {
         case 'payment_intent.succeeded': {
-          const paymentIntent = event.data.object as { id: string };
+          const paymentIntent = event.data.object as {
+            id: string;
+            latest_charge: string | null;
+          };
           await this.bookingService.handleStripePaymentSucceeded(
             paymentIntent.id,
+            paymentIntent.latest_charge,
           );
           break;
         }
