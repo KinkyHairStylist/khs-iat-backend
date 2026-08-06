@@ -23,6 +23,17 @@ import {
   TransactionType,
 } from 'src/business/entities/transaction.entity';
 import { WalletCurrency } from './enums/wallet.enum';
+import {
+  StripePaymentIntent,
+  StripeEscrowStatus,
+} from 'src/payment/entities/stripe-payment-intent.entity';
+import { StripeService } from 'src/payment/stripe.service';
+import { Appointment } from 'src/business/entities/appointment.entity';
+import {
+  Refund,
+  RefundStatus,
+  RefundMethod,
+} from 'src/user/user_entities/refund.entity';
 
 @Injectable()
 export class PaymentService {
@@ -38,7 +49,14 @@ export class PaymentService {
     private readonly businessRepo: Repository<Business>,
     @InjectRepository(Transaction)
     private readonly transactionRepo: Repository<Transaction>,
+    @InjectRepository(StripePaymentIntent)
+    private readonly stripePaymentIntentRepo: Repository<StripePaymentIntent>,
+    @InjectRepository(Appointment)
+    private readonly appointmentRepo: Repository<Appointment>,
+    @InjectRepository(Refund)
+    private readonly refundRepo: Repository<Refund>,
     private readonly businessWalletService: BusinessWalletService,
+    private readonly stripeService: StripeService,
   ) {
     this.frontendUrl = process.env.FRONTEND_URL ?? '';
     this.paystackAcessKey = process.env.PAYSTACK_SECRET_KEY!;
@@ -309,6 +327,121 @@ export class PaymentService {
 
   async getDisputes() {
     return this.paymentRepo.find({ where: { status: 'disputed' } });
+  }
+
+  // Manually release Stripe escrow for a booking — support override for
+  // cases where the automatic completion trigger
+  // (BusinessService.completeBooking) didn't fire or needs correcting.
+  async releaseStripeEscrow(orderId: string) {
+    const heldPaymentIntents = await this.stripePaymentIntentRepo.find({
+      where: { orderId, status: StripeEscrowStatus.HELD },
+    });
+
+    if (heldPaymentIntents.length === 0) {
+      throw new NotFoundException(
+        `No held Stripe escrow found for order ${orderId}`,
+      );
+    }
+
+    const appointment = await this.appointmentRepo.findOne({
+      where: { orderId },
+      relations: ['business', 'business.owner'],
+    });
+    if (!appointment) {
+      throw new NotFoundException(`No appointment found for order ${orderId}`);
+    }
+
+    const businessId = appointment.business.id;
+    const ownerId = appointment.business.owner?.id;
+    if (!businessId || !ownerId) {
+      throw new BadRequestException('Business or owner not found for this booking');
+    }
+
+    const released: string[] = [];
+    for (const spi of heldPaymentIntents) {
+      try {
+        await this.businessWalletService.getWalletByBusinessId(businessId);
+      } catch {
+        await this.businessWalletService.createWalletForBusiness({
+          businessId,
+          ownerId,
+          currency: WalletCurrency.USD,
+          description: 'Business wallet - auto-created from booking',
+        });
+      }
+
+      await this.businessWalletService.addFunds({
+        businessId,
+        recipientId: ownerId,
+        senderId: spi.userId,
+        amount: spi.bookingAmount,
+        type: TransactionType.EARNING,
+        description: `Manual escrow release for order ${orderId}`,
+        referenceId: spi.stripePaymentIntentId,
+        currency: WalletCurrency.USD,
+        mode: 'Web',
+        method: PaymentMethod.STRIPE,
+      });
+
+      spi.status = StripeEscrowStatus.RELEASED;
+      spi.releasedAt = new Date();
+      await this.stripePaymentIntentRepo.save(spi);
+      released.push(spi.stripePaymentIntentId);
+    }
+
+    return { message: 'Escrow released successfully', released };
+  }
+
+  // Manually refund Stripe escrow for a booking — support override for
+  // cases needing a refund outside the normal cancellation flow.
+  async refundStripeEscrow(orderId: string, reason?: string) {
+    const heldPaymentIntents = await this.stripePaymentIntentRepo.find({
+      where: { orderId, status: StripeEscrowStatus.HELD },
+    });
+
+    if (heldPaymentIntents.length === 0) {
+      throw new NotFoundException(
+        `No held Stripe escrow found for order ${orderId}`,
+      );
+    }
+
+    const refunded: string[] = [];
+    for (const spi of heldPaymentIntents) {
+      const stripeRefund = await this.stripeService.createRefund({
+        paymentIntentId: spi.stripePaymentIntentId,
+      });
+
+      spi.status = StripeEscrowStatus.REFUNDED;
+      spi.refundedAt = new Date();
+      await this.stripePaymentIntentRepo.save(spi);
+
+      const debitTx = await this.transactionRepo.findOne({
+        where: {
+          referenceId: spi.stripePaymentIntentId,
+          service: 'Booking',
+          method: PaymentMethod.STRIPE,
+        },
+      });
+
+      if (debitTx) {
+        await this.refundRepo.save(
+          this.refundRepo.create({
+            transactionId: debitTx.id,
+            userId: spi.userId,
+            amount: spi.amount,
+            currency: spi.currency.toUpperCase(),
+            reason: reason || 'Admin-initiated refund',
+            adminNote: `Stripe refund ${stripeRefund.id}`,
+            status: RefundStatus.PROCESSED,
+            refundMethod: RefundMethod.CARD_REFUND,
+          }),
+        );
+      }
+
+      refunded.push(spi.stripePaymentIntentId);
+    }
+
+    return { message: 'Escrow refunded successfully', refunded };
   }
 
   async deleteAllPayments() {

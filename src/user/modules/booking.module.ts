@@ -19,11 +19,12 @@ import { Card } from 'src/all_user_entities/card.entity';
 import { PaystackService } from 'src/payment/paystack.service';
 import { StripeService } from 'src/payment/stripe.service';
 import { StripePaymentIntent } from 'src/payment/entities/stripe-payment-intent.entity';
+import { Refund } from 'src/user/user_entities/refund.entity';
 import { NotificationSettingsModule } from './notification-settings.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Appointment, Business, Service, Staff, Transaction, BusinessGiftCard, PlatformSettingsEntity, Review, ClientSchema, Card, StripePaymentIntent]),
+    TypeOrmModule.forFeature([Appointment, Business, Service, Staff, Transaction, BusinessGiftCard, PlatformSettingsEntity, Review, ClientSchema, Card, StripePaymentIntent, Refund]),
     ReviewModule,
     BusinessWalletModule,
     EmailModule,

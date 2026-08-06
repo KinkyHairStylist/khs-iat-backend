@@ -31,6 +31,11 @@ import {
   StripePaymentIntent,
   StripeEscrowStatus,
 } from 'src/payment/entities/stripe-payment-intent.entity';
+import {
+  Refund,
+  RefundStatus,
+  RefundMethod,
+} from 'src/user/user_entities/refund.entity';
 import { Card } from 'src/all_user_entities/card.entity';
 import { BusinessGiftCard } from 'src/business/entities/business-giftcard.entity';
 import { BusinessGiftCardStatus } from 'src/business/enum/gift-card.enum';
@@ -62,6 +67,8 @@ export class BookingService {
     private cardRepository: Repository<Card>,
     @InjectRepository(StripePaymentIntent)
     private stripePaymentIntentRepository: Repository<StripePaymentIntent>,
+    @InjectRepository(Refund)
+    private refundRepository: Repository<Refund>,
     private platformSettingsService: PlatformSettingsService,
     private reviewService: ReviewService,
     private readonly dataSource: DataSource,
@@ -1032,6 +1039,55 @@ export class BookingService {
     }
 
     await this.bookingRepository.save(appointmentsToCancel);
+
+    // Refund any Stripe escrow held for this booking — a no-op for
+    // Paystack/gift-card/cash appointments, which have no
+    // StripePaymentIntent row. Nothing was ever credited to the wallet at
+    // HELD time, so unlike Paystack there's no wallet balance to reverse
+    // here — only the Stripe-side charge itself needs refunding.
+    try {
+      const heldPaymentIntents = await this.stripePaymentIntentRepository.find({
+        where: { orderId, status: StripeEscrowStatus.HELD },
+      });
+
+      for (const spi of heldPaymentIntents) {
+        const stripeRefund = await this.stripeService.createRefund({
+          paymentIntentId: spi.stripePaymentIntentId,
+        });
+
+        spi.status = StripeEscrowStatus.REFUNDED;
+        spi.refundedAt = new Date();
+        await this.stripePaymentIntentRepository.save(spi);
+
+        const debitTx = await this.transactionRepository.findOne({
+          where: {
+            referenceId: spi.stripePaymentIntentId,
+            service: 'Booking',
+            method: PaymentMethod.STRIPE,
+          },
+        });
+
+        if (debitTx) {
+          await this.refundRepository.save(
+            this.refundRepository.create({
+              transactionId: debitTx.id,
+              userId: spi.userId,
+              amount: spi.amount,
+              currency: spi.currency.toUpperCase(),
+              reason: cancellationsNote || 'Booking cancelled before completion',
+              adminNote: `Stripe refund ${stripeRefund.id}`,
+              status: RefundStatus.PROCESSED,
+              refundMethod: RefundMethod.CARD_REFUND,
+            }),
+          );
+        }
+      }
+    } catch (refundError) {
+      this.logger.error(
+        `Failed to refund Stripe escrow for order ${orderId}: ${refundError.message}`,
+        refundError.stack,
+      );
+    }
 
     const firstAppt = appointmentsToCancel[0];
     if (firstAppt?.client?.email) {
