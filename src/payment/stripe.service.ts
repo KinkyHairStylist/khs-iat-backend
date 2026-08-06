@@ -79,20 +79,38 @@ export class StripeService {
    * amount, which varies slightly by card type/country.
    */
   async getChargeFee(chargeId: string): Promise<number> {
-    try {
-      const charge = await this.stripe.charges.retrieve(chargeId, {
-        expand: ['balance_transaction'],
-      });
-      const balanceTransaction = charge.balance_transaction;
-      if (!balanceTransaction || typeof balanceTransaction === 'string') {
-        throw new Error('balance_transaction was not expanded');
+    // Stripe attaches balance_transaction to a charge asynchronously,
+    // shortly after the charge succeeds — cancelling/refunding right after
+    // payment can land here before it's ready. Retry with backoff instead
+    // of failing immediately, since this resolves itself within seconds.
+    const maxAttempts = 3;
+    const delayMs = 800;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const charge = await this.stripe.charges.retrieve(chargeId, {
+          expand: ['balance_transaction'],
+        });
+        const balanceTransaction = charge.balance_transaction;
+        if (balanceTransaction && typeof balanceTransaction !== 'string') {
+          return balanceTransaction.fee;
+        }
+      } catch (error) {
+        if (attempt === maxAttempts) {
+          throw new BadRequestException(
+            `Unable to retrieve Stripe charge fee: ${error.message}`,
+          );
+        }
       }
-      return balanceTransaction.fee;
-    } catch (error) {
-      throw new BadRequestException(
-        `Unable to retrieve Stripe charge fee: ${error.message}`,
-      );
+
+      if (attempt < maxAttempts) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
     }
+
+    throw new BadRequestException(
+      'Unable to retrieve Stripe charge fee: balance_transaction was not expanded',
+    );
   }
 
   /** Verifies and parses a webhook payload — requires the raw request body, not parsed JSON */
