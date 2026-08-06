@@ -106,6 +106,11 @@ export class Appointment {
   })
   paymentStatus: PaymentStatus;
 
+  // Client confirming their own intent to attend (distinct from the
+  // salon-side AppointmentStatus.CONFIRMED, which the merchant sets).
+  @Column({ type: 'timestamptz', nullable: true })
+  clientConfirmedAt?: Date;
+
   // Optional Notes
   @Column({ type: 'text', nullable: true })
   specialRequests?: string;
