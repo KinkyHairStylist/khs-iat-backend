@@ -140,6 +140,18 @@ export class BookingService {
     return { orderId, appointments };
   }
 
+  // Promotes a staged Rebook date/time onto the real date/time fields and
+  // clears the staging columns. Called only at the point payment actually
+  // succeeds — mutates in place, caller is responsible for saving.
+  private applyPendingRebookDate(appointment: Appointment): void {
+    if (appointment.pendingRebookDate && appointment.pendingRebookTime) {
+      appointment.date = appointment.pendingRebookDate;
+      appointment.time = appointment.pendingRebookTime;
+      appointment.pendingRebookDate = undefined;
+      appointment.pendingRebookTime = undefined;
+    }
+  }
+
   // ------------------------------------------------------
   // Step 1 — Confirm/Initialize Booking Payment
   // ------------------------------------------------------
@@ -227,6 +239,7 @@ export class BookingService {
         for (const appointment of appointments) {
           appointment.status = AppointmentStatus.CONFIRMED;
           appointment.paymentStatus = PaymentStatus.PAID;
+          this.applyPendingRebookDate(appointment);
         }
         await manager.save(Appointment, appointments);
 
@@ -349,6 +362,7 @@ export class BookingService {
         for (const appointment of appointments) {
           appointment.status = AppointmentStatus.CONFIRMED;
           appointment.paymentStatus = PaymentStatus.UNPAID; // Pay at venue - will be paid later
+          this.applyPendingRebookDate(appointment);
         }
         await manager.save(Appointment, appointments);
 
@@ -733,6 +747,7 @@ export class BookingService {
         for (const appointment of appointments) {
           appointment.status = AppointmentStatus.CONFIRMED;
           appointment.paymentStatus = PaymentStatus.PAID;
+          this.applyPendingRebookDate(appointment);
         }
         await manager.save(Appointment, appointments);
 
@@ -896,6 +911,7 @@ export class BookingService {
         for (const appointment of appointments) {
           appointment.status = AppointmentStatus.CONFIRMED;
           appointment.paymentStatus = PaymentStatus.PAID;
+          this.applyPendingRebookDate(appointment);
         }
         await manager.save(Appointment, appointments);
 
@@ -994,6 +1010,7 @@ export class BookingService {
       .set({
         status: AppointmentStatus.CANCELLED,
         cancellationsNote: 'Payment not completed in time — booking expired',
+        cancelledAt: new Date(),
       })
       .where('client_id = :userId', { userId })
       .andWhere('status = :status', { status: AppointmentStatus.PENDING })
@@ -1117,9 +1134,18 @@ export class BookingService {
       refundPlans.push({ spi, refundAmountCents });
     }
 
-    // Update status and add cancellation note
+    // Update status and add cancellation note. paymentStatus is reset to
+    // UNPAID here too — any money that was actually collected has either
+    // been refunded (Stripe) or was never charged (pay-at-venue), so a
+    // stale PAID flag must not survive a cancellation. This is also what
+    // makes restoreBooking's Pending/Unpaid restore below meaningful: a
+    // cancelled appointment restored later needs to go through real
+    // payment again, not silently re-appear as already paid.
+    const cancelledAt = new Date();
     for (const appointment of appointmentsToCancel) {
       appointment.status = AppointmentStatus.CANCELLED;
+      appointment.paymentStatus = PaymentStatus.UNPAID;
+      appointment.cancelledAt = cancelledAt;
       if (cancellationsNote) {
         appointment.cancellationsNote = cancellationsNote;
       }
@@ -1216,8 +1242,20 @@ export class BookingService {
     };
   }
 
-  // Restore Cancelled Booking
-  async restoreBooking(orderId: string): Promise<{ message: string }> {
+  // Restore-eligibility check for a Cancelled booking on its original
+  // date/time (no reschedule). This does NOT change status/paymentStatus —
+  // a cancelled appointment must not look "un-cancelled" until the customer
+  // actually pays again. confirmBooking (pay-at-venue/gift-card) or the
+  // Stripe webhook (handleStripePaymentSucceeded) are the only places that
+  // flip status back, once payment genuinely succeeds. If the customer
+  // abandons the payment page after this call, nothing was ever changed —
+  // the appointment simply stays Cancelled, exactly as if Restore was never
+  // clicked.
+  private static readonly RESTORE_CUTOFF_HOURS = 24;
+
+  async restoreBooking(
+    orderId: string,
+  ): Promise<{ message: string; requiresPayment: boolean }> {
     const appointment = await this.bookingRepository.findOne({
       where: { orderId },
       relations: ['client'],
@@ -1232,36 +1270,26 @@ export class BookingService {
       );
     }
 
-    appointment.status = AppointmentStatus.CONFIRMED; // Restore to confirmed status
-    appointment.cancellationsNote = undefined; // Clear cancellation note on restore
-    await this.bookingRepository.save(appointment);
+    // Restoring onto the same date/time only makes sense if that date/time
+    // is still far enough out — a same-day-tomorrow slot may already be
+    // unavailable/re-booked by someone else. Rebook (which picks a new
+    // date/time) is the correct path once this close; Restore is not.
+    const appointmentDateTime = new Date(
+      `${appointment.date}T${appointment.time}`,
+    );
+    const hoursUntilAppointment =
+      (appointmentDateTime.getTime() - Date.now()) / (1000 * 60 * 60);
 
-    if (appointment.client?.email) {
-      try {
-        this.logger.log(
-          `Sending restore confirmation email to ${appointment.client.email} for order ${orderId}`,
-        );
-        this.emailService.sendBookingRestoredEmail(
-          appointment.client.email,
-          appointment.client.firstName || 'Valued Customer',
-          appointment.business?.businessName || 'the salon',
-          appointment.serviceName || 'your service',
-          appointment.date,
-          appointment.time,
-        );
-      } catch (emailError) {
-        this.logger.error(
-          `Failed to send restore confirmation email for order ${orderId}: ${emailError.message}`,
-          emailError.stack,
-        );
-      }
-    } else {
-      this.logger.warn(
-        `No client email found for order ${orderId} — skipping restore email`,
+    if (hoursUntilAppointment < BookingService.RESTORE_CUTOFF_HOURS) {
+      throw new BadRequestException(
+        `This appointment is too close to its original date/time to restore directly. Use Rebook to pick a new date instead.`,
       );
     }
 
-    return { message: 'Appointment restored successfully' };
+    return {
+      message: 'Appointment is eligible to restore — proceed to payment',
+      requiresPayment: true,
+    };
   }
 
   // Client confirms their own intent to attend
@@ -1291,7 +1319,7 @@ export class BookingService {
     orderId: string,
     newDate: Date,
     newTime: string,
-  ): Promise<{ message: string }> {
+  ): Promise<{ message: string; requiresPayment: boolean }> {
     const appointment = await this.bookingRepository.findOne({
       where: { orderId },
       relations: ['client'],
@@ -1299,7 +1327,35 @@ export class BookingService {
     if (!appointment) {
       throw new NotFoundException('Appointment not found');
     }
+
+    // Rebooking a previously-cancelled appointment onto a new date must go
+    // through real payment again — any earlier payment was already
+    // refunded (Stripe) or never taken (pay-at-venue) at cancellation
+    // time. Rescheduling an already-paid, still-active appointment to a
+    // different time is a separate case and must NOT touch payment status
+    // — the customer already paid, moving the date doesn't un-pay them.
+    const isRebookOfCancelled =
+      appointment.status === AppointmentStatus.CANCELLED;
+
     const formattedDate = newDate.toISOString().split('T')[0];
+
+    if (isRebookOfCancelled) {
+      // Stage the new date/time only — the appointment stays exactly as it
+      // was (Cancelled, original date/time) until payment actually
+      // succeeds. confirmBooking/handleStripePaymentSucceeded promote
+      // these into date/time and flip status once payment completes. If
+      // the customer abandons the payment page, nothing here was ever
+      // changed.
+      appointment.pendingRebookDate = formattedDate;
+      appointment.pendingRebookTime = newTime;
+      await this.bookingRepository.save(appointment);
+
+      return {
+        message: 'New date selected — proceed to payment to confirm',
+        requiresPayment: true,
+      };
+    }
+
     appointment.date = formattedDate;
     appointment.time = newTime;
     appointment.status = AppointmentStatus.RESCHEDULED;
@@ -1316,7 +1372,10 @@ export class BookingService {
       );
     }
 
-    return { message: 'Appointment rescheduled successfully' };
+    return {
+      message: 'Appointment rescheduled successfully',
+      requiresPayment: false,
+    };
   }
 
   // Get Booking Fees
