@@ -20,6 +20,10 @@ async function bootstrap() {
   // to support bracket-notation array params like services[]=x
   app.getHttpAdapter().getInstance().set('query parser', 'extended');
 
+  // Stripe webhook signature verification needs the exact raw request bytes,
+  // which the global JSON parser below would otherwise consume — capture
+  // the raw body only for this one path before JSON parsing runs.
+  app.use('/api/webhook/stripe', express.raw({ type: 'application/json' }));
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 

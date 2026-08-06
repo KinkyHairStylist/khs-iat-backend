@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsBoolean, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsIn, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class ConfirmBookingDto {
   @ApiProperty({
@@ -9,6 +9,16 @@ export class ConfirmBookingDto {
   @IsString()
   @IsNotEmpty()
   orderId: string;
+
+  @ApiProperty({
+    example: 'paystack',
+    description: 'Which payment provider to use for the card portion (defaults to paystack)',
+    enum: ['paystack', 'stripe'],
+    required: false,
+  })
+  @IsOptional()
+  @IsIn(['paystack', 'stripe'])
+  paymentProvider?: 'paystack' | 'stripe';
 
   @ApiProperty({
     example: true,

@@ -26,6 +26,11 @@ import { PlatformSettingsService } from 'src/admin/platform-settings/platform-se
 import { EmailService } from 'src/email/email.service';
 import { NotificationSettingsService } from './notification-settings.service';
 import { PaystackService } from 'src/payment/paystack.service';
+import { StripeService } from 'src/payment/stripe.service';
+import {
+  StripePaymentIntent,
+  StripeEscrowStatus,
+} from 'src/payment/entities/stripe-payment-intent.entity';
 import { Card } from 'src/all_user_entities/card.entity';
 import { BusinessGiftCard } from 'src/business/entities/business-giftcard.entity';
 import { BusinessGiftCardStatus } from 'src/business/enum/gift-card.enum';
@@ -55,10 +60,13 @@ export class BookingService {
     private clientRepository: Repository<ClientSchema>,
     @InjectRepository(Card)
     private cardRepository: Repository<Card>,
+    @InjectRepository(StripePaymentIntent)
+    private stripePaymentIntentRepository: Repository<StripePaymentIntent>,
     private platformSettingsService: PlatformSettingsService,
     private reviewService: ReviewService,
     private readonly dataSource: DataSource,
     private readonly paystack: PaystackService,
+    private readonly stripeService: StripeService,
     private readonly walletService: BusinessWalletService,
     private readonly emailService: EmailService,
     private readonly notificationSettingsService: NotificationSettingsService,
@@ -129,7 +137,8 @@ export class BookingService {
   // Step 1 — Confirm/Initialize Booking Payment
   // ------------------------------------------------------
   async confirmBooking(confirmBookingDto: any, user: User): Promise<any> {
-    const { orderId, payAtVenue, cardId, giftCard } = confirmBookingDto;
+    const { orderId, payAtVenue, cardId, giftCard, paymentProvider } =
+      confirmBookingDto;
 
     // Find all appointments for this orderId
     const appointments = await this.bookingRepository.find({
@@ -438,6 +447,108 @@ export class BookingService {
       }
     }
 
+    // Handle card payment via Stripe — a fully separate path from Paystack
+    // below. Stripe funds are held in escrow (StripePaymentIntent) and only
+    // credited to the business wallet when the appointment is later marked
+    // Completed, unlike Paystack's immediate-credit-on-payment model.
+    if (paymentProvider === 'stripe' && remainingToPay > 0) {
+      const businessId = appointments[0].business.id;
+      const paymentIntent = await this.stripeService.createPaymentIntent({
+        amount: Math.round(remainingToPay * 100), // Convert to cents
+        currency: 'usd',
+        customerEmail: user.email,
+        metadata: {
+          orderId,
+          userId: user.id,
+          businessId,
+          bookingAmount,
+          feeAmount,
+        },
+      });
+
+      const stripePaymentIntent = this.stripePaymentIntentRepository.create({
+        orderId,
+        businessId,
+        userId: user.id,
+        stripePaymentIntentId: paymentIntent.id,
+        amount: remainingToPay,
+        currency: 'usd',
+        bookingAmount,
+        feeAmount,
+        status: StripeEscrowStatus.PENDING,
+      });
+      await this.stripePaymentIntentRepository.save(stripePaymentIntent);
+
+      const stripeTransactions: Transaction[] = [];
+
+      if (giftCardPayment > 0) {
+        stripeTransactions.push(
+          this.transactionRepository.create({
+            senderId: user.id,
+            recipientId: appointments[0].business.owner?.id,
+            amount: giftCardPayment,
+            type: TransactionType.DEBIT,
+            currency: WalletCurrency.USD,
+            description: `Gift card portion for appointment order ${orderId}`,
+            mode: 'Web',
+            referenceId: paymentIntent.id,
+            status: TxnStatus.PENDING,
+            method: PaymentMethod.GIFTCARD,
+            service: 'Booking',
+            customerName: `${user.firstName} ${user.surname}`,
+          }),
+        );
+      }
+
+      stripeTransactions.push(
+        this.transactionRepository.create({
+          senderId: user.id,
+          recipientId: appointments[0].business.owner?.id,
+          amount: remainingToPay,
+          type: TransactionType.DEBIT,
+          currency: WalletCurrency.USD,
+          description: `Card payment (Stripe) for appointment order ${orderId}`,
+          mode: 'Web',
+          referenceId: paymentIntent.id,
+          status: TxnStatus.PENDING,
+          method: PaymentMethod.STRIPE,
+          service: 'Booking',
+          customerName: `${user.firstName} ${user.surname}`,
+        }),
+      );
+
+      if (feeAmount > 0) {
+        stripeTransactions.push(
+          this.transactionRepository.create({
+            senderId: user.id,
+            amount: feeAmount,
+            type: TransactionType.FEE,
+            currency: WalletCurrency.USD,
+            description: `Platform fee for appointment order ${orderId}`,
+            mode: 'Web',
+            referenceId: paymentIntent.id,
+            status: TxnStatus.PENDING,
+            method: PaymentMethod.STRIPE,
+            service: 'Booking-Fee',
+            customerName: `${user.firstName} ${user.surname}`,
+          }),
+        );
+      }
+
+      await this.transactionRepository.save(stripeTransactions);
+
+      return {
+        message: 'Payment initialized',
+        bookingAmount,
+        platformFee: feeAmount,
+        totalAmount: roundedTotalAmount,
+        giftCardAmountUsed: giftCardPayment,
+        cardAmountToPay: remainingToPay,
+        clientSecret: paymentIntent.client_secret,
+        paymentIntentId: paymentIntent.id,
+      };
+    }
+
     // Handle card payment (Paystack) - Initialize payment
     const reference = `BKG-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
     let paystackInit: { reference: string; authorization_url: string } | null =
@@ -725,6 +836,103 @@ export class BookingService {
       message: 'Booking confirmed successfully',
       ...result,
     };
+  }
+
+  // ------------------------------------------------------
+  // Stripe — Handle payment_intent.succeeded webhook
+  // ------------------------------------------------------
+  // Unlike completeBooking (Paystack), this does NOT credit the business
+  // wallet — Stripe-funded bookings stay HELD until the appointment is
+  // marked Completed (see BusinessService.completeBooking's release hook).
+  async handleStripePaymentSucceeded(paymentIntentId: string): Promise<void> {
+    const spi = await this.stripePaymentIntentRepository.findOne({
+      where: { stripePaymentIntentId: paymentIntentId },
+    });
+    if (!spi) {
+      this.logger.warn(
+        `No StripePaymentIntent found for ${paymentIntentId} — ignoring webhook`,
+      );
+      return;
+    }
+
+    // Webhooks can be delivered more than once — no-op if already processed.
+    if (spi.status !== StripeEscrowStatus.PENDING) {
+      return;
+    }
+
+    const orderId = spi.orderId;
+
+    const result = await this.dataSource.manager.transaction(
+      async (manager) => {
+        const appointments = await manager.find(Appointment, {
+          where: { orderId },
+          relations: ['business', 'business.owner'],
+        });
+        if (appointments.length === 0) {
+          throw new NotFoundException('Appointments not found');
+        }
+
+        const user = await manager.findOne(User, {
+          where: { id: spi.userId },
+        });
+        if (!user) throw new NotFoundException('User not found');
+
+        for (const appointment of appointments) {
+          appointment.status = AppointmentStatus.CONFIRMED;
+          appointment.paymentStatus = PaymentStatus.PAID;
+        }
+        await manager.save(Appointment, appointments);
+
+        await manager.update(
+          Transaction,
+          { referenceId: paymentIntentId, service: 'Booking' },
+          { status: TxnStatus.COMPLETED },
+        );
+        await manager.update(
+          Transaction,
+          { referenceId: paymentIntentId, service: 'Booking-Fee' },
+          { status: TxnStatus.COMPLETED },
+        );
+
+        spi.status = StripeEscrowStatus.HELD;
+        spi.heldAt = new Date();
+        await manager.save(StripePaymentIntent, spi);
+
+        return {
+          appointments,
+          userEmail: user.email,
+          userFirstName: user.firstName,
+          shouldSendConfirmationEmail:
+            await this.shouldSendBookingConfirmationEmail(user),
+        };
+      },
+    );
+
+    if (result.userEmail && result.shouldSendConfirmationEmail) {
+      const serviceNames = [
+        ...new Set(result.appointments.map((a) => a.serviceName)),
+      ].join(', ');
+      this.emailService.sendBookingConfirmationEmail(
+        result.userEmail,
+        result.userFirstName || 'Valued Customer',
+        result.appointments[0].business?.businessName || 'the salon',
+        serviceNames,
+        result.appointments[0].date,
+        result.appointments[0].time,
+      );
+    }
+  }
+
+  // Stripe — Handle payment_intent.payment_failed webhook
+  async handleStripePaymentFailed(paymentIntentId: string): Promise<void> {
+    await this.stripePaymentIntentRepository.update(
+      { stripePaymentIntentId: paymentIntentId },
+      { status: StripeEscrowStatus.FAILED },
+    );
+    await this.transactionRepository.update(
+      { referenceId: paymentIntentId },
+      { status: TxnStatus.FAILED },
+    );
   }
 
   // Get User Bookings
