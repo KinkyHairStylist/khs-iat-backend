@@ -433,8 +433,10 @@ export class BookingService {
       });
     }
 
-    // If remaining amount exists and no card ID provided, throw error
-    if (remainingToPay > 0 && !cardId) {
+    // If remaining amount exists and no card ID provided, throw error —
+    // Stripe doesn't use a pre-saved cardId the way Paystack does, so this
+    // guard only applies to the Paystack path.
+    if (paymentProvider !== 'stripe' && remainingToPay > 0 && !cardId) {
       throw new BadRequestException(
         'Payment method required for remaining amount',
       );

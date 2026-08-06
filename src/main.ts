@@ -68,9 +68,16 @@ async function bootstrap() {
     }),
   );
 
-  // Input sanitization setup
+  // Input sanitization setup — skipped for the Stripe webhook path, whose
+  // body must stay an untouched raw Buffer for signature verification
+  // (see the express.raw() registration above). Webhook payloads are
+  // trusted via that cryptographic signature, not sanitized like
+  // user-typed input.
   const sanitizer = new InputSanitizationMiddleware();
-  app.use((req, res, next) => sanitizer.use(req, res, next));
+  app.use((req, res, next) => {
+    if (req.path === '/api/webhook/stripe') return next();
+    sanitizer.use(req, res, next);
+  });
 
   // Session Configuration
   app.use(
