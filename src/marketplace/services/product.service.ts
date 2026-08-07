@@ -67,7 +67,7 @@ export class ProductService {
       );
     }
 
-    const folderPath = `KHS/business/${business.businessName}/products/${createProductDto.productName}`;
+    const folderPath = `KHS/business/${business.id}/products/${sku}`;
 
     let productImage: string;
     try {

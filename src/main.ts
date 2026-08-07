@@ -16,6 +16,12 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   app.useLogger(logger);
 
+  // Visible confirmation in every deploy's boot logs of which environment
+  // this instance thinks it's running as — Slack alert routing (and other
+  // NODE_ENV-gated behavior) silently degrades to non-prod if this isn't
+  // exactly "production" in a real prod deploy.
+  logger.log(`NODE_ENV=${process.env.NODE_ENV ?? '(unset)'}`);
+
   // Configure Express to use the 'extended' query parser (qs library)
   // to support bracket-notation array params like services[]=x
   app.getHttpAdapter().getInstance().set('query parser', 'extended');
