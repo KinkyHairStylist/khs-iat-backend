@@ -181,14 +181,33 @@ export class SalonService {
       .take(limit)
       .getManyAndCount();
 
-    // Load services separately to avoid join issues with pagination
-    for (const business of data) {
-      business.serviceList = await this.serviceRepo.find({
+    // Load services for all businesses in ONE query (not one query per
+    // business — that N+1 pattern was fine at ~20 rows but turned into 70+
+    // sequential round-trips once the dataset grew, visibly slowing the
+    // page down). Group in memory instead.
+    if (data.length > 0) {
+      const businessIds = data.map((b) => b.id);
+      const allServices = await this.serviceRepo.find({
         where: {
-          business: { id: business.id },
+          business: { id: In(businessIds) },
           ...(validServices.length > 0 ? { serviceType: In(validServices) } : {}),
         },
+        relations: ['business'],
       });
+
+      const servicesByBusinessId = new Map<string, Service[]>();
+      for (const service of allServices) {
+        const businessId = service.business?.id;
+        if (!businessId) continue;
+        if (!servicesByBusinessId.has(businessId)) {
+          servicesByBusinessId.set(businessId, []);
+        }
+        servicesByBusinessId.get(businessId)!.push(service);
+      }
+
+      for (const business of data) {
+        business.serviceList = servicesByBusinessId.get(business.id) ?? [];
+      }
     }
 
     return { data, total, page, limit };
