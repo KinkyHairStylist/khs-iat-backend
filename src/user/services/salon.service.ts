@@ -260,18 +260,21 @@ export class SalonService {
       .where('business.status = :status', { status: BusinessStatus.APPROVED })
       .getRawMany();
 
-    const locations = Array.from(
-      new Set(
-        businesses
-          .map((b) => {
-            const addr = b.address || '';
-            const parts = addr.split(',');
-            return parts[parts.length - 1]?.trim() || '';
-          })
-          .filter((loc) => loc.length > 0),
-      ),
-    );
+    // Dedup case-insensitively — the same location can arrive as "Lagos"
+    // from one seed/entry and "lagos" from another. Keyed by lowercase,
+    // keeping the first-seen casing as the canonical display value.
+    const seen = new Map<string, string>();
+    for (const b of businesses) {
+      const addr = b.address || '';
+      const parts = addr.split(',');
+      const loc = parts[parts.length - 1]?.trim() || '';
+      if (!loc) continue;
+      const key = loc.toLowerCase();
+      if (!seen.has(key)) {
+        seen.set(key, loc);
+      }
+    }
 
-    return locations.sort();
+    return Array.from(seen.values()).sort((a, b) => a.localeCompare(b));
   }
 }
