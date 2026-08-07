@@ -728,7 +728,35 @@ export class BookingService {
   }
 
   // Get User Bookings
+  // Appointments are created as PENDING the moment a client picks a date/
+  // time, before payment — holding the slot while they go through the
+  // payment page. If they never come back to pay, the row would otherwise
+  // sit forever looking like a real upcoming booking. Lazily expire any
+  // PENDING appointment older than this on every fetch, rather than
+  // running a background job for it.
+  private static readonly PENDING_EXPIRY_MINUTES = 30;
+
+  private async expireStalePendingBookings(userId: string): Promise<void> {
+    const cutoff = new Date(
+      Date.now() - BookingService.PENDING_EXPIRY_MINUTES * 60 * 1000,
+    );
+
+    await this.bookingRepository
+      .createQueryBuilder()
+      .update(Appointment)
+      .set({
+        status: AppointmentStatus.CANCELLED,
+        cancellationsNote: 'Payment not completed in time — booking expired',
+      })
+      .where('client_id = :userId', { userId })
+      .andWhere('status = :status', { status: AppointmentStatus.PENDING })
+      .andWhere('"createdAt" < :cutoff', { cutoff })
+      .execute();
+  }
+
   async getUserBookings(userId: string): Promise<Appointment[]> {
+    await this.expireStalePendingBookings(userId);
+
     return await this.bookingRepository.find({
       where: { client: { id: userId } },
       relations: ['business', 'service', 'staff'],
@@ -897,6 +925,28 @@ export class BookingService {
     }
 
     return { message: 'Appointment restored successfully' };
+  }
+
+  // Client confirms their own intent to attend
+  async confirmAvailability(
+    orderId: string,
+    user: User,
+  ): Promise<{ message: string; clientConfirmedAt: Date }> {
+    const appointments = await this.bookingRepository.find({
+      where: { orderId, client: { id: user.id } },
+    });
+
+    if (appointments.length === 0) {
+      throw new NotFoundException('No appointments found for this order ID');
+    }
+
+    const clientConfirmedAt = new Date();
+    for (const appointment of appointments) {
+      appointment.clientConfirmedAt = clientConfirmedAt;
+    }
+    await this.bookingRepository.save(appointments);
+
+    return { message: 'Availability confirmed', clientConfirmedAt };
   }
 
   // Reschedule Booking
