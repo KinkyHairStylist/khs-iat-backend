@@ -16,6 +16,7 @@ import { ClientSchema, ClientType } from '../entities/client.entity';
 import { ClientAddressSchema } from '../entities/client-address.entity';
 import { EmergencyContactSchema } from '../entities/emergency-contact-schema.entity';
 import { ClientSettingsSchema } from '../entities/client-settings.entity';
+import { Review } from '../entities/review.entity';
 import { formatClientType } from '../utils/client.utils';
 import { ClientFiltersDto, UpdateClientDto } from '../dtos/requests/ClientDto';
 import {
@@ -49,6 +50,9 @@ export class ClientService {
 
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
+
+    @InjectRepository(Review)
+    private readonly reviewRepo: Repository<Review>,
 
     private readonly businessCloudinaryService: BusinessCloudinaryService,
     private readonly dataSource: DataSource,
@@ -543,6 +547,19 @@ export class ClientService {
         addresses.map((addr) => [addr.clientId, addr.addressLine1]),
       );
 
+      // Batch fetch average review rating per client (0 when a client has no reviews)
+      const ratings = await this.reviewRepo
+        .createQueryBuilder('review')
+        .select('review.clientId', 'clientId')
+        .addSelect('AVG(review.rating)', 'avgRating')
+        .where('review.clientId IN (:...clientIds)', { clientIds })
+        .groupBy('review.clientId')
+        .getRawMany<{ clientId: string; avgRating: string }>();
+
+      const ratingMap = new Map(
+        ratings.map((r) => [r.clientId, Number(r.avgRating)]),
+      );
+
       // Transform data (settings already loaded via leftJoinAndSelect)
       const clientsWithSettings = clients.map((client) => ({
         id: client.id,
@@ -560,6 +577,7 @@ export class ClientService {
         isActive: client.isActive,
         createdAt: client.createdAt,
         updatedAt: client.updatedAt,
+        averageRating: ratingMap.get(client.id) ?? 0,
         ownerId,
       }));
 

@@ -17,8 +17,9 @@ async function main() {
     username: process.env.DB_USERNAME,
     password: process.env.DB_PASSWORD,
     database: process.env.DB_DATABASE,
+    ssl: { rejectUnauthorized: false },
+    synchronize: true,
     entities: [__dirname + '/../src/**/*.entity.ts'],
-    synchronize: false,
   });
 
   await dataSource.initialize();
@@ -39,12 +40,11 @@ async function main() {
     firstName: 'Bootstrap',
     surname: 'Admin',
     isVerified: true,
-    isSuperAdmin: true,
-    isAdmin: true,
-    isBusiness: false,
-    isClient: false,
-    isManager: false,
-    isBusinessAdmin: false,
+    isStaff: true,
+    adminRole: 'SUPER_ADMIN',
+    isMerchant: false,
+    isCustomer: false,
+    isBusinessStaff: false,
   } as any);
 
   await usersRepo.save(admin);

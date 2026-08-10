@@ -78,7 +78,7 @@ const staffLastNames = [
 ];
 
 const staffRoles = [
-  'HAIRSTYLIST', 'BARBER', 'NAIL_TECH', 'SPA_THERAPIST', 'MANAGER',
+  'stylist', 'manager', 'receptionist', 'cashier', 'stylist',
 ];
 
 const serviceTypes = [
@@ -100,7 +100,7 @@ const AppDataSource = new DataSource({
   username: process.env.DB_USERNAME ?? 'postgres',
   password: process.env.DB_PASSWORD ?? 'password',
   database: process.env.DB_DATABASE ?? 'khs',
-  ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
+  ssl: { rejectUnauthorized: false },
 });
 
 async function seed() {
@@ -112,7 +112,8 @@ async function seed() {
   console.log('Password hashed');
 
 
-  // Create 10 businesses
+  // Create 10 businesses with mixed statuses
+  const statuses = ['approved', 'pending', 'under_review', 'rejected', 'suspended'];
   for (let i = 0; i < 10; i++) {
     const cityIndex = i % cities.length;
     const addressIndex = i % addresses.length;
@@ -121,7 +122,7 @@ async function seed() {
     const userResult = await AppDataSource.query(
       `INSERT INTO "user" (
         email, password, "firstName", surname, "phoneNumber", 
-        "isVerified", "isClient", "isBusiness", "avatarUrl", "createdAt", "updatedAt"
+        "isVerified", "isCustomer", "isMerchant", "avatarUrl", "createdAt", "updatedAt"
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW()) RETURNING id`,
       [
         `owner${i + 1}@business${i + 1}.com`,
@@ -129,7 +130,7 @@ async function seed() {
         staffFirstNames[i % staffFirstNames.length],
         staffLastNames[i % staffLastNames.length],
         `+23480${String(i).padStart(8, '0')}`,
-        true,
+        i % 3 !== 0,
         true,
         true,
         staffAvatars[i % staffAvatars.length],
@@ -161,7 +162,7 @@ async function seed() {
         cities[cityIndex].coords.lng + (Math.random() * 0.1 - 0.05),
         cities[cityIndex].coords.lat + (Math.random() * 0.1 - 0.05),
         'small-team',
-        'approved',
+        statuses[i % statuses.length],
         JSON.stringify([categories[i % categories.length], categories[(i + 1) % categories.length]]),
         'Free',
         JSON.stringify({

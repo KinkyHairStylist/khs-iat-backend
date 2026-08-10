@@ -25,6 +25,7 @@ export interface Client {
   profileImage?: string;
   ownerId: string;
   isActive: boolean;
+  averageRating?: number;
   createdAt: Date;
   updatedAt: Date;
 }

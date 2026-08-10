@@ -19,7 +19,7 @@ async function main() {
   console.log("Connected to Neon database for seeding products & giftcards...");
 
   // Find target merchant business
-  const targetEmail = 'proiquovizoiho-6823@yopmail.com';
+  const targetEmail = 'owner1@business1.com';
   const businesses = await AppDataSource.query(
     'SELECT id, "owner_id" FROM "businesses" WHERE "ownerEmail" = $1 LIMIT 1',
     [targetEmail]

@@ -27,6 +27,13 @@ import { BusinessService } from './business.service';
 import { getTokens } from '../../helpers/token.helper';
 import { CompanySize } from '../types/constants';
 import { EmailService } from '../../email/email.service';
+import { SlackService } from '../../services/slack.service';
+import {
+  SlackEventType,
+  SlackNode,
+  SlackProvider,
+  SlackSeverity,
+} from '../../utils/enum';
 
 export interface TokenPair {
   accessToken: string;
@@ -99,6 +106,18 @@ export class AuthService {
       user.firstName || user.surname || 'Merchant',
       user.id,
     );
+
+    SlackService.notify({
+      node: SlackNode.USER_MANAGEMENT,
+      provider: SlackProvider.SYSTEM,
+      severity: SlackSeverity.INFO,
+      type: SlackEventType.USER_REGISTRATION,
+      trigger: `${user.firstName || user.surname || 'Merchant'} <${user.email}>`,
+      body: `New merchant signed up
+• User ID: ${user.id}
+• Email: ${user.email}
+• Phone: ${phoneNumber}`,
+    });
 
     return getTokens(this.jwtService, user.id, user.email);
   }
@@ -194,6 +213,19 @@ export class AuthService {
       user.email,
       user.firstName || user.surname || 'Merchant',
     );
+
+    // TEMP: testing Slack wiring via login instead of repeatedly re-registering.
+    // Remove/comment out once confirmed working — logins should not normally alert Slack.
+    SlackService.notify({
+      node: SlackNode.USER_MANAGEMENT,
+      provider: SlackProvider.SYSTEM,
+      severity: SlackSeverity.INFO,
+      type: SlackEventType.USER_TRIGGERED,
+      trigger: `${user.firstName || user.surname || 'Merchant'} <${user.email}>`,
+      body: `[TEST] Merchant logged in
+• User ID: ${user.id}
+• Email: ${user.email}`,
+    });
 
     const role = {
       isStaff: user.isStaff,
