@@ -1,4 +1,10 @@
-import { Injectable, BadRequestException, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+  ForbiddenException,
+  Logger,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { MembershipSubscription } from '../user_entities/membership-subscription.entity';
@@ -8,7 +14,16 @@ import { User } from 'src/all_user_entities/user.entity';
 import { Card } from 'src/all_user_entities/card.entity';
 import { BusinessGiftCard } from 'src/business/entities/business-giftcard.entity';
 import { BusinessGiftCardStatus } from 'src/business/enum/gift-card.enum';
-import { Transaction, TransactionType, TransactionStatus, PaymentMethod } from 'src/business/entities/transaction.entity';
+import {
+  Appointment,
+  AppointmentStatus,
+} from 'src/business/entities/appointment.entity';
+import {
+  Transaction,
+  TransactionType,
+  TransactionStatus,
+  PaymentMethod,
+} from 'src/business/entities/transaction.entity';
 import { PaystackService } from 'src/payment/paystack.service';
 import { WalletCurrency } from 'src/admin/payment/enums/wallet.enum';
 import { PlatformSettingsService } from 'src/admin/platform-settings/platform-settings.service';
@@ -55,7 +70,9 @@ export class MembershipService {
       if (sub.endDate && new Date(sub.endDate) < new Date()) {
         sub.status = 'expired' as any;
         await this.subscriptionRepo.save(sub);
-        this.logger.log(`Auto-expired subscription ${sub.id} for user ${user.id}`);
+        this.logger.log(
+          `Auto-expired subscription ${sub.id} for user ${user.id}`,
+        );
       }
     }
 
@@ -64,7 +81,9 @@ export class MembershipService {
     });
 
     if (existing) {
-      this.logger.warn(`User ${user.id} blocked from subscribing — active subscription ${existing.id} (endDate: ${existing.endDate}, tier: ${existing.tier?.name})`);
+      this.logger.warn(
+        `User ${user.id} blocked from subscribing — active subscription ${existing.id} (endDate: ${existing.endDate}, tier: ${existing.tier?.name})`,
+      );
       throw new BadRequestException('You already have an active subscription');
     }
 
@@ -76,7 +95,7 @@ export class MembershipService {
     const subscriptionAmount = Number(tier.initialPrice);
     const feeAmount = subscriptionAmount * (platformFeePercent / 100);
     const totalAmount = subscriptionAmount + feeAmount;
-    
+
     // Round to 2 decimal places to ensure amount is integer when converted to kobo
     const roundedTotalAmount = Math.round(totalAmount * 100) / 100;
 
@@ -90,8 +109,10 @@ export class MembershipService {
       });
 
       if (!giftCard) throw new BadRequestException('Gift card not found');
-      if (giftCard.status !== BusinessGiftCardStatus.ACTIVE) throw new BadRequestException('Gift card is not active');
-      if (giftCard.remainingAmount <= 0) throw new BadRequestException('Gift card has no balance');
+      if (giftCard.status !== BusinessGiftCardStatus.ACTIVE)
+        throw new BadRequestException('Gift card is not active');
+      if (giftCard.remainingAmount <= 0)
+        throw new BadRequestException('Gift card has no balance');
 
       giftCardPayment = Math.min(giftCard.remainingAmount, roundedTotalAmount);
       remainingToPay = roundedTotalAmount - giftCardPayment;
@@ -99,7 +120,9 @@ export class MembershipService {
 
     // If remaining amount exists and no card ID provided, throw error
     if (remainingToPay > 0 && !dto.cardId) {
-      throw new BadRequestException('Payment method required for remaining amount');
+      throw new BadRequestException(
+        'Payment method required for remaining amount',
+      );
     }
 
     // If there's remaining amount, validate card
@@ -121,88 +144,90 @@ export class MembershipService {
     // Handle full gift card payment
     if (remainingToPay === 0) {
       // Complete subscription immediately with gift card
-      const giftCardSub = await this.dataSource.manager.transaction(async (manager) => {
-        const giftCard = await manager.findOne(BusinessGiftCard, {
-          where: { code: dto.giftCard },
-        });
+      const giftCardSub = await this.dataSource.manager.transaction(
+        async (manager) => {
+          const giftCard = await manager.findOne(BusinessGiftCard, {
+            where: { code: dto.giftCard },
+          });
 
-        if (!giftCard || giftCard.remainingAmount < totalAmount) {
-          throw new BadRequestException('Insufficient gift card balance');
-        }
+          if (!giftCard || giftCard.remainingAmount < totalAmount) {
+            throw new BadRequestException('Insufficient gift card balance');
+          }
 
-        // Deduct from gift card
-        giftCard.remainingAmount -= totalAmount;
-        if (giftCard.remainingAmount === 0) {
-          giftCard.status = BusinessGiftCardStatus.USED;
-          giftCard.redeemedAt = new Date();
-        }
-        await manager.save(BusinessGiftCard, giftCard);
+          // Deduct from gift card
+          giftCard.remainingAmount -= totalAmount;
+          if (giftCard.remainingAmount === 0) {
+            giftCard.status = BusinessGiftCardStatus.USED;
+            giftCard.redeemedAt = new Date();
+          }
+          await manager.save(BusinessGiftCard, giftCard);
 
-        // Create subscription
-        const startDate = new Date();
-        const endDate = new Date();
-        endDate.setDate(startDate.getDate() + tier.durationDays);
+          // Create subscription
+          const startDate = new Date();
+          const endDate = new Date();
+          endDate.setDate(startDate.getDate() + tier.durationDays);
 
-        const nextBillingDate = new Date(startDate);
-        nextBillingDate.setDate(startDate.getDate() + 30);
+          const nextBillingDate = new Date(startDate);
+          nextBillingDate.setDate(startDate.getDate() + 30);
 
-        const subscription = manager.create(MembershipSubscription, {
-          userId: user.id,
-          tierId: tier.id,
-          startDate,
-          endDate,
-          remainingSessions: tier.session,
-          status: 'active',
-          nextBillingDate,
-          monthlyCost: tier.initialPrice,
-        });
+          const subscription = manager.create(MembershipSubscription, {
+            userId: user.id,
+            tierId: tier.id,
+            startDate,
+            endDate,
+            remainingSessions: tier.session,
+            status: 'active',
+            nextBillingDate,
+            monthlyCost: tier.initialPrice,
+          });
 
-        await manager.save(MembershipSubscription, subscription);
+          await manager.save(MembershipSubscription, subscription);
 
-        // Create transaction for gift card payment
-        const giftCardTx = manager.create(Transaction, {
-          senderId: user.id,
-          recipientId: undefined, // System/platform
-          amount: subscriptionAmount,
-          type: TransactionType.DEBIT,
-          currency: WalletCurrency.AUD,
-          description: `Membership subscription payment for ${tier.name}`,
-          mode: 'Web',
-          referenceId: reference,
-          status: TransactionStatus.COMPLETED,
-          method: PaymentMethod.GIFTCARD,
-          service: 'Membership-Subscription',
-          customerName: `${user.firstName} ${user.surname}`,
-        });
-
-        await manager.save(Transaction, giftCardTx);
-
-        // Create transaction for platform fee
-        if (feeAmount > 0) {
-          const feeTx = manager.create(Transaction, {
+          // Create transaction for gift card payment
+          const giftCardTx = manager.create(Transaction, {
             senderId: user.id,
-            recipientId: undefined, // Platform fee
-            amount: feeAmount,
-            type: TransactionType.FEE,
+            recipientId: undefined, // System/platform
+            amount: subscriptionAmount,
+            type: TransactionType.DEBIT,
             currency: WalletCurrency.AUD,
-            description: `Platform fee for membership subscription ${tier.name}`,
+            description: `Membership subscription payment for ${tier.name}`,
             mode: 'Web',
             referenceId: reference,
             status: TransactionStatus.COMPLETED,
             method: PaymentMethod.GIFTCARD,
-            service: 'Membership-Fee',
+            service: 'Membership-Subscription',
             customerName: `${user.firstName} ${user.surname}`,
           });
 
-          await manager.save(Transaction, feeTx);
-        }
+          await manager.save(Transaction, giftCardTx);
 
-        return {
-          subscription,
-          giftCardAmountUsed: totalAmount,
-          success: true,
-        };
-      });
+          // Create transaction for platform fee
+          if (feeAmount > 0) {
+            const feeTx = manager.create(Transaction, {
+              senderId: user.id,
+              recipientId: undefined, // Platform fee
+              amount: feeAmount,
+              type: TransactionType.FEE,
+              currency: WalletCurrency.AUD,
+              description: `Platform fee for membership subscription ${tier.name}`,
+              mode: 'Web',
+              referenceId: reference,
+              status: TransactionStatus.COMPLETED,
+              method: PaymentMethod.GIFTCARD,
+              service: 'Membership-Fee',
+              customerName: `${user.firstName} ${user.surname}`,
+            });
+
+            await manager.save(Transaction, feeTx);
+          }
+
+          return {
+            subscription,
+            giftCardAmountUsed: totalAmount,
+            success: true,
+          };
+        },
+      );
 
       try {
         this.emailService.sendMembershipEmail(
@@ -212,21 +237,32 @@ export class MembershipService {
           tier.name,
           subscriptionAmount.toFixed(2),
           giftCardSub.subscription.nextBillingDate
-            ? new Date(giftCardSub.subscription.nextBillingDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+            ? new Date(
+                giftCardSub.subscription.nextBillingDate,
+              ).toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+              })
             : 'N/A',
         );
       } catch (e) {
-        this.logger.error('Failed to send membership payment email (gift card path)', e);
+        this.logger.error(
+          'Failed to send membership payment email (gift card path)',
+          e,
+        );
       }
 
       return {
-        message: 'Membership subscription completed successfully with gift card',
+        message:
+          'Membership subscription completed successfully with gift card',
         ...giftCardSub,
       };
     }
 
     // Handle partial/combined payment (gift card + card)
-    let paystackInit: { reference: string; authorization_url: string } | null = null;
+    let paystackInit: { reference: string; authorization_url: string } | null =
+      null;
     if (remainingToPay > 0) {
       paystackInit = await this.paystack.initializePayment({
         email: user.email,
@@ -311,7 +347,8 @@ export class MembershipService {
     await this.transactionRepo.save(transactions);
 
     return {
-      message: remainingToPay > 0 ? 'Payment initialized' : 'Subscription initialized',
+      message:
+        remainingToPay > 0 ? 'Payment initialized' : 'Subscription initialized',
       subscriptionAmount: subscriptionAmount,
       platformFee: feeAmount,
       totalAmount: totalAmount,
@@ -336,8 +373,13 @@ export class MembershipService {
       { status: TransactionStatus.PROCESSING },
     );
     if (claim.affected === 0) {
-      this.logger.log(`completeSubscription already claimed/processed for reference ${reference} — skipping`);
-      return { message: 'Membership subscription already completed', alreadyProcessed: true };
+      this.logger.log(
+        `completeSubscription already claimed/processed for reference ${reference} — skipping`,
+      );
+      return {
+        message: 'Membership subscription already completed',
+        alreadyProcessed: true,
+      };
     }
 
     const lookupTx = await this.transactionRepo.findOne({
@@ -349,7 +391,9 @@ export class MembershipService {
         where: { userId: preUserId, status: 'active' },
       });
       if (activeBefore) {
-        this.logger.warn(`User ${preUserId} has active subscription ${activeBefore.id} before Paystack verify — will upgrade inside transaction`);
+        this.logger.warn(
+          `User ${preUserId} has active subscription ${activeBefore.id} before Paystack verify — will upgrade inside transaction`,
+        );
       }
     }
 
@@ -370,117 +414,137 @@ export class MembershipService {
     const giftCardAmount = Number(meta.giftCardAmount) || 0;
 
     // Start DB transaction
-    const result = await this.dataSource.manager.transaction(async (manager) => {
-      // Find tier
-      const tier = await manager.findOne(MembershipTier, {
-        where: { id: meta.subscriptionTierId },
-      });
-      if (!tier) throw new NotFoundException('Membership tier not found');
+    const result = await this.dataSource.manager.transaction(
+      async (manager) => {
+        // Find tier
+        const tier = await manager.findOne(MembershipTier, {
+          where: { id: meta.subscriptionTierId },
+        });
+        if (!tier) throw new NotFoundException('Membership tier not found');
 
-      // Find user
-      const user = await manager.findOne(User, { where: { id: meta.userId } });
-      if (!user) throw new NotFoundException('User not found');
+        // Find user
+        const user = await manager.findOne(User, {
+          where: { id: meta.userId },
+        });
+        if (!user) throw new NotFoundException('User not found');
 
-      // Double-check inside transaction for race safety
-      const existing = await manager.findOne(MembershipSubscription, {
-        where: { userId: user.id, status: 'active' },
-      });
-
-      if (existing) {
-        this.logger.warn(`User ${user.id} already has active subscription ${existing.id} after Paystack verification — upgrading existing sub instead`);
-        // Update existing subscription to new tier dates/benefits
-        existing.tierId = tier.id;
-        existing.tier = tier;
-        existing.startDate = new Date();
-        existing.endDate = new Date();
-        existing.endDate.setDate(existing.startDate.getDate() + tier.durationDays);
-        existing.remainingSessions = tier.session;
-        existing.monthlyCost = tier.initialPrice;
-        existing.nextBillingDate = new Date();
-        existing.nextBillingDate.setDate(existing.startDate.getDate() + 30);
-        await manager.save(existing);
-      }
-
-      // Handle gift card portion if any
-      if (meta.giftCard && giftCardAmount > 0) {
-        const giftCard = await manager.findOne(BusinessGiftCard, {
-          where: { code: meta.giftCard },
+        // Double-check inside transaction for race safety
+        const existing = await manager.findOne(MembershipSubscription, {
+          where: { userId: user.id, status: 'active' },
         });
 
-        if (!giftCard) throw new BadRequestException('Gift card not found');
-
-        giftCard.remainingAmount -= giftCardAmount;
-        if (giftCard.remainingAmount === 0) {
-          giftCard.status = BusinessGiftCardStatus.USED;
-          giftCard.redeemedAt = new Date();
+        if (existing) {
+          this.logger.warn(
+            `User ${user.id} already has active subscription ${existing.id} after Paystack verification — upgrading existing sub instead`,
+          );
+          // Update existing subscription to new tier dates/benefits
+          existing.tierId = tier.id;
+          existing.tier = tier;
+          existing.startDate = new Date();
+          existing.endDate = new Date();
+          existing.endDate.setDate(
+            existing.startDate.getDate() + tier.durationDays,
+          );
+          existing.remainingSessions = tier.session;
+          existing.monthlyCost = tier.initialPrice;
+          existing.nextBillingDate = new Date();
+          existing.nextBillingDate.setDate(existing.startDate.getDate() + 30);
+          await manager.save(existing);
         }
-        await manager.save(BusinessGiftCard, giftCard);
 
-        // Update gift card transaction to COMPLETED
-        await manager.update(Transaction, {
-          referenceId: meta.reference,
-          service: 'Membership-Subscription',
-          method: PaymentMethod.GIFTCARD,
-        }, {
-          status: TransactionStatus.COMPLETED,
-        });
-      }
+        // Handle gift card portion if any
+        if (meta.giftCard && giftCardAmount > 0) {
+          const giftCard = await manager.findOne(BusinessGiftCard, {
+            where: { code: meta.giftCard },
+          });
 
-      const startDate = new Date();
-      const endDate = new Date();
-      endDate.setDate(startDate.getDate() + tier.durationDays);
+          if (!giftCard) throw new BadRequestException('Gift card not found');
 
-      const nextBillingDate = new Date(startDate);
-      nextBillingDate.setDate(startDate.getDate() + 30);
+          giftCard.remainingAmount -= giftCardAmount;
+          if (giftCard.remainingAmount === 0) {
+            giftCard.status = BusinessGiftCardStatus.USED;
+            giftCard.redeemedAt = new Date();
+          }
+          await manager.save(BusinessGiftCard, giftCard);
 
-      let subscription: MembershipSubscription;
-      if (existing) {
-        subscription = existing;
-      } else {
-        subscription = manager.create(MembershipSubscription, {
-          userId: user.id,
-          tierId: tier.id,
-          startDate,
-          endDate,
-          remainingSessions: tier.session,
-          status: 'active',
-          nextBillingDate,
-          monthlyCost: tier.initialPrice,
-        });
-        await manager.save(subscription);
-      }
+          // Update gift card transaction to COMPLETED
+          await manager.update(
+            Transaction,
+            {
+              referenceId: meta.reference,
+              service: 'Membership-Subscription',
+              method: PaymentMethod.GIFTCARD,
+            },
+            {
+              status: TransactionStatus.COMPLETED,
+            },
+          );
+        }
 
-      // Update card payment transaction to COMPLETED
-      await manager.update(Transaction, {
-        referenceId: reference,
-        service: 'Membership-Subscription',
-        method: PaymentMethod.PAYSTACK,
-      }, {
-        status: TransactionStatus.COMPLETED,
-      });
+        const startDate = new Date();
+        const endDate = new Date();
+        endDate.setDate(startDate.getDate() + tier.durationDays);
 
-      // Update platform fee transaction to COMPLETED
-      if (feeAmount > 0) {
-        await manager.update(Transaction, {
-          referenceId: meta.reference,
-          service: 'Membership-Fee',
-        }, {
-          status: TransactionStatus.COMPLETED,
-        });
-      }
+        const nextBillingDate = new Date(startDate);
+        nextBillingDate.setDate(startDate.getDate() + 30);
 
-      return {
-        subscription,
-        userEmail: user.email,
-        userName: user.firstName || 'Valued Customer',
-        tierName: tier.name,
-        subscriptionAmount: subscriptionAmount,
-        platformFee: feeAmount,
-        giftCardAmountUsed: giftCardAmount,
-        cardAmountUsed: verification.amount / 100, // Convert from kobo
-        totalPaid: (verification.amount / 100) + giftCardAmount,
-      };
-    });
+        let subscription: MembershipSubscription;
+        if (existing) {
+          subscription = existing;
+        } else {
+          subscription = manager.create(MembershipSubscription, {
+            userId: user.id,
+            tierId: tier.id,
+            startDate,
+            endDate,
+            remainingSessions: tier.session,
+            status: 'active',
+            nextBillingDate,
+            monthlyCost: tier.initialPrice,
+          });
+          await manager.save(subscription);
+        }
+
+        // Update card payment transaction to COMPLETED
+        await manager.update(
+          Transaction,
+          {
+            referenceId: reference,
+            service: 'Membership-Subscription',
+            method: PaymentMethod.PAYSTACK,
+          },
+          {
+            status: TransactionStatus.COMPLETED,
+          },
+        );
+
+        // Update platform fee transaction to COMPLETED
+        if (feeAmount > 0) {
+          await manager.update(
+            Transaction,
+            {
+              referenceId: meta.reference,
+              service: 'Membership-Fee',
+            },
+            {
+              status: TransactionStatus.COMPLETED,
+            },
+          );
+        }
+
+        return {
+          subscription,
+          userEmail: user.email,
+          userName: user.firstName || 'Valued Customer',
+          tierName: tier.name,
+          subscriptionAmount: subscriptionAmount,
+          platformFee: feeAmount,
+          giftCardAmountUsed: giftCardAmount,
+          cardAmountUsed: verification.amount / 100, // Convert from kobo
+          totalPaid: verification.amount / 100 + giftCardAmount,
+        };
+      },
+    );
 
     try {
       this.emailService.sendMembershipEmail(
@@ -490,11 +554,17 @@ export class MembershipService {
         result.tierName,
         result.subscriptionAmount.toFixed(2),
         result.subscription.nextBillingDate
-          ? new Date(result.subscription.nextBillingDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+          ? new Date(result.subscription.nextBillingDate).toLocaleDateString(
+              'en-US',
+              { year: 'numeric', month: 'long', day: 'numeric' },
+            )
           : 'N/A',
       );
     } catch (e) {
-      this.logger.error('Failed to send membership payment email (completeSubscription)', e);
+      this.logger.error(
+        'Failed to send membership payment email (completeSubscription)',
+        e,
+      );
     }
 
     return {
@@ -519,7 +589,82 @@ export class MembershipService {
       throw new NotFoundException('No active membership found.');
     }
 
-    return subscription;
+    const formatDateOnly = (value: string | Date) => {
+      if (!value) return null;
+      if (typeof value === 'string') return value;
+      return value.toISOString().split('T')[0];
+    };
+
+    const appointmentRepo = this.dataSource.getRepository(Appointment);
+
+    const startDate = formatDateOnly(subscription.startDate);
+    const endDate = formatDateOnly(subscription.endDate);
+    let usageHistory: Array<{
+      service: string;
+      location: string;
+      date: string;
+      time: string;
+    }> = [];
+    let effectiveRemainingSessions = Number(subscription.remainingSessions);
+
+    if (startDate && endDate) {
+      try {
+        const totalUsageCount = await appointmentRepo
+          .createQueryBuilder('appointment')
+          .where('appointment.client_id = :userId', { userId })
+          .andWhere('appointment.status IN (:...statuses)', {
+            statuses: [
+              AppointmentStatus.CONFIRMED,
+              AppointmentStatus.COMPLETED,
+            ],
+          })
+          .andWhere('appointment.date >= :startDate', { startDate })
+          .andWhere('appointment.date <= :endDate', { endDate })
+          .getCount();
+
+        const usageAppointments = await appointmentRepo
+          .createQueryBuilder('appointment')
+          .leftJoinAndSelect('appointment.business', 'business')
+          .where('appointment.client_id = :userId', { userId })
+          .andWhere('appointment.status IN (:...statuses)', {
+            statuses: [
+              AppointmentStatus.CONFIRMED,
+              AppointmentStatus.COMPLETED,
+            ],
+          })
+          .andWhere('appointment.date >= :startDate', { startDate })
+          .andWhere('appointment.date <= :endDate', { endDate })
+          .orderBy('appointment.date', 'DESC')
+          .addOrderBy('appointment.time', 'DESC')
+          .limit(5)
+          .getMany();
+
+        usageHistory = usageAppointments.map((appointment) => ({
+          service: appointment.serviceName,
+          location: appointment.business?.businessName || 'Unknown location',
+          date: appointment.date,
+          time: appointment.time,
+        }));
+
+        effectiveRemainingSessions = Math.max(
+          Number(subscription.tier.session) - totalUsageCount,
+          0,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Failed to load membership usage for user ${userId}: ${error?.message || error}`,
+          error as any,
+        );
+      }
+    }
+
+    return {
+      ...subscription,
+      remainingSessions: Number.isNaN(effectiveRemainingSessions)
+        ? Number(subscription.remainingSessions)
+        : effectiveRemainingSessions,
+      usageHistory,
+    };
   }
 
   // Cancel active membership
@@ -540,7 +685,9 @@ export class MembershipService {
     await this.subscriptionRepo.save(subscription);
 
     try {
-      const user = await this.dataSource.getRepository(User).findOne({ where: { id: userId } });
+      const user = await this.dataSource
+        .getRepository(User)
+        .findOne({ where: { id: userId } });
       if (user?.email) {
         this.emailService.sendMembershipEmail(
           user.email,
@@ -550,7 +697,11 @@ export class MembershipService {
           undefined,
           undefined,
           undefined,
-          new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+          new Date().toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+          }),
         );
       }
     } catch (e) {
@@ -574,22 +725,33 @@ export class MembershipService {
     let nextTier;
     if (targetTierId) {
       nextTier = await this.tierRepo.findOne({ where: { id: targetTierId } });
-      if (!nextTier) throw new NotFoundException('Target membership tier not found');
+      if (!nextTier)
+        throw new NotFoundException('Target membership tier not found');
       if (nextTier.initialPrice <= Number(subscription.monthlyCost)) {
-        throw new BadRequestException('Target tier is not a higher tier than your current plan');
+        throw new BadRequestException(
+          'Target tier is not a higher tier than your current plan',
+        );
       }
     } else {
-      const allTiers = await this.tierRepo.find({ order: { initialPrice: 'ASC' } });
-      const currentIndex = allTiers.findIndex(t => t.id === subscription.tier.id);
+      const allTiers = await this.tierRepo.find({
+        order: { initialPrice: 'ASC' },
+      });
+      const currentIndex = allTiers.findIndex(
+        (t) => t.id === subscription.tier.id,
+      );
       if (currentIndex === -1 || currentIndex === allTiers.length - 1) {
-        throw new BadRequestException('You are already at the highest membership tier.');
+        throw new BadRequestException(
+          'You are already at the highest membership tier.',
+        );
       }
       nextTier = allTiers[currentIndex + 1];
     }
     const oldTierName = subscription.tier.name;
 
     const startDate = new Date();
-    const endDate = new Date(startDate.getTime() + nextTier.durationDays * 24 * 60 * 60 * 1000);
+    const endDate = new Date(
+      startDate.getTime() + nextTier.durationDays * 24 * 60 * 60 * 1000,
+    );
 
     const nextBillingDate = new Date(startDate);
     nextBillingDate.setDate(startDate.getDate() + 30);
@@ -605,7 +767,9 @@ export class MembershipService {
     await this.subscriptionRepo.save(subscription);
 
     try {
-      const user = await this.dataSource.getRepository(User).findOne({ where: { id: userId } });
+      const user = await this.dataSource
+        .getRepository(User)
+        .findOne({ where: { id: userId } });
       if (user?.email) {
         this.emailService.sendMembershipEmail(
           user.email,
@@ -613,7 +777,11 @@ export class MembershipService {
           'upgrade',
           nextTier.name,
           undefined,
-          nextBillingDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+          nextBillingDate.toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+          }),
           oldTierName,
         );
       }
@@ -637,23 +805,36 @@ export class MembershipService {
 
     let previousTier;
     if (targetTierId) {
-      previousTier = await this.tierRepo.findOne({ where: { id: targetTierId } });
-      if (!previousTier) throw new NotFoundException('Target membership tier not found');
+      previousTier = await this.tierRepo.findOne({
+        where: { id: targetTierId },
+      });
+      if (!previousTier)
+        throw new NotFoundException('Target membership tier not found');
       if (previousTier.initialPrice >= Number(subscription.monthlyCost)) {
-        throw new BadRequestException('Target tier is not a lower tier than your current plan');
+        throw new BadRequestException(
+          'Target tier is not a lower tier than your current plan',
+        );
       }
     } else {
-      const allTiers = await this.tierRepo.find({ order: { initialPrice: 'ASC' } });
-      const currentIndex = allTiers.findIndex(t => t.id === subscription.tier.id);
+      const allTiers = await this.tierRepo.find({
+        order: { initialPrice: 'ASC' },
+      });
+      const currentIndex = allTiers.findIndex(
+        (t) => t.id === subscription.tier.id,
+      );
       if (currentIndex === -1 || currentIndex === 0) {
-        throw new BadRequestException('You are already at the lowest membership tier.');
+        throw new BadRequestException(
+          'You are already at the lowest membership tier.',
+        );
       }
       previousTier = allTiers[currentIndex - 1];
     }
     const oldTierName = subscription.tier.name;
 
     const startDate = new Date();
-    const endDate = new Date(startDate.getTime() + previousTier.durationDays * 24 * 60 * 60 * 1000);
+    const endDate = new Date(
+      startDate.getTime() + previousTier.durationDays * 24 * 60 * 60 * 1000,
+    );
 
     const nextBillingDate = new Date(startDate);
     nextBillingDate.setDate(startDate.getDate() + 30);
@@ -669,7 +850,9 @@ export class MembershipService {
     await this.subscriptionRepo.save(subscription);
 
     try {
-      const user = await this.dataSource.getRepository(User).findOne({ where: { id: userId } });
+      const user = await this.dataSource
+        .getRepository(User)
+        .findOne({ where: { id: userId } });
       if (user?.email) {
         this.emailService.sendMembershipEmail(
           user.email,
@@ -677,7 +860,11 @@ export class MembershipService {
           'upgrade',
           previousTier.name,
           undefined,
-          nextBillingDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+          nextBillingDate.toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+          }),
           oldTierName,
         );
       }
