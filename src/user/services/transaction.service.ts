@@ -81,6 +81,11 @@ export class TransactionService {
       { userId: user.id },
     );
 
+    // Exclude platform fee transactions from user transaction history
+    queryBuilder.andWhere('transaction.type != :feeType', {
+      feeType: TransactionType.FEE,
+    });
+
     // Load relations
     queryBuilder.leftJoinAndSelect('transaction.sender', 'sender');
     queryBuilder.leftJoinAndSelect('transaction.recipient', 'recipient');
@@ -223,7 +228,8 @@ export class TransactionService {
     if (transaction.senderId !== user.id) {
       return {
         success: false,
-        message: 'You can only request refunds for transactions you initiated',
+        // message: 'You can only request refunds for transactions you initiated',
+        message: 'Refund request failed',
       };
     }
 
