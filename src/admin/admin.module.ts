@@ -22,6 +22,9 @@ import { PaymentService } from './payment/payment.service';
 import { CloudinaryModule } from '../user/modules/cloudinary.module';
 import { BusinessWalletModule } from 'src/business/wallet.module';
 import { Transaction } from 'src/business/entities/transaction.entity';
+import { StripePaymentIntent } from 'src/payment/entities/stripe-payment-intent.entity';
+import { Refund } from 'src/user/user_entities/refund.entity';
+import { StripeService } from 'src/payment/stripe.service';
 
 @Module({
   imports: [
@@ -35,6 +38,8 @@ import { Transaction } from 'src/business/entities/transaction.entity';
     TypeOrmModule.forFeature([Payment]),
     TypeOrmModule.forFeature([Article]),
     TypeOrmModule.forFeature([Transaction]),
+    TypeOrmModule.forFeature([StripePaymentIntent]),
+    TypeOrmModule.forFeature([Refund]),
     CloudinaryModule,
     BusinessWalletModule,
     EmailModule,
@@ -43,6 +48,7 @@ import { Transaction } from 'src/business/entities/transaction.entity';
   providers: [
     AdminService,
     PaymentService,
+    StripeService,
     ArticleService,
     AdminAuthService,
     AdminAuthStrategy,

@@ -106,6 +106,14 @@ export class BookingController {
     return this.bookingService.restoreBooking(orderId);
   }
 
+  // Client confirms their own intent to attend
+  @Patch(':orderId/confirm-availability')
+  @ApiOperation({ summary: "Client confirms they'll be attending this appointment" })
+  @ApiResponse({ status: 200, description: 'Availability confirmed' })
+  async confirmAvailability(@Param('orderId') orderId: string, @GetUser() user: User) {
+    return this.bookingService.confirmAvailability(orderId, user);
+  }
+
   // Rate booking business
   @Post(':orderId/rate')
   @ApiOperation({ summary: 'Rate a business for a specific booking' })
