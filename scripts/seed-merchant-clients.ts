@@ -5,7 +5,7 @@ import * as bcrypt from 'bcrypt';
 
 dotenv.config();
 
-const MERCHANT_EMAIL = 'proiquovizoiho-6823@yopmail.com';
+const MERCHANT_EMAIL = 'owner1@business1.com';
 const CLIENT_PASSWORD = 'TestPassword123!';
 
 const AppDataSource = new DataSource({
@@ -134,7 +134,6 @@ async function seed() {
   const staffList = [
     { firstName: 'Grace', lastName: 'Okoro', email: 'grace.staff@test.com', role: 'stylist' },
     { firstName: 'Femi', lastName: 'Adebayo', email: 'femi.staff@test.com', role: 'stylist' },
-    { firstName: 'Tola', lastName: 'Bamidele', email: 'tola.staff@test.com', role: 'manager' },
   ];
 
   const staffIds: string[] = [];
@@ -191,8 +190,8 @@ async function seed() {
       );
     }
 
-    // Create 3-6 appointments per client
-    const numAppts = randomInt(3, 6);
+    // Create 1-3 appointments per client
+    const numAppts = randomInt(1, 3);
     for (let a = 0; a < numAppts; a++) {
       const svc = pick(SERVICES);
       const svcIdx = SERVICES.indexOf(svc);

@@ -6,6 +6,14 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Admin, In, Not, Repository } from 'typeorm';
+import {
+  TransactionType,
+  PaymentMethod,
+} from '../entities/transaction.entity';
+import {
+  StripePaymentIntent,
+  StripeEscrowStatus,
+} from 'src/payment/entities/stripe-payment-intent.entity';
 import { Business } from '../entities/business.entity';
 import { User } from '../../all_user_entities/user.entity';
 import { CreateBusinessDto } from '../dtos/requests/CreateBusinessDto';
@@ -46,7 +54,11 @@ import { promises } from 'dns';
 
 @Injectable()
 export class BusinessService {
+  private readonly logger = new Logger(BusinessService.name);
+
   constructor(
+    @InjectRepository(StripePaymentIntent)
+    private readonly stripePaymentIntentRepo: Repository<StripePaymentIntent>,
     @InjectRepository(BookingDay)
     private readonly bookingDayRepo: Repository<BookingDay>,
 
@@ -135,7 +147,10 @@ export class BusinessService {
   }
 
   async getBooking(id: string) {
-    return await this.appointmentRepo.findOne({ where: { id } });
+    return await this.appointmentRepo.findOne({
+      where: { id },
+      relations: ['client', 'businessClient'],
+    });
   }
 
   async completeBooking(id: string) {
@@ -162,6 +177,59 @@ export class BusinessService {
     appointment.status = AppointmentStatus.COMPLETED;
 
     await this.appointmentRepo.save(appointment);
+
+    // Release any Stripe escrow held for this booking now that the
+    // appointment is done — a no-op for Paystack/gift-card/cash bookings,
+    // which have no StripePaymentIntent row at all.
+    try {
+      const heldPaymentIntents = await this.stripePaymentIntentRepo.find({
+        where: {
+          orderId: appointment.orderId,
+          status: StripeEscrowStatus.HELD,
+        },
+      });
+
+      for (const spi of heldPaymentIntents) {
+        const businessId = appointment.business.id;
+        const ownerId = appointment.business.owner?.id;
+        if (!businessId || !ownerId) continue;
+
+        try {
+          await this.walletService.getWalletByBusinessId(businessId);
+        } catch {
+          await this.walletService.createWalletForBusiness({
+            businessId,
+            ownerId,
+            currency: WalletCurrency.USD,
+            description: 'Business wallet - auto-created from booking',
+          });
+        }
+
+        await this.walletService.addFunds({
+          businessId,
+          recipientId: ownerId,
+          senderId: spi.userId,
+          amount: spi.bookingAmount,
+          type: TransactionType.EARNING,
+          description: `Escrow release for completed booking ${appointment.orderId}`,
+          referenceId: spi.stripePaymentIntentId,
+          currency: WalletCurrency.USD,
+          mode: 'Web',
+          method: PaymentMethod.STRIPE,
+        });
+
+        spi.status = StripeEscrowStatus.RELEASED;
+        spi.releasedAt = new Date();
+        await this.stripePaymentIntentRepo.save(spi);
+      }
+    } catch (escrowError) {
+      // This moves real customer money out of escrow — log loudly, but
+      // completing the appointment must still succeed even if this fails.
+      this.logger.error(
+        `Failed to release Stripe escrow for order ${appointment.orderId}: ${escrowError.message}`,
+        escrowError.stack,
+      );
+    }
 
     const settings = await this.businessOwnerSettingsService.findByBusinessId(
       appointment.business.id,

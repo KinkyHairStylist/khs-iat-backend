@@ -29,6 +29,7 @@ import { GoogleCalendarModule } from 'src/integration/google-calendar.module';
 import { MailchimpModule } from 'src/integration/mail-chimp.module';
 import { BusinessOwnerSettingsModule } from './business-owner-settings.module';
 import { ZohoBooksModule } from 'src/integration/zohobooks.module';
+import { StripePaymentIntent } from 'src/payment/entities/stripe-payment-intent.entity';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { ZohoBooksModule } from 'src/integration/zohobooks.module';
       Service,
       EmergencyContact,
       ClientSchema,
+      StripePaymentIntent,
     ]),
     JwtModule.register({}),
     EmailModule,

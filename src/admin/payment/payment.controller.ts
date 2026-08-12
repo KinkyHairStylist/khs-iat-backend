@@ -133,6 +133,29 @@ export class PaymentController {
     return this.paymentService.getDisputes();
   }
 
+  // Manual support override — releases Stripe escrow to the business wallet
+  // without waiting for the automatic completion trigger.
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.Admin, Role.SuperAdmin)
+  @Patch('stripe/:orderId/release')
+  releaseStripeEscrow(@Param('orderId') orderId: string) {
+    return this.paymentService.releaseStripeEscrow(orderId);
+  }
+
+  // Manual support override — refunds Stripe escrow outside the normal
+  // booking-cancellation flow.
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.Admin, Role.SuperAdmin)
+  @Post('stripe/:orderId/refund')
+  refundStripeEscrow(
+    @Param('orderId') orderId: string,
+    @Body('reason') reason?: string,
+  ) {
+    return this.paymentService.refundStripeEscrow(orderId, reason);
+  }
+
   @ApiBearerAuth('access-token')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.Admin, Role.SuperAdmin, Role.Client)
