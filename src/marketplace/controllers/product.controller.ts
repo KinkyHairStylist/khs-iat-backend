@@ -2,6 +2,8 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
+  Delete,
   Param,
   Query,
   ParseUUIDPipe,
@@ -34,21 +36,24 @@ export class ProductController {
    * POST /marketplace/products/create
    */
   @Post('products/create')
-  async createProduct(
-    @Request() req,
-    @Body() body: Record<string, any>,
-  ) {
+  async createProduct(@Request() req, @Body() body: Record<string, any>) {
     try {
       const ownerId = req.user.id || req.user.sub;
 
       if (!ownerId) {
-        throw new HttpException('User not authenticated', HttpStatus.UNAUTHORIZED);
+        throw new HttpException(
+          'User not authenticated',
+          HttpStatus.UNAUTHORIZED,
+        );
       }
 
       const { productImageBase64, ...fields } = body;
 
       if (!productImageBase64) {
-        throw new HttpException('Product image is required', HttpStatus.BAD_REQUEST);
+        throw new HttpException(
+          'Product image is required',
+          HttpStatus.BAD_REQUEST,
+        );
       }
 
       const dto: CreateProductDto = {
@@ -64,7 +69,11 @@ export class ProductController {
         sku: fields.sku,
       };
 
-      const result = await this.productService.createProduct(dto, ownerId, productImageBase64);
+      const result = await this.productService.createProduct(
+        dto,
+        ownerId,
+        productImageBase64,
+      );
 
       return {
         success: true,
@@ -76,6 +85,78 @@ export class ProductController {
         success: false,
         error: error.message,
         message: error.message || 'Failed to add product to inventory',
+      };
+    }
+  }
+
+  /**
+   * Update product by ID
+   * PATCH /marketplace/products/:id
+   */
+  @Patch('products/:id')
+  async updateProduct(
+    @Request() req,
+    @Param('id') id: string,
+    @Body() body: Record<string, any>,
+  ) {
+    try {
+      const ownerId = req.user.id || req.user.sub;
+
+      if (!ownerId) {
+        throw new HttpException(
+          'User not authenticated',
+          HttpStatus.UNAUTHORIZED,
+        );
+      }
+
+      const { productImageBase64, ...fields } = body;
+
+      const result = await this.productService.updateProduct(
+        id,
+        fields,
+        ownerId,
+        productImageBase64,
+      );
+
+      return {
+        success: true,
+        data: result,
+        message: 'Product updated successfully',
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+        message: error.message || 'Failed to update product',
+      };
+    }
+  }
+
+  /**
+   * Delete product by ID
+   * DELETE /marketplace/products/:id
+   */
+  @Delete('products/:id')
+  async deleteProduct(@Request() req, @Param('id') id: string) {
+    try {
+      const ownerId = req.user.id || req.user.sub;
+      if (!ownerId) {
+        throw new HttpException(
+          'User not authenticated',
+          HttpStatus.UNAUTHORIZED,
+        );
+      }
+      const result = await this.productService.deleteProduct(id, ownerId);
+      return {
+        success: true,
+        data: result,
+        message: 'Product deleted successfully',
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+        message: error.message || 'Failed to delete product',
       };
     }
   }
@@ -97,7 +178,10 @@ export class ProductController {
       const ownerId = req.user.id || req.user.sub;
 
       if (!ownerId) {
-        throw new HttpException('User not authenticated', HttpStatus.UNAUTHORIZED);
+        throw new HttpException(
+          'User not authenticated',
+          HttpStatus.UNAUTHORIZED,
+        );
       }
 
       const result = await this.productService.getProductList(filters);
@@ -125,6 +209,10 @@ export class ProductController {
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page?: number,
     @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit?: number,
   ) {
-    return await this.productService.getLowStockProducts({ businessId, page, limit });
+    return await this.productService.getLowStockProducts({
+      businessId,
+      page,
+      limit,
+    });
   }
 }

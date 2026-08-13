@@ -53,9 +53,10 @@ export class InventoryService {
   async getBusinessInventorySummary(ownerId: string) {
     const summary = await this.productRepository
       .createQueryBuilder('product')
+      .leftJoin('product.business', 'business')
       .select('COUNT(product.id)', 'totalProducts')
       .addSelect(
-        'SUM(product.costPrice * product.stockQuantity)',
+        'SUM(COALESCE(NULLIF(product.costPrice, 0), product.sellingPrice, 0) * product.stockQuantity)',
         'inventoryValue',
       )
       .addSelect(
@@ -63,7 +64,7 @@ export class InventoryService {
         'lowStockItemsCount',
       )
       .addSelect('SUM(product.stockQuantity)', 'totalStock')
-      .where('product.ownerId = :ownerId', { ownerId })
+      .where('(product.ownerId = :ownerId OR business.ownerId = :ownerId)', { ownerId })
       .andWhere('product.isActive = :isActive', { isActive: true })
       .getRawOne();
 
@@ -72,11 +73,11 @@ export class InventoryService {
 
     return {
       ownerId,
-      totalProducts: parseInt(summary.totalProducts) || 0,
-      inventoryValue: parseFloat(summary.inventoryValue) || 0,
-      lowStockItemsCount: parseInt(summary.lowStockItemsCount) || 0,
+      totalProducts: parseInt(summary?.totalProducts) || 0,
+      inventoryValue: parseFloat(summary?.inventoryValue) || 0,
+      lowStockItemsCount: parseInt(summary?.lowStockItemsCount) || 0,
       totalRevenue: totalRevenue,
-      totalStock: parseInt(summary.totalStock) || 0,
+      totalStock: parseInt(summary?.totalStock) || 0,
     };
   }
 
@@ -99,7 +100,8 @@ export class InventoryService {
   async getBusinessLowStockProducts(ownerId: string) {
     return await this.productRepository
       .createQueryBuilder('product')
-      .where('product.ownerId = :ownerId', { ownerId })
+      .leftJoinAndSelect('product.business', 'business')
+      .where('(product.ownerId = :ownerId OR business.ownerId = :ownerId)', { ownerId })
       .andWhere('product.stockQuantity <= product.lowStockThreshold')
       .andWhere('product.isActive = :isActive', { isActive: true })
       .orderBy('product.stockQuantity', 'ASC')
