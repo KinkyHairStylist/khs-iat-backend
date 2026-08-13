@@ -154,8 +154,7 @@ export class ProductService {
       throw new NotFoundException(`Product with ID ${productId} not found`);
     }
 
-    product.isActive = false;
-    await this.productRepository.save(product);
+    await this.productRepository.remove(product);
 
     return { id: productId };
   }
@@ -187,6 +186,8 @@ export class ProductService {
     const queryBuilder = this.productRepository.createQueryBuilder('product');
 
     queryBuilder.leftJoinAndSelect('product.business', 'business');
+
+    queryBuilder.andWhere('product.isActive = :isActive', { isActive: true });
 
     if (category && category !== 'all') {
       queryBuilder.andWhere('product.category = :category', { category });
