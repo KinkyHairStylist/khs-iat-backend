@@ -55,10 +55,10 @@ async function seedTestMerchant() {
     const result = await AppDataSource.query(
       `INSERT INTO "user" (
         email, password, "firstName", surname,
-        "isVerified", "isSuperAdmin", "isAdmin",
-        "isBusiness", "isMerchant", "isClient", "isManager", "isBusinessAdmin", "isStaff",
+        "isVerified", "isStaff", "adminRole",
+        "isMerchant", "isBusinessStaff", "businessStaffRole", "isCustomer",
         "createdAt", "updatedAt"
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW())
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
       RETURNING id`,
       [
         EMAIL,
@@ -66,14 +66,12 @@ async function seedTestMerchant() {
         'Test',
         'Merchant',
         true, // isVerified
-        false, // isSuperAdmin
-        false, // isAdmin
-        true, // isBusiness
-        true, // isMerchant
-        false, // isClient
-        false, // isManager
-        false, // isBusinessAdmin
         false, // isStaff
+        null, // adminRole
+        true, // isMerchant
+        false, // isBusinessStaff
+        null, // businessStaffRole
+        true // isCustomer
       ],
     );
     userId = result[0].id;

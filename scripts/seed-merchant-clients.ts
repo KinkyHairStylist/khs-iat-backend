@@ -5,7 +5,7 @@ import * as bcrypt from 'bcrypt';
 
 dotenv.config();
 
-const MERCHANT_EMAIL = 'owner1@business1.com';
+const MERCHANT_EMAIL = 'test-merchant@khs.local';
 const CLIENT_PASSWORD = 'TestPassword123!';
 
 const AppDataSource = new DataSource({
@@ -15,7 +15,10 @@ const AppDataSource = new DataSource({
   username: process.env.DB_USERNAME ?? 'postgres',
   password: process.env.DB_PASSWORD ?? 'password',
   database: process.env.DB_DATABASE ?? 'khs',
-  ssl: { rejectUnauthorized: false },
+  ssl:
+    process.env.DB_SSL === 'require' || process.env.DB_SSL === 'true'
+      ? { rejectUnauthorized: false }
+      : false,
 });
 
 const CLIENTS = [
