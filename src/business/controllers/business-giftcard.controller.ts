@@ -1,4 +1,4 @@
-﻿import {
+import {
   Controller,
   Get,
   Post,
@@ -202,7 +202,7 @@ export class BusinessGiftCardsController {
       return {
         success: true,
         data: result,
-        message: 'Gift card marked has expired',
+        message: 'Gift card deactivated successfully',
       };
     } catch (error) {
       return {
@@ -231,7 +231,7 @@ export class BusinessGiftCardsController {
       return {
         success: true,
         data: result,
-        message: 'Gift deleted',
+        message: 'Gift card deleted',
       };
     } catch (error) {
       return {
@@ -261,11 +261,24 @@ export class BusinessGiftCardsController {
   @Patch(':id')
   @ApiOperation({ summary: 'Update a gift card' })
   @ApiResponse({ status: 200, description: 'Gift card updated successfully' })
-  update(
+  async update(
     @Param('id') id: string,
     @Body() updateGiftCardDto: UpdateBusinessGiftCardDto,
   ) {
-    return this.giftCardsService.update(id, updateGiftCardDto);
+    try {
+      const result = await this.giftCardsService.update(id, updateGiftCardDto);
+      return {
+        success: true,
+        data: result,
+        message: 'Gift Card Updated',
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+        message: error.message || 'Failed to update gift card',
+      };
+    }
   }
 
   @Post('redeem')
