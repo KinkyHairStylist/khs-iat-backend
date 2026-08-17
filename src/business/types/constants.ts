@@ -9,6 +9,7 @@ export enum Gender {
   FEMALE = 'FEMALE',
   CUSTOM = 'CUSTOM',
   PREFER_NOT_TO_SAY = 'PREFER_NOT_TO_SAY',
+  OTHER = 'OTHER',
 }
 
 export enum ApplicationStatus {
