@@ -477,24 +477,35 @@ export class BusinessSettingsService {
     ownerId: string,
     updateDto: UpdateBookingDaysDto,
   ): Promise<BookingDay[]> {
-    // Verify business ownership
-    await this.verifyBusinessOwnership(businessId, ownerId);
+    const business = await this.findBusinessByIdAndOwner(businessId, ownerId);
 
     const updatedDays: BookingDay[] = [];
 
     for (const dayUpdate of updateDto.bookingDays) {
-      const bookingDay = await this.bookingDayRepository.findOne({
+      let bookingDay = await this.bookingDayRepository.findOne({
         where: { id: dayUpdate.id },
         relations: ['business'],
       });
 
-      if (!bookingDay) {
-        throw new NotFoundException(
-          `Booking day with ID ${dayUpdate.id} not found`,
-        );
+      if (!bookingDay && dayUpdate.day) {
+        // Find existing booking day by day name & businessId if ID lookup failed
+        bookingDay = await this.bookingDayRepository.findOne({
+          where: { business: { id: businessId }, day: dayUpdate.day as any },
+          relations: ['business'],
+        });
       }
 
-      if (bookingDay.business.id !== businessId) {
+      if (!bookingDay) {
+        // Create new booking day entity if not found in database
+        bookingDay = this.bookingDayRepository.create({
+          id: dayUpdate.id,
+          business,
+          day: dayUpdate.day as any,
+          isOpen: dayUpdate.isOpen ?? false,
+          startTime: dayUpdate.startTime || '09:00',
+          endTime: dayUpdate.endTime || '17:00',
+        });
+      } else if (bookingDay.business && bookingDay.business.id !== businessId) {
         throw new BadRequestException(
           `Booking day ${dayUpdate.id} does not belong to this business`,
         );
@@ -502,7 +513,7 @@ export class BusinessSettingsService {
 
       // Update fields
       if (dayUpdate.day !== undefined) {
-        bookingDay.day = dayUpdate.day;
+        bookingDay.day = dayUpdate.day as any;
       }
 
       if (dayUpdate.isOpen !== undefined) {
