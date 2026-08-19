@@ -75,7 +75,7 @@ const baseOptions: DataSourceOptions = {
   database: process.env.DB_DATABASE ?? 'khs',
   entities: [__dirname + '/../**/*.entity{.ts,.js}'],
   ssl: process.env.DB_SSL === 'require' ? { rejectUnauthorized: false } : false,
-  synchronize: true, // 🔴 temporarily letting TypeORM auto-sync
+  synchronize: false,
   extra: {
     max: 5,
   },
