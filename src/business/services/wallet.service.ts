@@ -585,6 +585,11 @@ export class BusinessWalletService {
         walletId,
       });
 
+      /* --------- EXCLUDE FEE TRANSACTIONS ---------- */
+      queryBuilder.andWhere('transaction.type != :feeType', {
+        feeType: TransactionType.FEE,
+      });
+
       /* --------- RELATIONS ---------- */
       queryBuilder.leftJoinAndSelect('transaction.sender', 'sender');
 
