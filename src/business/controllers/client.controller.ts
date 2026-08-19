@@ -692,7 +692,7 @@ export class ClientController {
 
     return {
       success: true,
-      message: `${savedContacts.length} contact(es) added successfully`,
+      message: `${savedContacts.length} ${savedContacts.length === 1 ? 'contact' : 'contacts'} added successfully`,
       data: savedContacts,
     };
   }
