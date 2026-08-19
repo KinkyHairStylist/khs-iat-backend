@@ -142,7 +142,7 @@ export class BookingController {
     if (!body.date || isNaN(new Date(body.date).getTime())) {
       throw new BadRequestException('Invalid or missing date value');
     }
-    return this.bookingService.rescheduleBooking(orderId, body.date, body.time);
+    return this.bookingService.rescheduleBooking(orderId, new Date(body.date), body.time);
   }
 
   // (Existing) Get salon time slots (static example)
