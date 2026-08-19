@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Post, Req, UseGuards } from '@nestjs/common';
 import { Public } from 'src/business/middlewares/public.decorator';
 import { AuthService } from '../services/auth.service';
 import { CreateUserDto } from '../dtos/requests/CreateUserDto';
@@ -11,7 +11,8 @@ import { ForgotPasswordDto } from '../dtos/requests/ForgotPasswordDto';
 import { ResetPasswordDto } from '../dtos/requests/ResetPasswordDto';
 import { RequestPhoneOtpDto } from '../dtos/requests/RequestPhoneOtpDto';
 import { VerifyPhoneOtpDto } from '../dtos/requests/VerifyPhoneOtpDto';
-import { ApiTags, ApiOperation, ApiBody, ApiResponse } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiBody, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { JwtAuthGuard } from '../../middleware/jwt-auth.guard';
 import {
   LoginRateLimit,
   RegisterRateLimit,
@@ -152,5 +153,15 @@ export class AuthController {
   @ApiResponse({ status: 400, description: 'Invalid or expired OTP' })
   async verifyPhoneNumber(@Body() verifyPhoneOtpDto: VerifyPhoneOtpDto) {
     return this.authService.verifyPhoneNumber(verifyPhoneOtpDto);
+  }
+
+  @Post('/business/logout')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Logout a business user and send Slack notification' })
+  @ApiResponse({ status: 200, description: 'Slack logout notification sent successfully' })
+  async logout(@Req() req: any) {
+    return this.authService.logout(req.user);
   }
 }

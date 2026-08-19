@@ -36,6 +36,8 @@ import {
   RefundStatus,
   RefundMethod,
 } from 'src/user/user_entities/refund.entity';
+import { NotificationService } from 'src/notifications/notification.service';
+import { NotificationType } from 'src/notifications/notification.enum';
 import { Card } from 'src/all_user_entities/card.entity';
 import { BusinessGiftCard } from 'src/business/entities/business-giftcard.entity';
 import { BusinessGiftCardStatus } from 'src/business/enum/gift-card.enum';
@@ -77,6 +79,7 @@ export class BookingService {
     private readonly walletService: BusinessWalletService,
     private readonly emailService: EmailService,
     private readonly notificationSettingsService: NotificationSettingsService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   // Booking confirmation emails should only be sent if the customer hasn't
@@ -433,6 +436,26 @@ export class BookingService {
             appointments[0].date,
             appointments[0].time,
           );
+        }
+
+        try {
+          const serviceNames = [
+            ...new Set(appointments.map((a) => a.serviceName)),
+          ].join(', ');
+          await this.notificationService.create({
+            userId: user.id,
+            type: NotificationType.BOOKING_CONFIRMED,
+            title: 'Booking Confirmed',
+            message: `Your booking at ${appointments[0].business?.businessName || 'the salon'} for ${serviceNames} has been confirmed.`,
+            link: '/customer/bookings',
+            metadata: {
+              orderId,
+              salonId: appointments[0].business?.id,
+              salonName: appointments[0].business?.businessName,
+            },
+          });
+        } catch (err) {
+          this.logger.error('Failed to create in-app notification for pay-at-venue:', err);
         }
 
         return {
@@ -817,6 +840,28 @@ export class BookingService {
         result.appointments[0].date,
         result.appointments[0].time,
       );
+    }
+
+    try {
+      const firstAppointment = result.appointments[0];
+      const serviceNames = [
+        ...new Set(result.appointments.map((a) => a.serviceName)),
+      ].join(', ');
+
+      await this.notificationService.create({
+        userId: meta.userId,
+        type: NotificationType.BOOKING_CONFIRMED,
+        title: 'Booking Confirmed',
+        message: `Your booking at ${firstAppointment.business?.businessName || 'the salon'} for ${serviceNames} has been confirmed.`,
+        link: '/customer/bookings',
+        metadata: {
+          orderId,
+          salonId: firstAppointment.business?.id,
+          salonName: firstAppointment.business?.businessName,
+        },
+      });
+    } catch (err) {
+      this.logger.error('Failed to create in-app notification for online booking completion:', err);
     }
 
     // Add funds to business wallet (outside transaction to avoid deadlock)
@@ -1228,6 +1273,27 @@ export class BookingService {
         firstAppt.date,
         firstAppt.time,
       );
+    }
+
+    try {
+      if (firstAppt?.client?.id) {
+        const serviceNames = [
+          ...new Set(appointmentsToCancel.map((a) => a.serviceName)),
+        ].join(', ');
+        await this.notificationService.create({
+          userId: firstAppt.client.id,
+          type: NotificationType.BOOKING_CANCELLED,
+          title: 'Booking Cancelled',
+          message: `Your booking for ${serviceNames} has been cancelled.`,
+          link: '/customer/bookings',
+          metadata: {
+            orderId,
+            cancelledCount: appointmentsToCancel.length,
+          },
+        });
+      }
+    } catch (err) {
+      this.logger.error('Failed to create in-app notification for booking cancellation:', err);
     }
 
     const remainingCount = appointments.filter(

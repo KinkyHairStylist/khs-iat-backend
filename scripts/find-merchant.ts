@@ -11,13 +11,18 @@ const AppDataSource = new DataSource({
   username: process.env.DB_USERNAME ?? 'postgres',
   password: process.env.DB_PASSWORD ?? 'password',
   database: process.env.DB_DATABASE ?? 'khs',
-  ssl: { rejectUnauthorized: false },
+  ssl:
+    process.env.DB_SSL === 'require' || process.env.DB_SSL === 'true'
+      ? { rejectUnauthorized: false }
+      : false,
 });
 
 async function main() {
   await AppDataSource.initialize();
-  const users = await AppDataSource.query('SELECT id, email, "isMerchant" FROM "user" WHERE "isMerchant" = true LIMIT 5');
-  console.log("Merchants:", users);
+  const businessId = '3c3cbb4d-6bc2-4379-a85d-8e86b4ac7857';
+  await AppDataSource.query('DELETE FROM "Service" WHERE "businessId" = $1', [businessId]);
+  const deleteResult = await AppDataSource.query('DELETE FROM "businesses" WHERE id = $1 AND status = $2', [businessId, 'pending']);
+  console.log("Delete result:", deleteResult);
   await AppDataSource.destroy();
 }
 

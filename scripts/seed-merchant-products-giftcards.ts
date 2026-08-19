@@ -6,12 +6,15 @@ dotenv.config();
 
 const AppDataSource = new DataSource({
   type: 'postgres',
-  host: process.env.DB_HOST ?? 'ep-ancient-tree-adzpdpp5-pooler.c-2.us-east-1.aws.neon.tech',
+  host: process.env.DB_HOST ?? 'localhost',
   port: parseInt(process.env.DB_PORT ?? '5432', 10),
-  username: process.env.DB_USERNAME ?? 'neondb_owner',
-  password: process.env.DB_PASSWORD ?? 'npg_1KxI4tXhWRuH',
-  database: process.env.DB_DATABASE ?? 'neondb',
-  ssl: { rejectUnauthorized: false },
+  username: process.env.DB_USERNAME ?? 'postgres',
+  password: process.env.DB_PASSWORD ?? 'password',
+  database: process.env.DB_DATABASE ?? 'khs',
+  ssl:
+    process.env.DB_SSL === 'require' || process.env.DB_SSL === 'true'
+      ? { rejectUnauthorized: false }
+      : false,
 });
 
 async function main() {
@@ -19,7 +22,7 @@ async function main() {
   console.log("Connected to Neon database for seeding products & giftcards...");
 
   // Find target merchant business
-  const targetEmail = 'owner1@business1.com';
+  const targetEmail = 'test-merchant@khs.local';
   const businesses = await AppDataSource.query(
     'SELECT id, "owner_id" FROM "businesses" WHERE "ownerEmail" = $1 LIMIT 1',
     [targetEmail]

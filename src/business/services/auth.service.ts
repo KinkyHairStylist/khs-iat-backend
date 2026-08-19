@@ -34,6 +34,8 @@ import {
   SlackProvider,
   SlackSeverity,
 } from '../../utils/enum';
+import { NotificationService } from 'src/notifications/notification.service';
+import { NotificationType } from 'src/notifications/notification.enum';
 
 export interface TokenPair {
   accessToken: string;
@@ -61,6 +63,7 @@ export class AuthService {
     private readonly otpService: OtpService,
     private readonly businessService: BusinessService,
     private readonly emailService: EmailService,
+     private readonly notificationService: NotificationService,
   ) {}
 
   async register(createUserDto: CreateUserDto): Promise<TokenPair> {
@@ -209,6 +212,18 @@ export class AuthService {
 
     const tokens = await getTokens(this.jwtService, user.id, user.email);
 
+    //testing notification feature
+          try {
+        void this.notificationService.create({
+          userId: user.id,
+          type: NotificationType.SYSTEM,
+          title: 'Logged In',
+          message: 'You have logged in successfully.',
+        });
+      } catch (err) {
+        console.error('Failed to create login notification:', err);
+      }
+
     this.emailService.sendLoginNotificationEmail(
       user.email,
       user.firstName || user.surname || 'Merchant',
@@ -226,6 +241,11 @@ export class AuthService {
 • User ID: ${user.id}
 • Email: ${user.email}`,
     });
+
+
+    
+    
+    
 
     const role = {
       isStaff: user.isStaff,
@@ -448,4 +468,17 @@ export class AuthService {
     });
   }
 
+  async logout(user: User): Promise<{ message: string }> {
+    SlackService.notify({
+      node: SlackNode.USER_MANAGEMENT,
+      provider: SlackProvider.SYSTEM,
+      severity: SlackSeverity.INFO,
+      type: SlackEventType.USER_TRIGGERED,
+      trigger: `${user.firstName || user.surname || 'Merchant'} <${user.email}>`,
+      body: `Merchant logged out
+• User ID: ${user.id}
+• Email: ${user.email}`,
+    });
+    return { message: 'Slack logout notification sent' };
+  }
 }

@@ -21,6 +21,7 @@ import { StripeService } from 'src/payment/stripe.service';
 import { StripePaymentIntent } from 'src/payment/entities/stripe-payment-intent.entity';
 import { Refund } from 'src/user/user_entities/refund.entity';
 import { NotificationSettingsModule } from './notification-settings.module';
+import { NotificationModule } from 'src/notifications/notification.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { NotificationSettingsModule } from './notification-settings.module';
     BusinessWalletModule,
     EmailModule,
     NotificationSettingsModule,
+    NotificationModule,
   ],
   controllers: [BookingController],
   providers: [BookingService, PlatformSettingsService, PaystackService, StripeService],

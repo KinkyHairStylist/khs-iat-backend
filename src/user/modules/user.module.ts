@@ -45,6 +45,7 @@ import { BusinessModule } from 'src/business/business.module';
 import { BusinessWalletModule } from 'src/business/wallet.module';
 import { PlatformSettingsModule } from '../../admin/platform-settings/platform-settings.module';
 import { AdminChatModule } from './admin-chat.module';
+import { NotificationModule } from 'src/notifications/notification.module';
 
 @Global()
 @Module({
@@ -69,6 +70,7 @@ import { AdminChatModule } from './admin-chat.module';
     PreferencesModule,
     PlatformSettingsModule,
     AdminChatModule,
+    NotificationModule,
   ],
   controllers: [
     UserController,

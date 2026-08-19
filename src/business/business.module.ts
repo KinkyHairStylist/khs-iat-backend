@@ -30,6 +30,7 @@ import { MailchimpModule } from 'src/integration/mail-chimp.module';
 import { BusinessOwnerSettingsModule } from './business-owner-settings.module';
 import { ZohoBooksModule } from 'src/integration/zohobooks.module';
 import { StripePaymentIntent } from 'src/payment/entities/stripe-payment-intent.entity';
+import { NotificationModule } from 'src/notifications/notification.module';
 
 @Module({
   imports: [
@@ -56,6 +57,7 @@ import { StripePaymentIntent } from 'src/payment/entities/stripe-payment-intent.
     MailchimpModule,
     BusinessOwnerSettingsModule,
     ZohoBooksModule,
+    NotificationModule,
     forwardRef(() => GoogleCalendarModule),
     forwardRef(() => BusinessWalletModule),
   ],

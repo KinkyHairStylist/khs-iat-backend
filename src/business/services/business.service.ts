@@ -50,6 +50,8 @@ import { MailchimpService } from 'src/integration/services/mailchimp.service';
 import { BusinessOwnerSettingsService } from './business-owner-settings.service';
 import { ZohoBooksService } from 'src/integration/services/zohobooks.service';
 import { PasswordUtil } from '../utils/password.util';
+import { NotificationService } from 'src/notifications/notification.service';
+import { NotificationType } from 'src/notifications/notification.enum';
 import { promises } from 'dns';
 
 @Injectable()
@@ -92,6 +94,7 @@ export class BusinessService {
     private readonly walletService: BusinessWalletService,
     private readonly businessOwnerSettingsService: BusinessOwnerSettingsService,
     private readonly zohoBooksService: ZohoBooksService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   /**
@@ -175,6 +178,25 @@ export class BusinessService {
     }
 
     appointment.status = AppointmentStatus.COMPLETED;
+
+    if (appointment.client?.id) {
+      try {
+        await this.notificationService.create({
+          userId: appointment.client.id,
+          type: NotificationType.SYSTEM,
+          title: 'Appointment Completed',
+          message: `Your appointment at ${appointment.business?.businessName || 'the salon'} for ${appointment.serviceName} has been completed.`,
+          link: '/customer/appointment',
+          metadata: {
+            appointmentId: appointment.id,
+            salonId: appointment.business?.id,
+            salonName: appointment.business?.businessName,
+          },
+        });
+      } catch (err) {
+        console.error('Failed to create in-app notification for completeBooking:', err);
+      }
+    }
 
     await this.appointmentRepo.save(appointment);
 
@@ -832,11 +854,33 @@ export class BusinessService {
   }
 
   async rejectBooking(id: string) {
-    const appointment = await this.appointmentRepo.findOne({ where: { id } });
+    const appointment = await this.appointmentRepo.findOne({
+      where: { id },
+      relations: ['client', 'business'],
+    });
     if (!appointment) {
       throw new NotFoundException('Appointment not found');
     }
     appointment.status = AppointmentStatus.CANCELLED;
+
+    if (appointment.client?.id) {
+      try {
+        await this.notificationService.create({
+          userId: appointment.client.id,
+          type: NotificationType.BOOKING_CANCELLED,
+          title: 'Booking Rejected',
+          message: `Your booking at ${appointment.business?.businessName || 'the salon'} for ${appointment.serviceName} has been rejected.`,
+          link: '/customer/appointment',
+          metadata: {
+            appointmentId: appointment.id,
+            salonId: appointment.business?.id,
+          },
+        });
+      } catch (err) {
+        console.error('Failed to create in-app notification for rejectBooking:', err);
+      }
+    }
+
     await this.appointmentRepo.save(appointment);
 
     const settings = await this.businessOwnerSettingsService.findByBusinessId(
@@ -866,11 +910,34 @@ export class BusinessService {
   }
 
   async acceptBooking(id: string) {
-    const appointment = await this.appointmentRepo.findOne({ where: { id } });
+    const appointment = await this.appointmentRepo.findOne({
+      where: { id },
+      relations: ['client', 'business'],
+    });
     if (!appointment) {
       throw new NotFoundException('Appointment not found');
     }
     appointment.status = AppointmentStatus.CONFIRMED;
+
+    if (appointment.client?.id) {
+      try {
+        await this.notificationService.create({
+          userId: appointment.client.id,
+          type: NotificationType.BOOKING_CONFIRMED,
+          title: 'Booking Accepted',
+          message: `Your booking at ${appointment.business?.businessName || 'the salon'} for ${appointment.serviceName} has been accepted.`,
+          link: '/customer/appointment',
+          metadata: {
+            appointmentId: appointment.id,
+            salonId: appointment.business?.id,
+            salonName: appointment.business?.businessName,
+          },
+        });
+      } catch (err) {
+        console.error('Failed to create in-app notification for acceptBooking:', err);
+      }
+    }
+
     await this.appointmentRepo.save(appointment);
 
     const settings = await this.businessOwnerSettingsService.findByBusinessId(
