@@ -30,4 +30,5 @@ export enum BusinessGiftCardTemplate {
   CHRISTMAS = 'christmas',
   WEDDING = 'wedding',
   GRADUATION = 'graduation',
+  CUSTOM = 'custom',
 }

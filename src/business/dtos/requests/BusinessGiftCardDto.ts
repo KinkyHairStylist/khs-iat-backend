@@ -70,6 +70,11 @@ export class CreateBusinessGiftCardDto {
   @IsString()
   @IsOptional()
   senderName?: string;
+
+  @ApiProperty({ example: 'Enjoy your special gift!' })
+  @IsString()
+  @IsOptional()
+  message?: string;
 }
 
 export class UpdateBusinessGiftCardDto extends PartialType(
