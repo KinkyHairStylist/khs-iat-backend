@@ -84,6 +84,7 @@ export class ProductService {
 
     const product = this.productRepository.create({
       ...createProductDto,
+      ownerId,
       businessId: business.id,
       sku,
       productImage,
@@ -102,6 +103,60 @@ export class ProductService {
     }
 
     return productWithBusiness;
+  }
+
+  async updateProduct(
+    productId: string,
+    updateData: Record<string, any>,
+    ownerId: string,
+    productImageBase64?: string,
+  ): Promise<Product> {
+    const product = await this.productRepository.findOne({
+      where: { id: productId },
+      relations: ['business'],
+    });
+
+    if (!product) {
+      throw new NotFoundException(`Product with ID ${productId} not found`);
+    }
+
+    if (productImageBase64) {
+      const folderPath = `KHS/business/${product.businessId}/products/${product.sku}`;
+      try {
+        const { imageUrl } = await this.businessCloudinaryService.uploadImageFromBase64(
+          productImageBase64,
+          folderPath,
+        );
+        product.productImage = imageUrl;
+      } catch (error) {
+        console.error('Cloudinary upload error:', error);
+      }
+    }
+
+    const { productImageBase64: _, productImage: __, image: ___, ...fields } = updateData;
+
+    Object.assign(product, {
+      ...fields,
+      ...(fields.sellingPrice !== undefined ? { sellingPrice: Number(fields.sellingPrice) } : {}),
+      ...(fields.costPrice !== undefined ? { costPrice: Number(fields.costPrice) } : {}),
+      ...(fields.stockQuantity !== undefined ? { stockQuantity: Number(fields.stockQuantity) } : {}),
+    });
+
+    return await this.productRepository.save(product);
+  }
+
+  async deleteProduct(productId: string, ownerId: string): Promise<{ id: string }> {
+    const product = await this.productRepository.findOne({
+      where: { id: productId },
+    });
+
+    if (!product) {
+      throw new NotFoundException(`Product with ID ${productId} not found`);
+    }
+
+    await this.productRepository.remove(product);
+
+    return { id: productId };
   }
 
   async getProduct(productId: string): Promise<Product> {
@@ -131,6 +186,8 @@ export class ProductService {
     const queryBuilder = this.productRepository.createQueryBuilder('product');
 
     queryBuilder.leftJoinAndSelect('product.business', 'business');
+
+    queryBuilder.andWhere('product.isActive = :isActive', { isActive: true });
 
     if (category && category !== 'all') {
       queryBuilder.andWhere('product.category = :category', { category });
