@@ -677,28 +677,35 @@ export class BusinessService {
     return staff;
   }
 
-  async getBusinessFromStaff(mail: string) {
+  async getBusinessFromStaff(userId: string) {
     const staff = await this.staffRepo.findOne({
-      where: { email: mail },
+      where: { id: userId },
       relations: ['business', 'business.serviceList'],
     });
 
-    if (!staff) {
-      throw new NotFoundException('No staff record found for this user');
-    }
-    if (!staff.business) {
-      throw new NotFoundException('Business not found for this staff member');
+    if (staff?.business) {
+      return staff.business;
     }
 
-    return staff.business;
+    const ownedBusiness = await this.businessRepo.findOne({
+      where: { owner: { id: userId } },
+      relations: ['serviceList'],
+    });
+
+    if (ownedBusiness) {
+      return ownedBusiness;
+    }
+
+    throw new Error('No staff found');
   }
 
-  async createBlockedTime(body: CreateBlockedTimeDto) {
+  async createBlockedTime(userId: string, body: CreateBlockedTimeDto) {
+    if (!userId) throw new Error('Invalid User');
+
     let business = await this.businessRepo.findOne({
-      where: { ownerEmail: body.ownerMail },
+      where: { owner: { id: userId } },
     });
-    if (!body.ownerMail) throw new Error('Invalid User');
-    if (!business) business = await this.getBusinessFromStaff(body.ownerMail);
+    if (!business) business = await this.getBusinessFromStaff(userId);
     if (!business) throw new NotFoundException('Business not found');
 
     const blockedSlot = this.blockedSlotRepo.create({
@@ -720,12 +727,13 @@ export class BusinessService {
     return { message: 'Blocked time deleted successfully' };
   }
 
-  async getBlockedSlots(userMail: string) {
+  async getBlockedSlots(userId: string) {
+    if (!userId) throw new Error('Invalid User');
+
     let business = await this.businessRepo.findOne({
-      where: { ownerEmail: userMail },
+      where: { owner: { id: userId } },
     });
-    if (!userMail) throw new Error('Invalid User');
-    if (!business) business = await this.getBusinessFromStaff(userMail);
+    if (!business) business = await this.getBusinessFromStaff(userId);
     if (!business) throw new NotFoundException('Business not found');
 
     const blockedSlots = await this.blockedSlotRepo.find({
@@ -891,14 +899,14 @@ export class BusinessService {
     return appointment;
   }
 
-  async getBusinessServices(userMail: string) {
+  async getBusinessServices(userId: string) {
     let business = await this.businessRepo.findOne({
-      where: { ownerEmail: userMail },
+      where: { owner: { id: userId } },
       relations: ['serviceList'],
     });
 
-    if (!userMail) throw new Error('Invalid User');
-    if (!business) business = await this.getBusinessFromStaff(userMail);
+    if (!userId) throw new Error('Invalid User');
+    if (!business) business = await this.getBusinessFromStaff(userId);
     if (!business) {
       throw new NotFoundException('Business not found');
     }
@@ -906,12 +914,12 @@ export class BusinessService {
     return business.serviceList;
   }
 
-  async getTeamMembers(userMail: string) {
+  async getTeamMembers(userId: string) {
     let business = await this.businessRepo.findOne({
-      where: { ownerEmail: userMail },
+      where: { owner: { id: userId } },
     });
-    if (!userMail) throw new Error('Invalid User');
-    if (!business) business = await this.getBusinessFromStaff(userMail);
+    if (!userId) throw new Error('Invalid User');
+    if (!business) business = await this.getBusinessFromStaff(userId);
     if (!business) {
       throw new NotFoundException('Business not found');
     }
@@ -981,9 +989,10 @@ export class BusinessService {
     return plans;
   }
 
-  async createService(createServiceDto: CreateServiceDto) {
+  async createService(userId: string, createServiceDto: CreateServiceDto) {
+    if (!userId) throw new Error('Invalid User');
+
     const {
-      userMail,
       category,
       serviceType,
       images,
@@ -999,10 +1008,9 @@ export class BusinessService {
     } = createServiceDto;
 
     let business = await this.businessRepo.findOne({
-      where: { ownerEmail: userMail },
+      where: { owner: { id: userId } },
     });
-    if (!userMail) throw new Error('Invalid User');
-    if (!business) business = await this.getBusinessFromStaff(userMail);
+    if (!business) business = await this.getBusinessFromStaff(userId);
     if (!business) throw new Error('Business not found');
 
     let advertisementPlan: AdvertisementPlan | undefined;

@@ -102,7 +102,8 @@ export class BusinessController {
     @Req() req: RequestWithUser,
     @Query('date') date: string,
   ) {
-    if (!date) throw new BadRequestException('Date query parameter is required');
+    if (!date)
+      throw new BadRequestException('Date query parameter is required');
     return this.businessService.getAvailableSlotsForDate(req.user.email, date);
   }
 
@@ -155,8 +156,7 @@ export class BusinessController {
     @Body() body: CreateBlockedTimeDto,
     @Req() req: RequestWithUser,
   ) {
-    body.ownerMail = req.user.email;
-    return this.businessService.createBlockedTime(body);
+    return this.businessService.createBlockedTime(req.user.id, body);
   }
 
   @ApiBearerAuth('access-token')
@@ -188,7 +188,7 @@ export class BusinessController {
   @RequirePermission(Permission.VIEW_BOOKINGS)
   @Get('getBlockedSlots')
   async getBlockedSlots(@Req() req: RequestWithUser) {
-    return this.businessService.getBlockedSlots(req.user.email);
+    return this.businessService.getBlockedSlots(req.user.id);
   }
 
   // ── STAFF ─────────────────────────────────────────────────────────────────
@@ -229,7 +229,7 @@ export class BusinessController {
   @RequirePermission(Permission.VIEW_STAFF)
   @Get('getTeamMembers')
   async getTeamMembers(@Req() req: RequestWithUser) {
-    return this.businessService.getTeamMembers(req.user.email);
+    return this.businessService.getTeamMembers(req.user.id);
   }
 
   @ApiBearerAuth('access-token')
@@ -252,7 +252,7 @@ export class BusinessController {
   @RequirePermission(Permission.VIEW_SERVICES)
   @Get('getServices')
   async getBusinessServices(@Req() req: RequestWithUser) {
-    return this.businessService.getBusinessServices(req.user.email);
+    return this.businessService.getBusinessServices(req.user.id);
   }
 
   @ApiBearerAuth('access-token')
@@ -264,8 +264,7 @@ export class BusinessController {
     @Req() req: RequestWithUser,
     @Body() body: CreateServiceDto,
   ) {
-    body.userMail = req.user.email;
-    return this.businessService.createService(body);
+    return this.businessService.createService(req.user.id, body);
   }
 
   @ApiBearerAuth('access-token')
@@ -300,7 +299,10 @@ export class BusinessController {
     @Req() req: RequestWithUser,
     @Body() body: UpdateBusinessCategoryDto,
   ) {
-    return this.businessService.updateBusinessCategory(req.user.id, body.categories);
+    return this.businessService.updateBusinessCategory(
+      req.user.id,
+      body.categories,
+    );
   }
 
   // Merchant/Staff only — too destructive for BusinessStaff
@@ -312,7 +314,10 @@ export class BusinessController {
     @Req() req: RequestWithUser,
     @Body() body: RemoveBusinessCategoriesDto,
   ) {
-    return this.businessService.removeBusinessCategories(req.user.id, body.categoriesToRemove);
+    return this.businessService.removeBusinessCategories(
+      req.user.id,
+      body.categoriesToRemove,
+    );
   }
 
   // Merchant/Staff only — destructive
@@ -376,7 +381,10 @@ export class BusinessController {
     @Body() createBusinessDto: CreateBusinessDto,
     @Req() req: RequestWithUser,
   ) {
-    const business = await this.businessService.create(createBusinessDto, req.user);
+    const business = await this.businessService.create(
+      createBusinessDto,
+      req.user,
+    );
     return {
       message: 'Business created successfully.',
       businessId: business.id,
