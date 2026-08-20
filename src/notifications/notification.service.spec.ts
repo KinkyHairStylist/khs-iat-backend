@@ -19,6 +19,8 @@ describe('NotificationService', () => {
     count: jest.fn(),
     findOne: jest.fn(),
     update: jest.fn(),
+    delete: jest.fn(),
+    remove: jest.fn(),
   };
 
   const mockGateway = {
@@ -142,6 +144,47 @@ describe('NotificationService', () => {
         { userId: 'user-1', isRead: false },
         { isRead: true, readAt: expect.any(Date) },
       );
+    });
+  });
+
+  describe('delete', () => {
+    it('should throw NotFoundException if notification does not exist', async () => {
+      mockRepository.findOne.mockResolvedValue(null);
+
+      await expect(service.delete('user-1', 'notif-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('should throw ForbiddenException if notification belongs to another user', async () => {
+      mockRepository.findOne.mockResolvedValue({ id: 'notif-1', userId: 'user-2' });
+
+      await expect(service.delete('user-1', 'notif-1')).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('should remove the notification if ownership is correct', async () => {
+      const notif = { id: 'notif-1', userId: 'user-1' };
+      mockRepository.findOne.mockResolvedValue(notif);
+      mockRepository.remove.mockResolvedValue(notif);
+
+      await service.delete('user-1', 'notif-1');
+
+      expect(mockRepository.findOne).toHaveBeenCalledWith({
+        where: { id: 'notif-1' },
+      });
+      expect(mockRepository.remove).toHaveBeenCalledWith(notif);
+    });
+  });
+
+  describe('deleteAll', () => {
+    it('should call delete on repository with userId', async () => {
+      mockRepository.delete.mockResolvedValue({ affected: 5 });
+
+      await service.deleteAll('user-1');
+
+      expect(mockRepository.delete).toHaveBeenCalledWith({ userId: 'user-1' });
     });
   });
 });

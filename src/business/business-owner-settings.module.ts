@@ -5,7 +5,7 @@ import { BusinessOwnerSettingsController } from './controllers/business-owner-se
 import { BusinessOwnerSettingsService } from './services/business-owner-settings.service';
 import { UserModule } from 'src/user/modules/user.module';
 import { Business } from './entities/business.entity';
-import { BusinessCloudinaryModule } from './business-cloudinary.module';
+import { BusinessFirebaseModule } from './business-firebase.module';
 import { User } from 'src/all_user_entities/user.entity';
 import { FormidableMiddleware } from './middlewares/formidable.middleware';
 import { UserProfileValidationMiddleware } from './middlewares/user-profile.middleware';
@@ -14,7 +14,8 @@ import { UserProfileValidationMiddleware } from './middlewares/user-profile.midd
   imports: [
     TypeOrmModule.forFeature([BusinessOwnerSettings, Business, User]),
     UserModule,
-    BusinessCloudinaryModule,
+    // BusinessCloudinaryModule,
+    BusinessFirebaseModule,
   ],
   controllers: [BusinessOwnerSettingsController],
   providers: [BusinessOwnerSettingsService],

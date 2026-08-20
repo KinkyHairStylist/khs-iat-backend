@@ -7,12 +7,15 @@ import { SkuGeneratorService } from './services/sku-generator.service';
 import { InventoryModule } from './inventory.module';
 import { BusinessCloudinaryModule } from 'src/business/business-cloudinary.module';
 import { Business } from 'src/business/entities/business.entity';
+import { BusinessFirebaseModule } from 'src/business/business-firebase.module';
+
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Product, Business]),
     InventoryModule,
-    BusinessCloudinaryModule,
+    // BusinessCloudinaryModule,
+    BusinessFirebaseModule,
   ],
   controllers: [ProductController],
   providers: [ProductService, SkuGeneratorService],
