@@ -169,7 +169,7 @@ export class AuthService {
 
   async login(
     loginDto: LoginDto,
-  ): Promise<{ accessToken: string; refreshToken: string; message?: string; role?: any; settings?: any; hasBusiness?:boolean; businessId?:string }> {
+  ): Promise<{ accessToken: string; refreshToken: string; message?: string; role?: any; settings?: any }> {
     const { email, password } = loginDto;
 
     const user = await this.userRepo.findOne({
@@ -206,13 +206,9 @@ export class AuthService {
       );
     }
 
-    // const userBusiness = await this.businessRepo.findOne({
-    //   where: { ownerId: user.id },
-    // });
-
-      const userBusiness = await this.businessRepo.findOne({
-       where: { owner: { id: user.id } },
-      });
+    const userBusiness = await this.businessRepo.findOne({
+      where: { ownerId: user.id },
+    });
 
     const tokens = await getTokens(this.jwtService, user.id, user.email);
 
@@ -267,9 +263,7 @@ export class AuthService {
 
     return {
       ...tokens,
-      role,
-      hasBusiness:true,
-      businessId:userBusiness.id
+      role
     };
   }
 

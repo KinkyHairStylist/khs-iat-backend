@@ -15,8 +15,7 @@ import {
   UpdateBusinessProfileDto,
 } from '../dtos/requests/BusinessSettingsDto';
 import { BookingDay } from '../entities/booking-day.entity';
-// import { BusinessCloudinaryService } from './business-cloudinary.service';
-import { BusinessFirebaseService } from './business-firebase.service';
+import { BusinessCloudinaryService } from './business-cloudinary.service';
 import { ApiResponse } from '../types/client.types';
 
 @Injectable()
@@ -26,8 +25,7 @@ export class BusinessSettingsService {
     private readonly businessRepository: Repository<Business>,
     @InjectRepository(BookingDay)
     private readonly bookingDayRepository: Repository<BookingDay>,
-    // private readonly businessCloudinaryService: BusinessCloudinaryService,
-    private readonly businessFirebaseService: BusinessFirebaseService,
+    private readonly businessCloudinaryService: BusinessCloudinaryService,
   ) {}
 
   /**
@@ -83,7 +81,7 @@ export class BusinessSettingsService {
     try {
       for (const file of images) {
         const { imageUrl } =
-          await this.businessFirebaseService.uploadBusinessImage(
+          await this.businessCloudinaryService.uploadBusinessImage(
             file,
             folderPath,
           );
@@ -133,7 +131,7 @@ export class BusinessSettingsService {
     const publicId = filename.split('.')[0]; // remove extension
 
     try {
-      await this.businessFirebaseService.deleteBusinessImage(
+      await this.businessCloudinaryService.deleteBusinessImage(
         `KHS/business/${business.businessName}/businessImage/${publicId}`,
       );
     } catch (error) {

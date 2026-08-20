@@ -6,8 +6,7 @@ import { CreateNotificationDto } from './dto/create-notification.dto';
 import { NotificationGateway } from './notification.gateway';
 
 @Injectable()
-export class 
-NotificationService {
+export class NotificationService {
   constructor(
     @InjectRepository(Notification)
     private readonly notificationRepository: Repository<Notification>,
@@ -95,25 +94,5 @@ NotificationService {
       { userId, isRead: false },
       { isRead: true, readAt: new Date() },
     );
-  }
-
-  async delete(userId: string, notificationId: string): Promise<void> {
-    const notification = await this.notificationRepository.findOne({
-      where: { id: notificationId },
-    });
-
-    if (!notification) {
-      throw new NotFoundException('Notification not found');
-    }
-
-    if (notification.userId !== userId) {
-      throw new ForbiddenException('You cannot delete this notification');
-    }
-
-    await this.notificationRepository.remove(notification);
-  }
-
-  async deleteAll(userId: string): Promise<void> {
-    await this.notificationRepository.delete({ userId });
   }
 }

@@ -10,8 +10,7 @@ import { CreateProductDto, ProductFiltersDto } from '../dto/marketplace.dto';
 import { SkuGeneratorService } from './sku-generator.service';
 import { ApiResponse } from 'src/business/types/client.types';
 import { InventoryService } from './inventory.service';
-// import { BusinessCloudinaryService } from 'src/business/services/business-cloudinary.service';
-import { BusinessFirebaseService } from 'src/business/services/business-firebase.service';
+import { BusinessCloudinaryService } from 'src/business/services/business-cloudinary.service';
 import { Business } from 'src/business/entities/business.entity';
 
 @Injectable()
@@ -23,8 +22,7 @@ export class ProductService {
     private businessRepo: Repository<Business>,
     private skuGeneratorService: SkuGeneratorService,
     private inventoryService: InventoryService,
-    // private readonly businessCloudinaryService: BusinessCloudinaryService,
-    private readonly businessFirebaseService: BusinessFirebaseService,
+    private readonly businessCloudinaryService: BusinessCloudinaryService,
   ) {}
 
   async createProduct(
@@ -73,7 +71,7 @@ export class ProductService {
 
     let productImage: string;
     try {
-      const { imageUrl } = await this.businessFirebaseService.uploadImageFromBase64(
+      const { imageUrl } = await this.businessCloudinaryService.uploadImageFromBase64(
         productImageBase64,
         folderPath,
       );
