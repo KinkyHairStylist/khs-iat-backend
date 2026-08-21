@@ -996,7 +996,7 @@ export class BusinessService {
         business: { id: business.id },
         isActive: true,
       },
-      relations: ['business', 'addresses', 'emergencyContacts'],
+      relations: ['business', 'addresses', 'emergencyContacts', 'services'],
     });
   }
 

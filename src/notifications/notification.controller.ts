@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Patch, Delete, Param, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
 import { GetUser } from 'src/middleware/get-user.decorator';
 import { User } from 'src/all_user_entities/user.entity';
@@ -44,5 +44,19 @@ export class NotificationController {
   async markAllAsRead(@GetUser() user: User) {
     await this.notificationService.markAllAsRead(user.id);
     return { message: 'All notifications marked as read' };
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Delete a specific notification' })
+  async deleteNotification(@GetUser() user: User, @Param('id') id: string) {
+    await this.notificationService.delete(user.id, id);
+    return { message: 'Notification deleted successfully' };
+  }
+
+  @Delete()
+  @ApiOperation({ summary: 'Delete all notifications for the authenticated user' })
+  async deleteAllNotifications(@GetUser() user: User) {
+    await this.notificationService.deleteAll(user.id);
+    return { message: 'All notifications deleted successfully' };
   }
 }

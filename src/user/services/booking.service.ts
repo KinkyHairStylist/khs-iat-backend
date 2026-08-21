@@ -113,6 +113,7 @@ export class BookingService {
     for (const serviceId of createBookingDto.serviceIds) {
       const service = await this.serviceRepository.findOne({
         where: { id: serviceId },
+        relations:['assignedStaff'],
       });
 
       if (!service) {
@@ -458,8 +459,32 @@ export class BookingService {
           this.logger.error('Failed to create in-app notification for pay-at-venue:', err);
         }
 
+          // ADD MERCHANT NOTIFICATION HERE
+    try {
+      const firstAppointment = appointments[0];
+      const merchantId = firstAppointment.business?.ownerId || firstAppointment.business?.owner?.id;
+      const serviceNames = [...new Set(appointments.map((a) => a.serviceName))].join(', ');
+      if (merchantId) {
+        await this.notificationService.create({
+          userId: merchantId,
+          type: NotificationType.BOOKING_CONFIRMED,
+          title: 'New Booking Confirmed',
+          message: `A new booking has been placed by ${user.firstName} ${user.surname} for ${serviceNames}.`,
+          link: '/merchant/dashboard/appointments',
+          metadata: {
+            orderId,
+            salonId: firstAppointment.business?.id,
+            customerId: user.id,
+          },
+        });
+      }
+    } catch (err) {
+      this.logger.error('Failed to send merchant booking notification (Stripe):', err);
+    }
+
         return {
           message: 'Booking confirmed. Payment will be collected at venue.',
+          user,
           bookingAmount,
           platformFee: feeAmount,
           totalAmount: roundedTotalAmount,
@@ -582,6 +607,8 @@ export class BookingService {
       }
 
       await this.transactionRepository.save(stripeTransactions);
+
+  
 
       return {
         message: 'Payment initialized',
@@ -816,6 +843,7 @@ export class BookingService {
 
         return {
           appointments,
+          user,
           bookingAmount,
           platformFee: feeAmount,
           giftCardAmountUsed: giftCardAmount,
@@ -862,6 +890,29 @@ export class BookingService {
       });
     } catch (err) {
       this.logger.error('Failed to create in-app notification for online booking completion:', err);
+    }
+
+      // ADD MERCHANT NOTIFICATION HERE
+    try {
+      const firstAppointment = result.appointments[0];
+      const merchantId = firstAppointment.business?.ownerId || firstAppointment.business?.owner?.id;
+      const serviceNames = [...new Set(result.appointments.map((a) => a.serviceName))].join(', ');
+      if (merchantId) {
+        await this.notificationService.create({
+          userId: merchantId,
+          type: NotificationType.BOOKING_CONFIRMED,
+          title: 'New Booking Confirmed',
+          message: `A new booking has been placed by ${result.user.firstName} ${result.user.surname} for ${serviceNames}.`,
+          link: '/merchant/dashboard/appointments',
+          metadata: {
+            orderId,
+            salonId: firstAppointment.business?.id,
+            customerId: result.user.id,
+          },
+        });
+      }
+    } catch (err) {
+      this.logger.error('Failed to send merchant booking notification (Stripe):', err);
     }
 
     // Add funds to business wallet (outside transaction to avoid deadlock)
@@ -977,6 +1028,7 @@ export class BookingService {
 
         return {
           appointments,
+          user,
           userEmail: user.email,
           userFirstName: user.firstName,
           shouldSendConfirmationEmail:
@@ -998,7 +1050,32 @@ export class BookingService {
         result.appointments[0].time,
       );
     }
+
+      // ADD MERCHANT NOTIFICATION HERE
+    try {
+      const firstAppointment = result.appointments[0];
+      const merchantId = firstAppointment.business?.ownerId || firstAppointment.business?.owner?.id;
+      const serviceNames = [...new Set(result.appointments.map((a) => a.serviceName))].join(', ');
+      if (merchantId) {
+        await this.notificationService.create({
+          userId: merchantId,
+          type: NotificationType.BOOKING_CONFIRMED,
+          title: 'New Booking Confirmed',
+          message: `A new booking has been placed by ${result.user.firstName} ${result.user.surname} for ${serviceNames}.`,
+          link: '/merchant/dashboard/appointments',
+          metadata: {
+            orderId,
+            salonId: firstAppointment.business?.id,
+            customerId: result.user.id,
+          },
+        });
+      }
+    } catch (err) {
+      this.logger.error('Failed to send merchant booking notification (Stripe):', err);
+    }
   }
+
+  
 
   // Stripe — Handle payment_intent.payment_failed webhook
   async handleStripePaymentFailed(paymentIntentId: string): Promise<void> {

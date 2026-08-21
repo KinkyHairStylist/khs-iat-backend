@@ -9,8 +9,8 @@ import { Product } from '../entity/product.entity';
 import { CreateProductDto, ProductFiltersDto } from '../dto/marketplace.dto';
 import { SkuGeneratorService } from './sku-generator.service';
 import { ApiResponse } from 'src/business/types/client.types';
-import { InventoryService } from './inventory.service';
-import { BusinessCloudinaryService } from 'src/business/services/business-cloudinary.service';
+import { InventoryService } from './inventory.service'; 
+import { BusinessFirebaseService } from 'src/business/services/business-firebase.service';
 import { Business } from 'src/business/entities/business.entity';
 
 @Injectable()
@@ -22,7 +22,8 @@ export class ProductService {
     private businessRepo: Repository<Business>,
     private skuGeneratorService: SkuGeneratorService,
     private inventoryService: InventoryService,
-    private readonly businessCloudinaryService: BusinessCloudinaryService,
+    // private readonly businessCloudinaryService: BusinessCloudinaryService,
+    private readonly businessFirebaseService: BusinessFirebaseService,
   ) {}
 
   async createProduct(
@@ -71,12 +72,12 @@ export class ProductService {
 
     let productImage: string;
     try {
-      const { imageUrl } = await this.businessCloudinaryService.uploadImageFromBase64(
+      const { imageUrl } = await this.businessFirebaseService.uploadImageFromBase64(
         productImageBase64,
         folderPath,
       );
       productImage = imageUrl;
-    } catch (error) {
+    } catch (error:any) {
       throw new BadRequestException(
         error.message || 'Failed to create product image',
       );
@@ -123,13 +124,13 @@ export class ProductService {
     if (productImageBase64) {
       const folderPath = `KHS/business/${product.businessId}/products/${product.sku}`;
       try {
-        const { imageUrl } = await this.businessCloudinaryService.uploadImageFromBase64(
+        const { imageUrl } = await this.businessFirebaseService.uploadImageFromBase64(
           productImageBase64,
           folderPath,
         );
         product.productImage = imageUrl;
       } catch (error) {
-        console.error('Cloudinary upload error:', error);
+        console.error('Firebase upload error:', error);
       }
     }
 
@@ -363,7 +364,7 @@ export class ProductService {
         data: true,
         message: 'Product validation successful',
       };
-    } catch (error) {
+    } catch (error:any) {
       return {
         success: false,
         message: error.message,
