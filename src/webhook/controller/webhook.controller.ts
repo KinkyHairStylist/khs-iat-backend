@@ -12,12 +12,80 @@ import {
 } from '@nestjs/common';
 import { Public } from 'src/business/middlewares/public.decorator';
 import { WebhookService } from '../services/webhook.service';
+import { StripeService } from 'src/payment/stripe.service';
+import { BookingService } from 'src/user/services/booking.service';
 
 @Controller('webhook')
 export class WebhookController {
   private readonly logger = new Logger(WebhookController.name);
 
-  constructor(private readonly webhookService: WebhookService) {}
+  constructor(
+    private readonly webhookService: WebhookService,
+    private readonly stripeService: StripeService,
+    private readonly bookingService: BookingService,
+  ) {}
+
+  /**
+   * Stripe webhook endpoint
+   * URL: POST /api/webhook/stripe
+   *
+   * Requires the raw request body (see the express.raw() middleware
+   * registered for this exact path in main.ts) — Stripe's signature
+   * verification needs the literal transmitted bytes, not parsed JSON.
+   */
+  @Public()
+  @Post('/stripe')
+  @HttpCode(HttpStatus.OK)
+  async handleStripeWebhook(
+    @Request() req,
+    @Headers('stripe-signature') signature: string,
+  ): Promise<{ received: boolean }> {
+    let event;
+    try {
+      event = this.stripeService.constructWebhookEvent(req.body, signature);
+    } catch (error) {
+      this.logger.error(
+        `Stripe webhook signature verification failed: ${error.message}`,
+      );
+      // A bad signature is not a transient failure — acknowledge so Stripe
+      // doesn't retry-storm, but do not process the (unverified) payload.
+      return { received: true };
+    }
+
+    try {
+      switch (event.type) {
+        case 'payment_intent.succeeded': {
+          const paymentIntent = event.data.object as {
+            id: string;
+            latest_charge: string | null;
+          };
+          await this.bookingService.handleStripePaymentSucceeded(
+            paymentIntent.id,
+            paymentIntent.latest_charge,
+          );
+          break;
+        }
+        case 'payment_intent.payment_failed': {
+          const paymentIntent = event.data.object as { id: string };
+          await this.bookingService.handleStripePaymentFailed(
+            paymentIntent.id,
+          );
+          break;
+        }
+        default:
+          this.logger.log(`Unhandled Stripe event type: ${event.type}`);
+      }
+    } catch (error) {
+      // A failed webhook is the only signal a payment succeeded — this is
+      // a real alert-worthy failure, not a best-effort background sync.
+      this.logger.error(
+        `Error processing Stripe webhook event ${event.type} (${event.id}): ${error.message}`,
+        error.stack,
+      );
+    }
+
+    return { received: true };
+  }
 
   /**
    * PayPal webhook endpoint

@@ -27,6 +27,15 @@ import { BusinessService } from './business.service';
 import { getTokens } from '../../helpers/token.helper';
 import { CompanySize } from '../types/constants';
 import { EmailService } from '../../email/email.service';
+import { SlackService } from '../../services/slack.service';
+import {
+  SlackEventType,
+  SlackNode,
+  SlackProvider,
+  SlackSeverity,
+} from '../../utils/enum';
+import { NotificationService } from 'src/notifications/notification.service';
+import { NotificationType } from 'src/notifications/notification.enum';
 
 export interface TokenPair {
   accessToken: string;
@@ -54,6 +63,7 @@ export class AuthService {
     private readonly otpService: OtpService,
     private readonly businessService: BusinessService,
     private readonly emailService: EmailService,
+     private readonly notificationService: NotificationService,
   ) {}
 
   async register(createUserDto: CreateUserDto): Promise<TokenPair> {
@@ -99,6 +109,18 @@ export class AuthService {
       user.firstName || user.surname || 'Merchant',
       user.id,
     );
+
+    SlackService.notify({
+      node: SlackNode.USER_MANAGEMENT,
+      provider: SlackProvider.SYSTEM,
+      severity: SlackSeverity.INFO,
+      type: SlackEventType.USER_REGISTRATION,
+      trigger: `${user.firstName || user.surname || 'Merchant'} <${user.email}>`,
+      body: `New merchant signed up
+• User ID: ${user.id}
+• Email: ${user.email}
+• Phone: ${phoneNumber}`,
+    });
 
     return getTokens(this.jwtService, user.id, user.email);
   }
@@ -147,7 +169,7 @@ export class AuthService {
 
   async login(
     loginDto: LoginDto,
-  ): Promise<{ accessToken: string; refreshToken: string; message?: string; role?: any; settings?: any }> {
+  ): Promise<{ accessToken: string; refreshToken: string; message?: string; role?: any; settings?: any; hasBusiness?:boolean; businessId?:string }> {
     const { email, password } = loginDto;
 
     const user = await this.userRepo.findOne({
@@ -184,16 +206,50 @@ export class AuthService {
       );
     }
 
-    const userBusiness = await this.businessRepo.findOne({
-      where: { ownerId: user.id },
-    });
+    // const userBusiness = await this.businessRepo.findOne({
+    //   where: { ownerId: user.id },
+    // });
+
+      const userBusiness = await this.businessRepo.findOne({
+       where: { owner: { id: user.id } },
+      });
 
     const tokens = await getTokens(this.jwtService, user.id, user.email);
+
+    //testing notification feature
+          try {
+        void this.notificationService.create({
+          userId: user.id,
+          type: NotificationType.SYSTEM,
+          title: 'Logged In',
+          message: 'You have logged in successfully.',
+        });
+      } catch (err) {
+        console.error('Failed to create login notification:', err);
+      }
 
     this.emailService.sendLoginNotificationEmail(
       user.email,
       user.firstName || user.surname || 'Merchant',
     );
+
+    // TEMP: testing Slack wiring via login instead of repeatedly re-registering.
+    // Remove/comment out once confirmed working — logins should not normally alert Slack.
+    SlackService.notify({
+      node: SlackNode.USER_MANAGEMENT,
+      provider: SlackProvider.SYSTEM,
+      severity: SlackSeverity.INFO,
+      type: SlackEventType.USER_TRIGGERED,
+      trigger: `${user.firstName || user.surname || 'Merchant'} <${user.email}>`,
+      body: `[TEST] Merchant logged in
+• User ID: ${user.id}
+• Email: ${user.email}`,
+    });
+
+
+    
+    
+    
 
     const role = {
       isStaff: user.isStaff,
@@ -211,7 +267,9 @@ export class AuthService {
 
     return {
       ...tokens,
-      role
+      role,
+      hasBusiness:true,
+      businessId:userBusiness.id
     };
   }
 
@@ -416,4 +474,17 @@ export class AuthService {
     });
   }
 
+  async logout(user: User): Promise<{ message: string }> {
+    SlackService.notify({
+      node: SlackNode.USER_MANAGEMENT,
+      provider: SlackProvider.SYSTEM,
+      severity: SlackSeverity.INFO,
+      type: SlackEventType.USER_TRIGGERED,
+      trigger: `${user.firstName || user.surname || 'Merchant'} <${user.email}>`,
+      body: `Merchant logged out
+• User ID: ${user.id}
+• Email: ${user.email}`,
+    });
+    return { message: 'Slack logout notification sent' };
+  }
 }

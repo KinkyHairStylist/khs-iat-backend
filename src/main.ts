@@ -16,10 +16,20 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   app.useLogger(logger);
 
+  // Visible confirmation in every deploy's boot logs of which environment
+  // this instance thinks it's running as — Slack alert routing (and other
+  // NODE_ENV-gated behavior) silently degrades to non-prod if this isn't
+  // exactly "production" in a real prod deploy.
+  logger.log(`NODE_ENV=${process.env.NODE_ENV ?? '(unset)'}`);
+
   // Configure Express to use the 'extended' query parser (qs library)
   // to support bracket-notation array params like services[]=x
   app.getHttpAdapter().getInstance().set('query parser', 'extended');
 
+  // Stripe webhook signature verification needs the exact raw request bytes,
+  // which the global JSON parser below would otherwise consume — capture
+  // the raw body only for this one path before JSON parsing runs.
+  app.use('/api/webhook/stripe', express.raw({ type: 'application/json' }));
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -64,9 +74,16 @@ async function bootstrap() {
     }),
   );
 
-  // Input sanitization setup
+  // Input sanitization setup — skipped for the Stripe webhook path, whose
+  // body must stay an untouched raw Buffer for signature verification
+  // (see the express.raw() registration above). Webhook payloads are
+  // trusted via that cryptographic signature, not sanitized like
+  // user-typed input.
   const sanitizer = new InputSanitizationMiddleware();
-  app.use((req, res, next) => sanitizer.use(req, res, next));
+  app.use((req, res, next) => {
+    if (req.path === '/api/webhook/stripe') return next();
+    sanitizer.use(req, res, next);
+  });
 
   // Session Configuration
   app.use(

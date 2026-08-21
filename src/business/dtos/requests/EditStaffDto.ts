@@ -1,6 +1,11 @@
 import {IsString, IsOptional, IsArray, IsEmail, IsObject} from 'class-validator';
+import { BusinessStaffRole } from 'src/middleware/business-staff-role.enum';
 
 export class EditStaffDto {
+    @IsString()
+    @IsOptional()
+    role?: BusinessStaffRole;
+
     @IsString()
     @IsOptional()
     firstName?: string;
@@ -34,6 +39,7 @@ export class EditStaffDto {
     employmentType?: 'full-time' | 'part-time' | 'contract';
 
     @IsArray()
+    @IsOptional()
     addresses?:any;
 
     @IsOptional()

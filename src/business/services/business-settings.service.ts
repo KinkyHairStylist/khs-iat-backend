@@ -15,7 +15,8 @@ import {
   UpdateBusinessProfileDto,
 } from '../dtos/requests/BusinessSettingsDto';
 import { BookingDay } from '../entities/booking-day.entity';
-import { BusinessCloudinaryService } from './business-cloudinary.service';
+// import { BusinessCloudinaryService } from './business-cloudinary.service';
+import { BusinessFirebaseService } from './business-firebase.service';
 import { ApiResponse } from '../types/client.types';
 
 @Injectable()
@@ -25,7 +26,8 @@ export class BusinessSettingsService {
     private readonly businessRepository: Repository<Business>,
     @InjectRepository(BookingDay)
     private readonly bookingDayRepository: Repository<BookingDay>,
-    private readonly businessCloudinaryService: BusinessCloudinaryService,
+    // private readonly businessCloudinaryService: BusinessCloudinaryService,
+    private readonly businessFirebaseService: BusinessFirebaseService,
   ) {}
 
   /**
@@ -81,7 +83,7 @@ export class BusinessSettingsService {
     try {
       for (const file of images) {
         const { imageUrl } =
-          await this.businessCloudinaryService.uploadBusinessImage(
+          await this.businessFirebaseService.uploadBusinessImage(
             file,
             folderPath,
           );
@@ -131,7 +133,7 @@ export class BusinessSettingsService {
     const publicId = filename.split('.')[0]; // remove extension
 
     try {
-      await this.businessCloudinaryService.deleteBusinessImage(
+      await this.businessFirebaseService.deleteBusinessImage(
         `KHS/business/${business.businessName}/businessImage/${publicId}`,
       );
     } catch (error) {
@@ -270,6 +272,10 @@ export class BusinessSettingsService {
 
     if (updateDto.description !== undefined) {
       business.description = updateDto.description.trim();
+    }
+
+    if (updateDto.revenueGoal !== undefined) {
+      business.revenueGoal = Number(updateDto.revenueGoal);
     }
 
     return await this.businessRepository.save(business);
@@ -473,24 +479,35 @@ export class BusinessSettingsService {
     ownerId: string,
     updateDto: UpdateBookingDaysDto,
   ): Promise<BookingDay[]> {
-    // Verify business ownership
-    await this.verifyBusinessOwnership(businessId, ownerId);
+    const business = await this.findBusinessByIdAndOwner(businessId, ownerId);
 
     const updatedDays: BookingDay[] = [];
 
     for (const dayUpdate of updateDto.bookingDays) {
-      const bookingDay = await this.bookingDayRepository.findOne({
+      let bookingDay = await this.bookingDayRepository.findOne({
         where: { id: dayUpdate.id },
         relations: ['business'],
       });
 
-      if (!bookingDay) {
-        throw new NotFoundException(
-          `Booking day with ID ${dayUpdate.id} not found`,
-        );
+      if (!bookingDay && dayUpdate.day) {
+        // Find existing booking day by day name & businessId if ID lookup failed
+        bookingDay = await this.bookingDayRepository.findOne({
+          where: { business: { id: businessId }, day: dayUpdate.day as any },
+          relations: ['business'],
+        });
       }
 
-      if (bookingDay.business.id !== businessId) {
+      if (!bookingDay) {
+        // Create new booking day entity if not found in database
+        bookingDay = this.bookingDayRepository.create({
+          id: dayUpdate.id,
+          business,
+          day: dayUpdate.day as any,
+          isOpen: dayUpdate.isOpen ?? false,
+          startTime: dayUpdate.startTime || '09:00',
+          endTime: dayUpdate.endTime || '17:00',
+        });
+      } else if (bookingDay.business && bookingDay.business.id !== businessId) {
         throw new BadRequestException(
           `Booking day ${dayUpdate.id} does not belong to this business`,
         );
@@ -498,7 +515,7 @@ export class BusinessSettingsService {
 
       // Update fields
       if (dayUpdate.day !== undefined) {
-        bookingDay.day = dayUpdate.day;
+        bookingDay.day = dayUpdate.day as any;
       }
 
       if (dayUpdate.isOpen !== undefined) {

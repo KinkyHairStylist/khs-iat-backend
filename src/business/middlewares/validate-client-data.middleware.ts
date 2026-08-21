@@ -15,6 +15,10 @@ export class ClientProfileValidationMiddleware implements NestMiddleware {
     const profileData = req.body?.profile || req.body;
 
     const url = req.originalUrl;
+    const paramsClientId = req.params?.clientId;
+    const clientId =
+      (Array.isArray(paramsClientId) ? paramsClientId[0] : paramsClientId) ??
+      url.match(/update-profile\/([^/?]+)/)?.[1];
 
     // No profile in request body
     if (!profileData) {
@@ -28,6 +32,7 @@ export class ClientProfileValidationMiddleware implements NestMiddleware {
       profileData,
       req.files,
       url,
+      clientId,
     );
 
     if (!validation.success) {

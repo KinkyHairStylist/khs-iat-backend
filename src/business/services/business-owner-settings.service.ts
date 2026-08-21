@@ -23,9 +23,10 @@ import {
   UpdateUserAddressDto,
 } from '../dtos/requests/BusinessOwnerSettingsDto';
 import {
-  BusinessCloudinaryService,
+  // BusinessCloudinaryService,
   FileUpload,
 } from './business-cloudinary.service';
+import { BusinessFirebaseService } from './business-firebase.service';
 import { User } from 'src/all_user_entities/user.entity';
 import { ApiResponse } from '../types/client.types';
 import { Business } from '../entities/business.entity';
@@ -41,7 +42,8 @@ export class BusinessOwnerSettingsService {
 
     @InjectRepository(Business)
     private readonly businessRepo: Repository<Business>,
-    private readonly businessCloudinaryService: BusinessCloudinaryService,
+    // private readonly businessCloudinaryService: BusinessCloudinaryService,
+    private readonly businessFirebaseService: BusinessFirebaseService,
   ) {}
 
   async findByBusinessId(businessId: string): Promise<BusinessOwnerSettings> {
@@ -262,7 +264,7 @@ export class BusinessOwnerSettingsService {
       const folderPath = `KHS/business/owner/${owner.surname}`;
 
       try {
-        const { imageUrl } = await this.businessCloudinaryService.uploadImage(
+        const { imageUrl } = await this.businessFirebaseService.uploadImage(
           bodyprofileImage,
           folderPath,
         );

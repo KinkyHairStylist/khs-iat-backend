@@ -9,8 +9,8 @@ import { Product } from '../entity/product.entity';
 import { CreateProductDto, ProductFiltersDto } from '../dto/marketplace.dto';
 import { SkuGeneratorService } from './sku-generator.service';
 import { ApiResponse } from 'src/business/types/client.types';
-import { InventoryService } from './inventory.service';
-import { BusinessCloudinaryService } from 'src/business/services/business-cloudinary.service';
+import { InventoryService } from './inventory.service'; 
+import { BusinessFirebaseService } from 'src/business/services/business-firebase.service';
 import { Business } from 'src/business/entities/business.entity';
 
 @Injectable()
@@ -22,7 +22,8 @@ export class ProductService {
     private businessRepo: Repository<Business>,
     private skuGeneratorService: SkuGeneratorService,
     private inventoryService: InventoryService,
-    private readonly businessCloudinaryService: BusinessCloudinaryService,
+    // private readonly businessCloudinaryService: BusinessCloudinaryService,
+    private readonly businessFirebaseService: BusinessFirebaseService,
   ) {}
 
   async createProduct(
@@ -67,16 +68,16 @@ export class ProductService {
       );
     }
 
-    const folderPath = `KHS/business/${business.businessName}/products/${createProductDto.productName}`;
+    const folderPath = `KHS/business/${business.id}/products/${sku}`;
 
     let productImage: string;
     try {
-      const { imageUrl } = await this.businessCloudinaryService.uploadImageFromBase64(
+      const { imageUrl } = await this.businessFirebaseService.uploadImageFromBase64(
         productImageBase64,
         folderPath,
       );
       productImage = imageUrl;
-    } catch (error) {
+    } catch (error:any) {
       throw new BadRequestException(
         error.message || 'Failed to create product image',
       );
@@ -84,6 +85,7 @@ export class ProductService {
 
     const product = this.productRepository.create({
       ...createProductDto,
+      ownerId,
       businessId: business.id,
       sku,
       productImage,
@@ -102,6 +104,60 @@ export class ProductService {
     }
 
     return productWithBusiness;
+  }
+
+  async updateProduct(
+    productId: string,
+    updateData: Record<string, any>,
+    ownerId: string,
+    productImageBase64?: string,
+  ): Promise<Product> {
+    const product = await this.productRepository.findOne({
+      where: { id: productId },
+      relations: ['business'],
+    });
+
+    if (!product) {
+      throw new NotFoundException(`Product with ID ${productId} not found`);
+    }
+
+    if (productImageBase64) {
+      const folderPath = `KHS/business/${product.businessId}/products/${product.sku}`;
+      try {
+        const { imageUrl } = await this.businessFirebaseService.uploadImageFromBase64(
+          productImageBase64,
+          folderPath,
+        );
+        product.productImage = imageUrl;
+      } catch (error) {
+        console.error('Firebase upload error:', error);
+      }
+    }
+
+    const { productImageBase64: _, productImage: __, image: ___, ...fields } = updateData;
+
+    Object.assign(product, {
+      ...fields,
+      ...(fields.sellingPrice !== undefined ? { sellingPrice: Number(fields.sellingPrice) } : {}),
+      ...(fields.costPrice !== undefined ? { costPrice: Number(fields.costPrice) } : {}),
+      ...(fields.stockQuantity !== undefined ? { stockQuantity: Number(fields.stockQuantity) } : {}),
+    });
+
+    return await this.productRepository.save(product);
+  }
+
+  async deleteProduct(productId: string, ownerId: string): Promise<{ id: string }> {
+    const product = await this.productRepository.findOne({
+      where: { id: productId },
+    });
+
+    if (!product) {
+      throw new NotFoundException(`Product with ID ${productId} not found`);
+    }
+
+    await this.productRepository.remove(product);
+
+    return { id: productId };
   }
 
   async getProduct(productId: string): Promise<Product> {
@@ -131,6 +187,8 @@ export class ProductService {
     const queryBuilder = this.productRepository.createQueryBuilder('product');
 
     queryBuilder.leftJoinAndSelect('product.business', 'business');
+
+    queryBuilder.andWhere('product.isActive = :isActive', { isActive: true });
 
     if (category && category !== 'all') {
       queryBuilder.andWhere('product.category = :category', { category });
@@ -306,7 +364,7 @@ export class ProductService {
         data: true,
         message: 'Product validation successful',
       };
-    } catch (error) {
+    } catch (error:any) {
       return {
         success: false,
         message: error.message,

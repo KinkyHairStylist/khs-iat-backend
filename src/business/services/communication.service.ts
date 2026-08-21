@@ -133,45 +133,68 @@ export class CommunicationService {
         };
       }
 
-      // Save the message only for valid recipients
+      // Send only to valid recipients - failures for one recipient must not
+      // block delivery to the others, so this never throws; it reports
+      // per-recipient outcomes instead.
+      const { succeeded, failed } = await this.sendCustomMessageEmailBatch(
+        payload,
+        validRecipients,
+      );
+
+      if (succeeded.length === 0) {
+        this.logger.error(
+          `Bulk send failed for all ${validRecipients.length} valid recipient(s): ${JSON.stringify(failed)}`,
+        );
+        return {
+          success: false,
+          error: 'All sends failed',
+          message: 'Failed to send message to any recipient',
+          failedRecipients: failed,
+          invalidRecipients,
+        };
+      }
+
+      // Persist the message with only the recipients it actually reached
       const customMessage = this.communicationRepo.create({
         messageSubject: payload.messageSubject,
         message: payload.message,
-        recipients: validRecipients,
-        sent: false,
+        recipients: succeeded,
+        sent: true,
       });
 
       await this.communicationRepo.save(customMessage);
 
-      // Send to multiple recipients at once
-      await this.sendCustomMessageEmailBatch(payload);
-
-      // Mark as sent
-      customMessage.sent = true;
-      await this.communicationRepo.save(customMessage);
-
-      let invalidMessage = '';
+      const notes: string[] = [];
       if (invalidRecipients.length > 0) {
-        invalidMessage = invalidRecipients
-          .map((r) => `${r.name} <${r.email}>`)
-          .join(', ');
+        notes.push(
+          `Invalid recipients: ${invalidRecipients
+            .map((r) => `${r.name} <${r.email}>`)
+            .join(', ')}`,
+        );
+      }
+      if (failed.length > 0) {
+        this.logger.error(
+          `Bulk send failed for ${failed.length} recipient(s): ${JSON.stringify(failed)}`,
+        );
+        notes.push(
+          `Failed to deliver to: ${failed
+            .map((r) => `${r.name} <${r.email}>`)
+            .join(', ')}`,
+        );
       }
 
       return {
         success: true,
         data: customMessage,
-        message: invalidMessage
-          ? `Message sent to valid clients. Invalid recipients: ${invalidMessage}`
-          : 'Message sent to all recipients successfully',
+        message:
+          notes.length > 0
+            ? `Message sent to ${succeeded.length} of ${payload.recipients.length} recipient(s). ${notes.join(' ')}`
+            : 'Message sent to all recipients successfully',
       };
     } catch (error) {
-      console.error('Bulk send failed:', error);
-      //   console.error('❌ SendGrid Error Details:');
-      //   console.error('Status Code:', error.code);
-      //   console.error(
-      //     'Error Body:',
-      //     JSON.stringify(error.response.body, null, 2),
-      //   );
+      this.logger.error(
+        `Bulk send failed: ${error?.response?.body ? JSON.stringify(error.response.body) : error.message}`,
+      );
 
       return {
         success: false,
@@ -212,8 +235,12 @@ export class CommunicationService {
 
   private async sendCustomMessageEmailBatch(
     data: SendBulkMessageDto,
-  ): Promise<void> {
-    if (!data.recipients || data.recipients.length === 0) {
+    recipients: SendBulkMessageDto['recipients'],
+  ): Promise<{
+    succeeded: SendBulkMessageDto['recipients'];
+    failed: { name: string; email: string; error: string }[];
+  }> {
+    if (!recipients || recipients.length === 0) {
       throw new Error('No recipients provided');
     }
 
@@ -221,35 +248,59 @@ export class CommunicationService {
     const subject = capitalizeString(data.messageSubject);
     const frontendUrl = process.env.FRONTEND_URL || 'https://kinkyhairstylists.com';
     const year = new Date().getFullYear();
-    const BATCH_SIZE = 1000; // SendGrid's limit per request
+    const BATCH_SIZE = 1000; // Cap on concurrent in-flight sends per chunk
 
-    for (let i = 0; i < data.recipients.length; i += BATCH_SIZE) {
-      const batch = data.recipients.slice(i, i + BATCH_SIZE);
+    const succeeded: SendBulkMessageDto['recipients'] = [];
+    const failed: { name: string; email: string; error: string }[] = [];
 
-      const messages = batch.map((user) => {
-        const clientName = user.clientName ?? 'Valued Client';
-        const text = `Dear ${clientName},\n\n${data.message}\n\n${data.closingRemarks ?? 'Thank you'}.`;
+    for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
+      const batch = recipients.slice(i, i + BATCH_SIZE);
 
-        const html = this.templateService.render('communication-bulk', {
-          businessName,
-          clientName,
-          subject,
-          message: data.message,
-          closingRemarks: data.closingRemarks ?? 'Thank you',
-          frontendUrl,
-          year,
-        });
+      // Promise.allSettled (not Promise.all/sgMail.send(array)) is required
+      // here: one recipient's SendGrid rejection must not abort the others'
+      // already-in-flight sends from being reported as successful.
+      const results = await Promise.allSettled(
+        batch.map((user) => {
+          const clientName = user.clientName ?? 'Valued Client';
+          const text = `Dear ${clientName},\n\n${data.message}\n\n${data.closingRemarks ?? 'Thank you'}.`;
 
-        return {
-          to: user.clientEmail,
-          from: { email: this.fromEmail, name: this.fromName },
-          subject,
-          text,
-          html,
-        };
+          const html = this.templateService.render('communication-bulk', {
+            businessName,
+            clientName,
+            subject,
+            message: data.message,
+            closingRemarks: data.closingRemarks ?? 'Thank you',
+            frontendUrl,
+            year,
+          });
+
+          return sgMail.send({
+            to: user.clientEmail,
+            from: { email: this.fromEmail, name: this.fromName },
+            subject,
+            text,
+            html,
+          });
+        }),
+      );
+
+      results.forEach((result, index) => {
+        const recipient = batch[index];
+        if (result.status === 'fulfilled') {
+          succeeded.push(recipient);
+        } else {
+          const reason: any = result.reason;
+          failed.push({
+            name: recipient.clientName,
+            email: recipient.clientEmail,
+            error: reason?.response?.body
+              ? JSON.stringify(reason.response.body)
+              : (reason?.message ?? 'Unknown error'),
+          });
+        }
       });
-
-      await sgMail.send(messages);
     }
+
+    return { succeeded, failed };
   }
 }

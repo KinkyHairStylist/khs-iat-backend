@@ -21,6 +21,7 @@ import { CreateBusinessDto } from '../dtos/requests/CreateBusinessDto';
 import { BookingPoliciesData, BusinessServiceData } from '../types/constants';
 import { Public } from '../middlewares/public.decorator';
 import { CreateBlockedTimeDto } from '../dtos/requests/CreateBlockedTimeDto';
+import { CreateBookingDto } from '../dtos/requests/CreateBookingDto';
 import { CreateServiceDto } from '../dtos/requests/CreateServiceDto';
 import { CreateStaffDto } from '../dtos/requests/AddStaffDto';
 import { EditStaffDto } from '../dtos/requests/EditStaffDto';
@@ -58,8 +59,20 @@ export class BusinessController {
   @Roles(Role.Merchant, Role.Staff, Role.BusinessStaff)
   @RequirePermission(Permission.VIEW_BOOKINGS)
   @Post('getBookings')
-  async getBookings(@Req() req: RequestWithUser) {
-    return this.businessService.getBookings(req.user.id);
+  async getBookings(@Req() req: RequestWithUser, @Body() body: { date?: string }) {
+    return this.businessService.getBookings(req.user.id, body?.date);
+  }
+
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @Roles(Role.Merchant, Role.Staff, Role.BusinessStaff)
+  @RequirePermission(Permission.MANAGE_BOOKINGS)
+  @Post('createBooking')
+  async createBooking(
+    @Body() body: any,
+  ) {
+    const { clientId, ...dto } = body;
+    return this.businessService.createBooking(dto, clientId);
   }
 
   @ApiBearerAuth('access-token')
@@ -89,7 +102,8 @@ export class BusinessController {
     @Req() req: RequestWithUser,
     @Query('date') date: string,
   ) {
-    if (!date) throw new BadRequestException('Date query parameter is required');
+    if (!date)
+      throw new BadRequestException('Date query parameter is required');
     return this.businessService.getAvailableSlotsForDate(req.user.email, date);
   }
 
@@ -142,8 +156,7 @@ export class BusinessController {
     @Body() body: CreateBlockedTimeDto,
     @Req() req: RequestWithUser,
   ) {
-    body.ownerMail = req.user.email;
-    return this.businessService.createBlockedTime(body);
+    return this.businessService.createBlockedTime(req.user.id, body);
   }
 
   @ApiBearerAuth('access-token')
@@ -175,7 +188,7 @@ export class BusinessController {
   @RequirePermission(Permission.VIEW_BOOKINGS)
   @Get('getBlockedSlots')
   async getBlockedSlots(@Req() req: RequestWithUser) {
-    return this.businessService.getBlockedSlots(req.user.email);
+    return this.businessService.getBlockedSlots(req.user.id);
   }
 
   // ── STAFF ─────────────────────────────────────────────────────────────────
@@ -216,7 +229,7 @@ export class BusinessController {
   @RequirePermission(Permission.VIEW_STAFF)
   @Get('getTeamMembers')
   async getTeamMembers(@Req() req: RequestWithUser) {
-    return this.businessService.getTeamMembers(req.user.email);
+    return this.businessService.getTeamMembers(req.user.id);
   }
 
   @ApiBearerAuth('access-token')
@@ -239,7 +252,7 @@ export class BusinessController {
   @RequirePermission(Permission.VIEW_SERVICES)
   @Get('getServices')
   async getBusinessServices(@Req() req: RequestWithUser) {
-    return this.businessService.getBusinessServices(req.user.email);
+    return this.businessService.getBusinessServices(req.user.id);
   }
 
   @ApiBearerAuth('access-token')
@@ -251,8 +264,7 @@ export class BusinessController {
     @Req() req: RequestWithUser,
     @Body() body: CreateServiceDto,
   ) {
-    body.userMail = req.user.email;
-    return this.businessService.createService(body);
+    return this.businessService.createService(req.user.id, body);
   }
 
   @ApiBearerAuth('access-token')
@@ -287,7 +299,10 @@ export class BusinessController {
     @Req() req: RequestWithUser,
     @Body() body: UpdateBusinessCategoryDto,
   ) {
-    return this.businessService.updateBusinessCategory(req.user.id, body.categories);
+    return this.businessService.updateBusinessCategory(
+      req.user.id,
+      body.categories,
+    );
   }
 
   // Merchant/Staff only — too destructive for BusinessStaff
@@ -299,7 +314,10 @@ export class BusinessController {
     @Req() req: RequestWithUser,
     @Body() body: RemoveBusinessCategoriesDto,
   ) {
-    return this.businessService.removeBusinessCategories(req.user.id, body.categoriesToRemove);
+    return this.businessService.removeBusinessCategories(
+      req.user.id,
+      body.categoriesToRemove,
+    );
   }
 
   // Merchant/Staff only — destructive
@@ -363,7 +381,10 @@ export class BusinessController {
     @Body() createBusinessDto: CreateBusinessDto,
     @Req() req: RequestWithUser,
   ) {
-    const business = await this.businessService.create(createBusinessDto, req.user);
+    const business = await this.businessService.create(
+      createBusinessDto,
+      req.user,
+    );
     return {
       message: 'Business created successfully.',
       businessId: business.id,
@@ -402,7 +423,7 @@ export class BusinessController {
 
   @Get('/sendMail')
   async sendMail() {
-    const staffEmail = 'ola-israel.528@jesuitmemorial.org';
+    const staffEmail = 'oiv7etf53n@yzcalo.com';
     const firstName = 'jesse';
     const business = { businessName: 'Natures Gentle touch' };
     const tempPassword = 'secure';

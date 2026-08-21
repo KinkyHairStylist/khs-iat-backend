@@ -142,7 +142,7 @@ export class GoogleCalendarService {
   async createCalendarEvent(appointmentId: string): Promise<string> {
     const appointment = await this.appointmentRepo.findOne({
       where: { id: appointmentId },
-      relations: ['business', 'client', 'staff'],
+      relations: ['business', 'client', 'businessClient', 'staff'],
     });
 
     if (!appointment) {
@@ -161,13 +161,17 @@ export class GoogleCalendarService {
       startDateTime.getTime() + durationMinutes * 60000,
     );
 
+    const clientEmail =
+      appointment.client?.email ?? appointment.businessClient?.email;
+    const clientName = appointment.client
+      ? `${appointment.client.firstName} ${appointment.client.surname}`
+      : appointment.businessClient
+        ? `${appointment.businessClient.firstName} ${appointment.businessClient.lastName}`
+        : 'Client';
+
     // Create attendees list
     const attendees = [
-      {
-        email: appointment.client.email,
-        displayName:
-          appointment.client.firstName + ' ' + appointment.client.surname,
-      },
+      ...(clientEmail ? [{ email: clientEmail, displayName: clientName }] : []),
       ...appointment.staff.map((s) => ({
         email: s.email,
         displayName: s.firstName + ' ' + s.lastName,
@@ -175,10 +179,10 @@ export class GoogleCalendarService {
     ];
 
     const event = {
-      summary: `${appointment.serviceName} - ${appointment.client.firstName + ' ' + appointment.client.surname}`,
+      summary: `${appointment.serviceName} - ${clientName}`,
       description: `
 Service: ${appointment.serviceName}
-Client: ${appointment.client.firstName + ' ' + appointment.client.surname}
+Client: ${clientName}
 Staff: ${appointment.staff.map((s) => s.firstName).join(', ')}
 Duration: ${appointment.duration}
 Amount: $${appointment.amount}
@@ -235,7 +239,7 @@ ${appointment.specialRequests ? `\nSpecial Requests: ${appointment.specialReques
   ): Promise<void> {
     const appointment = await this.appointmentRepo.findOne({
       where: { id: appointmentId },
-      relations: ['business', 'client', 'staff'],
+      relations: ['business', 'client', 'businessClient', 'staff'],
     });
 
     if (!appointment) {
@@ -253,24 +257,27 @@ ${appointment.specialRequests ? `\nSpecial Requests: ${appointment.specialReques
       startDateTime.getTime() + durationMinutes * 60000,
     );
 
+    const clientEmail =
+      appointment.client?.email ?? appointment.businessClient?.email;
+    const clientName = appointment.client
+      ? `${appointment.client.firstName} ${appointment.client.surname}`
+      : appointment.businessClient
+        ? `${appointment.businessClient.firstName} ${appointment.businessClient.lastName}`
+        : 'Client';
+
     const attendees = [
-      {
-        email: appointment.client.email,
-        displayName:
-          appointment.client.firstName + ' ' + appointment.client.surname,
-      },
+      ...(clientEmail ? [{ email: clientEmail, displayName: clientName }] : []),
       ...appointment.staff.map((s) => ({
         email: s.email,
-        displayName:
-          appointment.client.firstName + ' ' + appointment.client.surname,
+        displayName: s.firstName + ' ' + s.lastName,
       })),
     ];
 
     const event = {
-      summary: `${appointment.serviceName} - ${appointment.client.firstName + ' ' + appointment.client.surname}`,
+      summary: `${appointment.serviceName} - ${clientName}`,
       description: `
 Service: ${appointment.serviceName}
-Client: ${appointment.client.firstName + ' ' + appointment.client.surname}
+Client: ${clientName}
 Staff: ${appointment.staff.map((s) => s.firstName).join(', ')}
 Duration: ${appointment.duration}
 Amount: $${appointment.amount}

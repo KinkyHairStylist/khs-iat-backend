@@ -14,6 +14,7 @@ import { Service } from './service.entity'
 import { User } from 'src/all_user_entities/user.entity';
 import { Business } from './business.entity';
 import { Staff } from './staff.entity';
+import { ClientSchema } from './client.entity';
 
 export enum AppointmentStatus {
   CONFIRMED = 'Confirmed',
@@ -33,12 +34,24 @@ export class Appointment {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  // Client (User)
+  // Client (signed-up platform user) — set for self-service bookings made
+  // by a customer through their own account.
   @ManyToOne(() => User, (user) => user.clientAppointments, {
+    nullable: true,
     onDelete: 'CASCADE',
   })
   @JoinColumn({ name: 'client_id' })
-  client: User;
+  client?: User;
+
+  // Business client (CRM record under Client Management) — set for bookings
+  // a merchant creates on behalf of a client who may not have a platform
+  // account (walk-ins etc).
+  @ManyToOne(() => ClientSchema, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
+  @JoinColumn({ name: 'business_client_id' })
+  businessClient?: ClientSchema;
 
   @Column({ type: 'varchar', nullable: true })
   orderId: string;
@@ -93,12 +106,33 @@ export class Appointment {
   })
   paymentStatus: PaymentStatus;
 
+  // Client confirming their own intent to attend (distinct from the
+  // salon-side AppointmentStatus.CONFIRMED, which the merchant sets).
+  @Column({ type: 'timestamptz', nullable: true })
+  clientConfirmedAt?: Date;
+
   // Optional Notes
   @Column({ type: 'text', nullable: true })
   specialRequests?: string;
 
   @Column({ type: 'text', nullable: true })
   cancellationsNote?: string;
+
+  // When this appointment was cancelled — separate from updatedAt, which
+  // changes on every unrelated edit (reschedule, restore, staff change).
+  // Needed to sort/list cancelled bookings by actual cancellation recency.
+  @Column({ type: 'timestamptz', nullable: true })
+  cancelledAt?: Date;
+
+  // Staged new date/time for a Rebook of a Cancelled appointment. Kept
+  // separate from date/time so an abandoned rebook (never paid) leaves the
+  // original cancelled booking completely untouched — these are only
+  // promoted into date/time once payment actually succeeds.
+  @Column({ type: 'varchar', nullable: true })
+  pendingRebookDate?: string;
+
+  @Column({ type: 'varchar', nullable: true })
+  pendingRebookTime?: string;
 
   // Appointment timeline
   @Column({

@@ -263,11 +263,16 @@ export class ZohoBooksService {
   async createOrGetCustomer(appointmentId: string): Promise<string> {
     const appointment = await this.appointmentRepo.findOne({
       where: { id: appointmentId },
-      relations: ['client', 'business'],
+      relations: ['client', 'businessClient', 'business'],
     });
 
     if (!appointment) {
       throw new NotFoundException('Appointment not found');
+    }
+
+    const email = appointment.client?.email ?? appointment.businessClient?.email;
+    if (!email) {
+      throw new BadRequestException('Client has no email on file');
     }
 
     const { client, organizationId } = await this.getClient(
@@ -279,7 +284,7 @@ export class ZohoBooksService {
       const searchResponse = await client.get('/contacts', {
         params: {
           organization_id: organizationId,
-          email: appointment.client.email,
+          email,
         },
       });
 
@@ -291,17 +296,28 @@ export class ZohoBooksService {
       }
 
       // Create new customer
-      const nameParts = appointment.client.firstName.trim().split(' ');
-      const firstName = nameParts[0] || '';
-      const lastName = nameParts.slice(1).join(' ') || '';
+      let firstName: string;
+      let lastName: string;
+      let phone: string;
+
+      if (appointment.client) {
+        const nameParts = appointment.client.firstName.trim().split(' ');
+        firstName = nameParts[0] || '';
+        lastName = nameParts.slice(1).join(' ') || '';
+        phone = appointment.client.phoneNumber || '';
+      } else {
+        firstName = appointment.businessClient?.firstName || '';
+        lastName = appointment.businessClient?.lastName || '';
+        phone = appointment.businessClient?.phone || '';
+      }
 
       const customerData = {
-        contact_name: appointment.client.firstName,
+        contact_name: `${firstName} ${lastName}`.trim(),
         contact_type: 'customer',
         first_name: firstName,
         last_name: lastName,
-        email: appointment.client.email,
-        phone: appointment.client.phoneNumber || '',
+        email,
+        phone,
       };
 
       const createResponse = await client.post('/contacts', {

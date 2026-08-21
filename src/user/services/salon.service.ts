@@ -109,9 +109,16 @@ export class SalonService {
             ("business"."luxuryOverride" IS NULL AND COALESCE((business.performance->>'rating')::FLOAT, 0) >= 4.5))`,
       );
     }
-    // Filter by services using the real Service relation
-    if (services.length > 0) {
-      services.forEach((service, index) => {
+    // Filter by services using the real Service relation. Silently drop
+    // any value that isn't a real ServiceType — comparing an enum column
+    // to an invalid value throws at the Postgres level (invalid input
+    // value for enum), which otherwise surfaces as an unhandled 500
+    // instead of just excluding the bad filter.
+    const validServices = services.filter((service) =>
+      Object.values(ServiceType).includes(service as ServiceType),
+    );
+    if (validServices.length > 0) {
+      validServices.forEach((service, index) => {
         query = query.leftJoin('business.serviceList', `serviceList${index}`);
         query = query.andWhere(
           `serviceList${index}.serviceType = :service${index}`,
@@ -174,14 +181,33 @@ export class SalonService {
       .take(limit)
       .getManyAndCount();
 
-    // Load services separately to avoid join issues with pagination
-    for (const business of data) {
-      business.serviceList = await this.serviceRepo.find({
+    // Load services for all businesses in ONE query (not one query per
+    // business — that N+1 pattern was fine at ~20 rows but turned into 70+
+    // sequential round-trips once the dataset grew, visibly slowing the
+    // page down). Group in memory instead.
+    if (data.length > 0) {
+      const businessIds = data.map((b) => b.id);
+      const allServices = await this.serviceRepo.find({
         where: {
-          business: { id: business.id },
-          ...(services.length > 0 ? { serviceType: In(services) } : {}),
+          business: { id: In(businessIds) },
+          ...(validServices.length > 0 ? { serviceType: In(validServices) } : {}),
         },
+        relations: ['business'],
       });
+
+      const servicesByBusinessId = new Map<string, Service[]>();
+      for (const service of allServices) {
+        const businessId = service.business?.id;
+        if (!businessId) continue;
+        if (!servicesByBusinessId.has(businessId)) {
+          servicesByBusinessId.set(businessId, []);
+        }
+        servicesByBusinessId.get(businessId)!.push(service);
+      }
+
+      for (const business of data) {
+        business.serviceList = servicesByBusinessId.get(business.id) ?? [];
+      }
     }
 
     return { data, total, page, limit };
@@ -234,18 +260,21 @@ export class SalonService {
       .where('business.status = :status', { status: BusinessStatus.APPROVED })
       .getRawMany();
 
-    const locations = Array.from(
-      new Set(
-        businesses
-          .map((b) => {
-            const addr = b.address || '';
-            const parts = addr.split(',');
-            return parts[parts.length - 1]?.trim() || '';
-          })
-          .filter((loc) => loc.length > 0),
-      ),
-    );
+    // Dedup case-insensitively — the same location can arrive as "Lagos"
+    // from one seed/entry and "lagos" from another. Keyed by lowercase,
+    // keeping the first-seen casing as the canonical display value.
+    const seen = new Map<string, string>();
+    for (const b of businesses) {
+      const addr = b.address || '';
+      const parts = addr.split(',');
+      const loc = parts[parts.length - 1]?.trim() || '';
+      if (!loc) continue;
+      const key = loc.toLowerCase();
+      if (!seen.has(key)) {
+        seen.set(key, loc);
+      }
+    }
 
-    return locations.sort();
+    return Array.from(seen.values()).sort((a, b) => a.localeCompare(b));
   }
 }

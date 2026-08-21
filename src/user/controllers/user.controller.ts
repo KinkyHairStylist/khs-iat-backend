@@ -17,6 +17,8 @@ import { AuthGuard } from '@nestjs/passport';
 import type { Response } from 'express';
 import { Session } from 'express-session';
 import { UserService } from '../services/user.service';
+import { NotificationService } from 'src/notifications/notification.service';
+import { NotificationType } from 'src/notifications/notification.enum';
 import {
   GetStartedDto,
   VerifyCodeDto,
@@ -50,7 +52,10 @@ interface RequestWithSession extends Request {
 @ApiTags('Customer') // Groups all endpoints under 'User' in Swagger
 @Controller()
 export class UserController {
-  constructor(private readonly userService: UserService) {}
+  constructor(
+    private readonly userService: UserService,
+    private readonly notificationService: NotificationService,
+  ) {}
 
   @Public()
   @Post('/auth/get-started')
@@ -135,6 +140,17 @@ export class UserController {
     if (result.user) {
       req.session.userId = result.user.id;
       req.session.isAuthenticated = true;
+
+      try {
+        await this.notificationService.create({
+          userId: result.user.id,
+          type: NotificationType.SYSTEM,
+          title: 'Logged In',
+          message: 'You have logged in successfully.',
+        });
+      } catch (err) {
+        console.error('Failed to create login notification:', err);
+      }
     }
 
     return result;
@@ -147,6 +163,19 @@ export class UserController {
     @Req() req: RequestWithSession,
     @Res({ passthrough: true }) res: Response,
   ) {
+    const userId = req.session.userId;
+    if (userId) {
+      try {
+        await this.notificationService.create({
+          userId,
+          type: NotificationType.SYSTEM,
+          title: 'Logged Out',
+          message: 'You have logged out successfully.',
+        });
+      } catch (err) {
+        console.error('Failed to create logout notification:', err);
+      }
+    }
     return new Promise((resolve) => {
       req.session.destroy((err: any) => {
         if (err) {

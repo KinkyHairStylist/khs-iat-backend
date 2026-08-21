@@ -257,7 +257,7 @@ export class AdminService {
   async rescheduleAppointment(body) {
     const appointment = await this.appointmentRepo.findOne({
       where: { id: body.id },
-      relations: ['client', 'business'],
+      relations: ['client', 'businessClient', 'business'],
     });
     if (!appointment) {
       throw new Error('Appointment not found');
@@ -266,12 +266,16 @@ export class AdminService {
     appointment.time = body.time;
     appointment.status = AppointmentStatus.RESCHEDULED;
 
-    await this.emailService.sendEmail(
-      appointment.client.email,
-      `Appointment with ${appointment.business.businessName} `,
-      `your appointment has been rescheduled to ${appointment.date} at ${appointment.time}`,
-      '',
-    );
+    const recipientEmail =
+      appointment.client?.email ?? appointment.businessClient?.email;
+    if (recipientEmail) {
+      await this.emailService.sendEmail(
+        recipientEmail,
+        `Appointment with ${appointment.business.businessName} `,
+        `your appointment has been rescheduled to ${appointment.date} at ${appointment.time}`,
+        '',
+      );
+    }
     return this.appointmentRepo.save(appointment);
   }
 

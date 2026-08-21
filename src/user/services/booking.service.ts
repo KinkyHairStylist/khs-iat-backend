@@ -24,7 +24,20 @@ import {
 import { WalletCurrency } from 'src/admin/payment/enums/wallet.enum';
 import { PlatformSettingsService } from 'src/admin/platform-settings/platform-settings.service';
 import { EmailService } from 'src/email/email.service';
+import { NotificationSettingsService } from './notification-settings.service';
 import { PaystackService } from 'src/payment/paystack.service';
+import { StripeService } from 'src/payment/stripe.service';
+import {
+  StripePaymentIntent,
+  StripeEscrowStatus,
+} from 'src/payment/entities/stripe-payment-intent.entity';
+import {
+  Refund,
+  RefundStatus,
+  RefundMethod,
+} from 'src/user/user_entities/refund.entity';
+import { NotificationService } from 'src/notifications/notification.service';
+import { NotificationType } from 'src/notifications/notification.enum';
 import { Card } from 'src/all_user_entities/card.entity';
 import { BusinessGiftCard } from 'src/business/entities/business-giftcard.entity';
 import { BusinessGiftCardStatus } from 'src/business/enum/gift-card.enum';
@@ -54,13 +67,28 @@ export class BookingService {
     private clientRepository: Repository<ClientSchema>,
     @InjectRepository(Card)
     private cardRepository: Repository<Card>,
+    @InjectRepository(StripePaymentIntent)
+    private stripePaymentIntentRepository: Repository<StripePaymentIntent>,
+    @InjectRepository(Refund)
+    private refundRepository: Repository<Refund>,
     private platformSettingsService: PlatformSettingsService,
     private reviewService: ReviewService,
     private readonly dataSource: DataSource,
     private readonly paystack: PaystackService,
+    private readonly stripeService: StripeService,
     private readonly walletService: BusinessWalletService,
     private readonly emailService: EmailService,
+    private readonly notificationSettingsService: NotificationSettingsService,
+    private readonly notificationService: NotificationService,
   ) {}
+
+  // Booking confirmation emails should only be sent if the customer hasn't
+  // turned them off in Settings — defaults to true (matches the entity's
+  // column default) if they've never saved a preference.
+  private async shouldSendBookingConfirmationEmail(user: User): Promise<boolean> {
+    const settings = await this.notificationSettingsService.getSettings(user);
+    return settings.emailBookingConfirmations;
+  }
 
   // Create Booking
   async createBooking(
@@ -85,6 +113,7 @@ export class BookingService {
     for (const serviceId of createBookingDto.serviceIds) {
       const service = await this.serviceRepository.findOne({
         where: { id: serviceId },
+        relations:['assignedStaff'],
       });
 
       if (!service) {
@@ -115,11 +144,24 @@ export class BookingService {
     return { orderId, appointments };
   }
 
+  // Promotes a staged Rebook date/time onto the real date/time fields and
+  // clears the staging columns. Called only at the point payment actually
+  // succeeds — mutates in place, caller is responsible for saving.
+  private applyPendingRebookDate(appointment: Appointment): void {
+    if (appointment.pendingRebookDate && appointment.pendingRebookTime) {
+      appointment.date = appointment.pendingRebookDate;
+      appointment.time = appointment.pendingRebookTime;
+      appointment.pendingRebookDate = undefined;
+      appointment.pendingRebookTime = undefined;
+    }
+  }
+
   // ------------------------------------------------------
   // Step 1 — Confirm/Initialize Booking Payment
   // ------------------------------------------------------
   async confirmBooking(confirmBookingDto: any, user: User): Promise<any> {
-    const { orderId, payAtVenue, cardId, giftCard } = confirmBookingDto;
+    const { orderId, payAtVenue, cardId, giftCard, paymentProvider } =
+      confirmBookingDto;
 
     // Find all appointments for this orderId
     const appointments = await this.bookingRepository.find({
@@ -201,6 +243,7 @@ export class BookingService {
         for (const appointment of appointments) {
           appointment.status = AppointmentStatus.CONFIRMED;
           appointment.paymentStatus = PaymentStatus.PAID;
+          this.applyPendingRebookDate(appointment);
         }
         await manager.save(Appointment, appointments);
 
@@ -275,7 +318,7 @@ export class BookingService {
           console.error('Failed to add funds to business wallet:', walletError);
         }
 
-        if (user.email) {
+        if (user.email && (await this.shouldSendBookingConfirmationEmail(user))) {
           const serviceNames = [
             ...new Set(appointments.map((a) => a.serviceName)),
           ].join(', ');
@@ -323,6 +366,7 @@ export class BookingService {
         for (const appointment of appointments) {
           appointment.status = AppointmentStatus.CONFIRMED;
           appointment.paymentStatus = PaymentStatus.UNPAID; // Pay at venue - will be paid later
+          this.applyPendingRebookDate(appointment);
         }
         await manager.save(Appointment, appointments);
 
@@ -381,7 +425,7 @@ export class BookingService {
           await manager.save(Transaction, feeTx);
         }
 
-        if (user.email) {
+        if (user.email && (await this.shouldSendBookingConfirmationEmail(user))) {
           const serviceNames = [
             ...new Set(appointments.map((a) => a.serviceName)),
           ].join(', ');
@@ -395,8 +439,52 @@ export class BookingService {
           );
         }
 
+        try {
+          const serviceNames = [
+            ...new Set(appointments.map((a) => a.serviceName)),
+          ].join(', ');
+          await this.notificationService.create({
+            userId: user.id,
+            type: NotificationType.BOOKING_CONFIRMED,
+            title: 'Booking Confirmed',
+            message: `Your booking at ${appointments[0].business?.businessName || 'the salon'} for ${serviceNames} has been confirmed.`,
+            link: '/customer/bookings',
+            metadata: {
+              orderId,
+              salonId: appointments[0].business?.id,
+              salonName: appointments[0].business?.businessName,
+            },
+          });
+        } catch (err) {
+          this.logger.error('Failed to create in-app notification for pay-at-venue:', err);
+        }
+
+          // ADD MERCHANT NOTIFICATION HERE
+    try {
+      const firstAppointment = appointments[0];
+      const merchantId = firstAppointment.business?.ownerId || firstAppointment.business?.owner?.id;
+      const serviceNames = [...new Set(appointments.map((a) => a.serviceName))].join(', ');
+      if (merchantId) {
+        await this.notificationService.create({
+          userId: merchantId,
+          type: NotificationType.BOOKING_CONFIRMED,
+          title: 'New Booking Confirmed',
+          message: `A new booking has been placed by ${user.firstName} ${user.surname} for ${serviceNames}.`,
+          link: '/merchant/dashboard/appointments',
+          metadata: {
+            orderId,
+            salonId: firstAppointment.business?.id,
+            customerId: user.id,
+          },
+        });
+      }
+    } catch (err) {
+      this.logger.error('Failed to send merchant booking notification (Stripe):', err);
+    }
+
         return {
           message: 'Booking confirmed. Payment will be collected at venue.',
+          user,
           bookingAmount,
           platformFee: feeAmount,
           totalAmount: roundedTotalAmount,
@@ -407,8 +495,10 @@ export class BookingService {
       });
     }
 
-    // If remaining amount exists and no card ID provided, throw error
-    if (remainingToPay > 0 && !cardId) {
+    // If remaining amount exists and no card ID provided, throw error —
+    // Stripe doesn't use a pre-saved cardId the way Paystack does, so this
+    // guard only applies to the Paystack path.
+    if (paymentProvider !== 'stripe' && remainingToPay > 0 && !cardId) {
       throw new BadRequestException(
         'Payment method required for remaining amount',
       );
@@ -426,6 +516,110 @@ export class BookingService {
       if (card.user?.id !== user.id) {
         throw new ForbiddenException('You cannot use this payment method');
       }
+    }
+
+    // Handle card payment via Stripe — a fully separate path from Paystack
+    // below. Stripe funds are held in escrow (StripePaymentIntent) and only
+    // credited to the business wallet when the appointment is later marked
+    // Completed, unlike Paystack's immediate-credit-on-payment model.
+    if (paymentProvider === 'stripe' && remainingToPay > 0) {
+      const businessId = appointments[0].business.id;
+      const paymentIntent = await this.stripeService.createPaymentIntent({
+        amount: Math.round(remainingToPay * 100), // Convert to cents
+        currency: 'usd',
+        customerEmail: user.email,
+        metadata: {
+          orderId,
+          userId: user.id,
+          businessId,
+          bookingAmount,
+          feeAmount,
+        },
+      });
+
+      const stripePaymentIntent = this.stripePaymentIntentRepository.create({
+        orderId,
+        businessId,
+        userId: user.id,
+        stripePaymentIntentId: paymentIntent.id,
+        amount: remainingToPay,
+        currency: 'usd',
+        bookingAmount,
+        feeAmount,
+        status: StripeEscrowStatus.PENDING,
+      });
+      await this.stripePaymentIntentRepository.save(stripePaymentIntent);
+
+      const stripeTransactions: Transaction[] = [];
+
+      if (giftCardPayment > 0) {
+        stripeTransactions.push(
+          this.transactionRepository.create({
+            senderId: user.id,
+            recipientId: appointments[0].business.owner?.id,
+            amount: giftCardPayment,
+            type: TransactionType.DEBIT,
+            currency: WalletCurrency.USD,
+            description: `Gift card portion for appointment order ${orderId}`,
+            mode: 'Web',
+            referenceId: paymentIntent.id,
+            status: TxnStatus.PENDING,
+            method: PaymentMethod.GIFTCARD,
+            service: 'Booking',
+            customerName: `${user.firstName} ${user.surname}`,
+          }),
+        );
+      }
+
+      stripeTransactions.push(
+        this.transactionRepository.create({
+          senderId: user.id,
+          recipientId: appointments[0].business.owner?.id,
+          amount: remainingToPay,
+          type: TransactionType.DEBIT,
+          currency: WalletCurrency.USD,
+          description: `Card payment (Stripe) for appointment order ${orderId}`,
+          mode: 'Web',
+          referenceId: paymentIntent.id,
+          status: TxnStatus.PENDING,
+          method: PaymentMethod.STRIPE,
+          service: 'Booking',
+          customerName: `${user.firstName} ${user.surname}`,
+        }),
+      );
+
+      if (feeAmount > 0) {
+        stripeTransactions.push(
+          this.transactionRepository.create({
+            senderId: user.id,
+            amount: feeAmount,
+            type: TransactionType.FEE,
+            currency: WalletCurrency.USD,
+            description: `Platform fee for appointment order ${orderId}`,
+            mode: 'Web',
+            referenceId: paymentIntent.id,
+            status: TxnStatus.PENDING,
+            method: PaymentMethod.STRIPE,
+            service: 'Booking-Fee',
+            customerName: `${user.firstName} ${user.surname}`,
+          }),
+        );
+      }
+
+      await this.transactionRepository.save(stripeTransactions);
+
+  
+
+      return {
+        message: 'Payment initialized',
+        bookingAmount,
+        platformFee: feeAmount,
+        totalAmount: roundedTotalAmount,
+        giftCardAmountUsed: giftCardPayment,
+        cardAmountToPay: remainingToPay,
+        clientSecret: paymentIntent.client_secret,
+        paymentIntentId: paymentIntent.id,
+      };
     }
 
     // Handle card payment (Paystack) - Initialize payment
@@ -603,6 +797,7 @@ export class BookingService {
         for (const appointment of appointments) {
           appointment.status = AppointmentStatus.CONFIRMED;
           appointment.paymentStatus = PaymentStatus.PAID;
+          this.applyPendingRebookDate(appointment);
         }
         await manager.save(Appointment, appointments);
 
@@ -648,6 +843,7 @@ export class BookingService {
 
         return {
           appointments,
+          user,
           bookingAmount,
           platformFee: feeAmount,
           giftCardAmountUsed: giftCardAmount,
@@ -655,11 +851,12 @@ export class BookingService {
           totalPaid: verification.amount / 100 + giftCardAmount,
           userEmail: user.email,
           userFirstName: user.firstName,
+          shouldSendConfirmationEmail: await this.shouldSendBookingConfirmationEmail(user),
         };
       },
     );
 
-    if (result.userEmail) {
+    if (result.userEmail && result.shouldSendConfirmationEmail) {
       const serviceNames = [
         ...new Set(result.appointments.map((a) => a.serviceName)),
       ].join(', ');
@@ -671,6 +868,51 @@ export class BookingService {
         result.appointments[0].date,
         result.appointments[0].time,
       );
+    }
+
+    try {
+      const firstAppointment = result.appointments[0];
+      const serviceNames = [
+        ...new Set(result.appointments.map((a) => a.serviceName)),
+      ].join(', ');
+
+      await this.notificationService.create({
+        userId: meta.userId,
+        type: NotificationType.BOOKING_CONFIRMED,
+        title: 'Booking Confirmed',
+        message: `Your booking at ${firstAppointment.business?.businessName || 'the salon'} for ${serviceNames} has been confirmed.`,
+        link: '/customer/bookings',
+        metadata: {
+          orderId,
+          salonId: firstAppointment.business?.id,
+          salonName: firstAppointment.business?.businessName,
+        },
+      });
+    } catch (err) {
+      this.logger.error('Failed to create in-app notification for online booking completion:', err);
+    }
+
+      // ADD MERCHANT NOTIFICATION HERE
+    try {
+      const firstAppointment = result.appointments[0];
+      const merchantId = firstAppointment.business?.ownerId || firstAppointment.business?.owner?.id;
+      const serviceNames = [...new Set(result.appointments.map((a) => a.serviceName))].join(', ');
+      if (merchantId) {
+        await this.notificationService.create({
+          userId: merchantId,
+          type: NotificationType.BOOKING_CONFIRMED,
+          title: 'New Booking Confirmed',
+          message: `A new booking has been placed by ${result.user.firstName} ${result.user.surname} for ${serviceNames}.`,
+          link: '/merchant/dashboard/appointments',
+          metadata: {
+            orderId,
+            salonId: firstAppointment.business?.id,
+            customerId: result.user.id,
+          },
+        });
+      }
+    } catch (err) {
+      this.logger.error('Failed to send merchant booking notification (Stripe):', err);
     }
 
     // Add funds to business wallet (outside transaction to avoid deadlock)
@@ -716,8 +958,191 @@ export class BookingService {
     };
   }
 
+  // ------------------------------------------------------
+  // Stripe — Handle payment_intent.succeeded webhook
+  // ------------------------------------------------------
+  // Unlike completeBooking (Paystack), this does NOT credit the business
+  // wallet — Stripe-funded bookings stay HELD until the appointment is
+  // marked Completed (see BusinessService.completeBooking's release hook).
+  async handleStripePaymentSucceeded(
+    paymentIntentId: string,
+    chargeId?: string | null,
+  ): Promise<void> {
+    const spi = await this.stripePaymentIntentRepository.findOne({
+      where: { stripePaymentIntentId: paymentIntentId },
+    });
+    if (!spi) {
+      this.logger.warn(
+        `No StripePaymentIntent found for ${paymentIntentId} — ignoring webhook`,
+      );
+      return;
+    }
+
+    // Webhooks can be delivered more than once — no-op if already processed.
+    if (spi.status !== StripeEscrowStatus.PENDING) {
+      return;
+    }
+
+    if (chargeId) {
+      spi.stripeChargeId = chargeId;
+    }
+
+    const orderId = spi.orderId;
+
+    const result = await this.dataSource.manager.transaction(
+      async (manager) => {
+        const appointments = await manager.find(Appointment, {
+          where: { orderId },
+          relations: ['business', 'business.owner'],
+        });
+        if (appointments.length === 0) {
+          throw new NotFoundException('Appointments not found');
+        }
+
+        const user = await manager.findOne(User, {
+          where: { id: spi.userId },
+        });
+        if (!user) throw new NotFoundException('User not found');
+
+        for (const appointment of appointments) {
+          appointment.status = AppointmentStatus.CONFIRMED;
+          appointment.paymentStatus = PaymentStatus.PAID;
+          this.applyPendingRebookDate(appointment);
+        }
+        await manager.save(Appointment, appointments);
+
+        await manager.update(
+          Transaction,
+          { referenceId: paymentIntentId, service: 'Booking' },
+          { status: TxnStatus.COMPLETED },
+        );
+        await manager.update(
+          Transaction,
+          { referenceId: paymentIntentId, service: 'Booking-Fee' },
+          { status: TxnStatus.COMPLETED },
+        );
+
+        spi.status = StripeEscrowStatus.HELD;
+        spi.heldAt = new Date();
+        await manager.save(StripePaymentIntent, spi);
+
+        return {
+          appointments,
+          user,
+          userEmail: user.email,
+          userFirstName: user.firstName,
+          shouldSendConfirmationEmail:
+            await this.shouldSendBookingConfirmationEmail(user),
+        };
+      },
+    );
+
+    if (result.userEmail && result.shouldSendConfirmationEmail) {
+      const serviceNames = [
+        ...new Set(result.appointments.map((a) => a.serviceName)),
+      ].join(', ');
+      this.emailService.sendBookingConfirmationEmail(
+        result.userEmail,
+        result.userFirstName || 'Valued Customer',
+        result.appointments[0].business?.businessName || 'the salon',
+        serviceNames,
+        result.appointments[0].date,
+        result.appointments[0].time,
+      );
+    }
+
+      // ADD MERCHANT NOTIFICATION HERE
+    try {
+      const firstAppointment = result.appointments[0];
+      const merchantId = firstAppointment.business?.ownerId || firstAppointment.business?.owner?.id;
+      const serviceNames = [...new Set(result.appointments.map((a) => a.serviceName))].join(', ');
+      if (merchantId) {
+        await this.notificationService.create({
+          userId: merchantId,
+          type: NotificationType.BOOKING_CONFIRMED,
+          title: 'New Booking Confirmed',
+          message: `A new booking has been placed by ${result.user.firstName} ${result.user.surname} for ${serviceNames}.`,
+          link: '/merchant/dashboard/appointments',
+          metadata: {
+            orderId,
+            salonId: firstAppointment.business?.id,
+            customerId: result.user.id,
+          },
+        });
+      }
+    } catch (err) {
+      this.logger.error('Failed to send merchant booking notification (Stripe):', err);
+    }
+  }
+
+  
+
+  // Stripe — Handle payment_intent.payment_failed webhook
+  async handleStripePaymentFailed(paymentIntentId: string): Promise<void> {
+    await this.stripePaymentIntentRepository.update(
+      { stripePaymentIntentId: paymentIntentId },
+      { status: StripeEscrowStatus.FAILED },
+    );
+    await this.transactionRepository.update(
+      { referenceId: paymentIntentId },
+      { status: TxnStatus.FAILED },
+    );
+  }
+
+  // Refund policy: the customer gets back the service amount minus KHS's
+  // own platform fee minus Stripe's real processing fee for that specific
+  // charge (looked up from Stripe, not estimated — the exact rate varies
+  // by card type/country). Returns the refundable amount in cents: 0 or
+  // negative means there's nothing left to refund after those deductions.
+  private async calculateStripeRefundAmountCents(
+    spi: StripePaymentIntent,
+  ): Promise<number> {
+    if (!spi.stripeChargeId) {
+      throw new BadRequestException(
+        `Stripe charge ID missing for payment intent ${spi.stripePaymentIntentId} — cannot compute refund`,
+      );
+    }
+
+    const stripeFeeCents = await this.stripeService.getChargeFee(
+      spi.stripeChargeId,
+    );
+    const bookingAmountCents = Math.round(spi.bookingAmount * 100);
+    const platformFeeCents = Math.round(spi.feeAmount * 100);
+
+    return bookingAmountCents - platformFeeCents - stripeFeeCents;
+  }
+
   // Get User Bookings
+  // Appointments are created as PENDING the moment a client picks a date/
+  // time, before payment — holding the slot while they go through the
+  // payment page. If they never come back to pay, the row would otherwise
+  // sit forever looking like a real upcoming booking. Lazily expire any
+  // PENDING appointment older than this on every fetch, rather than
+  // running a background job for it.
+  private static readonly PENDING_EXPIRY_MINUTES = 30;
+
+  private async expireStalePendingBookings(userId: string): Promise<void> {
+    const cutoff = new Date(
+      Date.now() - BookingService.PENDING_EXPIRY_MINUTES * 60 * 1000,
+    );
+
+    await this.bookingRepository
+      .createQueryBuilder()
+      .update(Appointment)
+      .set({
+        status: AppointmentStatus.CANCELLED,
+        cancellationsNote: 'Payment not completed in time — booking expired',
+        cancelledAt: new Date(),
+      })
+      .where('client_id = :userId', { userId })
+      .andWhere('status = :status', { status: AppointmentStatus.PENDING })
+      .andWhere('"createdAt" < :cutoff', { cutoff })
+      .execute();
+  }
+
   async getUserBookings(userId: string): Promise<Appointment[]> {
+    await this.expireStalePendingBookings(userId);
+
     return await this.bookingRepository.find({
       where: { client: { id: userId } },
       relations: ['business', 'service', 'staff'],
@@ -746,6 +1171,12 @@ export class BookingService {
     message: string;
     cancelledCount: number;
     remainingCount: number;
+    refund?: {
+      amount: number;
+      currency: string;
+      platformFeeWithheld: number;
+      stripeFeeWithheld: number;
+    };
   }> {
     if (!acceptedTerms) {
       throw new BadRequestException(
@@ -804,15 +1235,107 @@ export class BookingService {
       );
     }
 
-    // Update status and add cancellation note
+    // Pre-flight: work out the actual refund amount for any Stripe escrow
+    // held on this booking BEFORE cancelling anything. The customer gets
+    // back the service amount minus KHS's own platform fee minus Stripe's
+    // real processing fee (looked up from the charge, not estimated) — if
+    // that math goes to zero or negative, the whole cancellation is
+    // blocked rather than silently refunding nothing.
+    const heldPaymentIntents = await this.stripePaymentIntentRepository.find({
+      where: { orderId, status: StripeEscrowStatus.HELD },
+    });
+
+    const refundPlans: { spi: StripePaymentIntent; refundAmountCents: number }[] = [];
+    for (const spi of heldPaymentIntents) {
+      const refundAmountCents = await this.calculateStripeRefundAmountCents(spi);
+      if (refundAmountCents <= 0) {
+        throw new BadRequestException(
+          `Cannot cancel: after deducting the platform fee and Stripe's processing fee, no refundable amount remains for order ${orderId}. Contact an admin to review.`,
+        );
+      }
+      refundPlans.push({ spi, refundAmountCents });
+    }
+
+    // Update status and add cancellation note. paymentStatus is reset to
+    // UNPAID here too — any money that was actually collected has either
+    // been refunded (Stripe) or was never charged (pay-at-venue), so a
+    // stale PAID flag must not survive a cancellation. This is also what
+    // makes restoreBooking's Pending/Unpaid restore below meaningful: a
+    // cancelled appointment restored later needs to go through real
+    // payment again, not silently re-appear as already paid.
+    const cancelledAt = new Date();
     for (const appointment of appointmentsToCancel) {
       appointment.status = AppointmentStatus.CANCELLED;
+      appointment.paymentStatus = PaymentStatus.UNPAID;
+      appointment.cancelledAt = cancelledAt;
       if (cancellationsNote) {
         appointment.cancellationsNote = cancellationsNote;
       }
     }
 
     await this.bookingRepository.save(appointmentsToCancel);
+
+    // Refund any Stripe escrow held for this booking — a no-op for
+    // Paystack/gift-card/cash appointments, which have no
+    // StripePaymentIntent row. Nothing was ever credited to the wallet at
+    // HELD time, so unlike Paystack there's no wallet balance to reverse
+    // here — only the Stripe-side charge itself needs refunding.
+    let refundSummary:
+      | { amount: number; currency: string; platformFeeWithheld: number; stripeFeeWithheld: number }
+      | undefined;
+
+    try {
+      for (const { spi, refundAmountCents } of refundPlans) {
+        const stripeRefund = await this.stripeService.createRefund({
+          paymentIntentId: spi.stripePaymentIntentId,
+          amount: refundAmountCents,
+        });
+
+        spi.status = StripeEscrowStatus.REFUNDED;
+        spi.refundedAt = new Date();
+        await this.stripePaymentIntentRepository.save(spi);
+
+        const bookingAmountCents = Math.round(spi.bookingAmount * 100);
+        const platformFeeCents = Math.round(spi.feeAmount * 100);
+        const stripeFeeCents =
+          bookingAmountCents - platformFeeCents - refundAmountCents;
+
+        refundSummary = {
+          amount: refundAmountCents / 100,
+          currency: spi.currency.toUpperCase(),
+          platformFeeWithheld: platformFeeCents / 100,
+          stripeFeeWithheld: stripeFeeCents / 100,
+        };
+
+        const debitTx = await this.transactionRepository.findOne({
+          where: {
+            referenceId: spi.stripePaymentIntentId,
+            service: 'Booking',
+            method: PaymentMethod.STRIPE,
+          },
+        });
+
+        if (debitTx) {
+          await this.refundRepository.save(
+            this.refundRepository.create({
+              transactionId: debitTx.id,
+              userId: spi.userId,
+              amount: refundAmountCents / 100,
+              currency: spi.currency.toUpperCase(),
+              reason: cancellationsNote || 'Booking cancelled before completion',
+              adminNote: `Stripe refund ${stripeRefund.id} (platform fee + Stripe processing fee withheld)`,
+              status: RefundStatus.PROCESSED,
+              refundMethod: RefundMethod.CARD_REFUND,
+            }),
+          );
+        }
+      }
+    } catch (refundError) {
+      this.logger.error(
+        `Failed to refund Stripe escrow for order ${orderId}: ${refundError.message}`,
+        refundError.stack,
+      );
+    }
 
     const firstAppt = appointmentsToCancel[0];
     if (firstAppt?.client?.email) {
@@ -829,6 +1352,27 @@ export class BookingService {
       );
     }
 
+    try {
+      if (firstAppt?.client?.id) {
+        const serviceNames = [
+          ...new Set(appointmentsToCancel.map((a) => a.serviceName)),
+        ].join(', ');
+        await this.notificationService.create({
+          userId: firstAppt.client.id,
+          type: NotificationType.BOOKING_CANCELLED,
+          title: 'Booking Cancelled',
+          message: `Your booking for ${serviceNames} has been cancelled.`,
+          link: '/customer/bookings',
+          metadata: {
+            orderId,
+            cancelledCount: appointmentsToCancel.length,
+          },
+        });
+      }
+    } catch (err) {
+      this.logger.error('Failed to create in-app notification for booking cancellation:', err);
+    }
+
     const remainingCount = appointments.filter(
       (appt) => appt.status !== AppointmentStatus.CANCELLED,
     ).length;
@@ -837,11 +1381,24 @@ export class BookingService {
       message: `${appointmentsToCancel.length} appointment(s) cancelled successfully`,
       cancelledCount: appointmentsToCancel.length,
       remainingCount,
+      refund: refundSummary,
     };
   }
 
-  // Restore Cancelled Booking
-  async restoreBooking(orderId: string): Promise<{ message: string }> {
+  // Restore-eligibility check for a Cancelled booking on its original
+  // date/time (no reschedule). This does NOT change status/paymentStatus —
+  // a cancelled appointment must not look "un-cancelled" until the customer
+  // actually pays again. confirmBooking (pay-at-venue/gift-card) or the
+  // Stripe webhook (handleStripePaymentSucceeded) are the only places that
+  // flip status back, once payment genuinely succeeds. If the customer
+  // abandons the payment page after this call, nothing was ever changed —
+  // the appointment simply stays Cancelled, exactly as if Restore was never
+  // clicked.
+  private static readonly RESTORE_CUTOFF_HOURS = 24;
+
+  async restoreBooking(
+    orderId: string,
+  ): Promise<{ message: string; requiresPayment: boolean }> {
     const appointment = await this.bookingRepository.findOne({
       where: { orderId },
       relations: ['client'],
@@ -856,36 +1413,48 @@ export class BookingService {
       );
     }
 
-    appointment.status = AppointmentStatus.CONFIRMED; // Restore to confirmed status
-    appointment.cancellationsNote = undefined; // Clear cancellation note on restore
-    await this.bookingRepository.save(appointment);
+    // Restoring onto the same date/time only makes sense if that date/time
+    // is still far enough out — a same-day-tomorrow slot may already be
+    // unavailable/re-booked by someone else. Rebook (which picks a new
+    // date/time) is the correct path once this close; Restore is not.
+    const appointmentDateTime = new Date(
+      `${appointment.date}T${appointment.time}`,
+    );
+    const hoursUntilAppointment =
+      (appointmentDateTime.getTime() - Date.now()) / (1000 * 60 * 60);
 
-    if (appointment.client?.email) {
-      try {
-        this.logger.log(
-          `Sending restore confirmation email to ${appointment.client.email} for order ${orderId}`,
-        );
-        this.emailService.sendBookingRestoredEmail(
-          appointment.client.email,
-          appointment.client.firstName || 'Valued Customer',
-          appointment.business?.businessName || 'the salon',
-          appointment.serviceName || 'your service',
-          appointment.date,
-          appointment.time,
-        );
-      } catch (emailError) {
-        this.logger.error(
-          `Failed to send restore confirmation email for order ${orderId}: ${emailError.message}`,
-          emailError.stack,
-        );
-      }
-    } else {
-      this.logger.warn(
-        `No client email found for order ${orderId} — skipping restore email`,
+    if (hoursUntilAppointment < BookingService.RESTORE_CUTOFF_HOURS) {
+      throw new BadRequestException(
+        `This appointment is too close to its original date/time to restore directly. Use Rebook to pick a new date instead.`,
       );
     }
 
-    return { message: 'Appointment restored successfully' };
+    return {
+      message: 'Appointment is eligible to restore — proceed to payment',
+      requiresPayment: true,
+    };
+  }
+
+  // Client confirms their own intent to attend
+  async confirmAvailability(
+    orderId: string,
+    user: User,
+  ): Promise<{ message: string; clientConfirmedAt: Date }> {
+    const appointments = await this.bookingRepository.find({
+      where: { orderId, client: { id: user.id } },
+    });
+
+    if (appointments.length === 0) {
+      throw new NotFoundException('No appointments found for this order ID');
+    }
+
+    const clientConfirmedAt = new Date();
+    for (const appointment of appointments) {
+      appointment.clientConfirmedAt = clientConfirmedAt;
+    }
+    await this.bookingRepository.save(appointments);
+
+    return { message: 'Availability confirmed', clientConfirmedAt };
   }
 
   // Reschedule Booking
@@ -893,7 +1462,7 @@ export class BookingService {
     orderId: string,
     newDate: Date,
     newTime: string,
-  ): Promise<{ message: string }> {
+  ): Promise<{ message: string; requiresPayment: boolean }> {
     const appointment = await this.bookingRepository.findOne({
       where: { orderId },
       relations: ['client'],
@@ -901,7 +1470,35 @@ export class BookingService {
     if (!appointment) {
       throw new NotFoundException('Appointment not found');
     }
+
+    // Rebooking a previously-cancelled appointment onto a new date must go
+    // through real payment again — any earlier payment was already
+    // refunded (Stripe) or never taken (pay-at-venue) at cancellation
+    // time. Rescheduling an already-paid, still-active appointment to a
+    // different time is a separate case and must NOT touch payment status
+    // — the customer already paid, moving the date doesn't un-pay them.
+    const isRebookOfCancelled =
+      appointment.status === AppointmentStatus.CANCELLED;
+
     const formattedDate = newDate.toISOString().split('T')[0];
+
+    if (isRebookOfCancelled) {
+      // Stage the new date/time only — the appointment stays exactly as it
+      // was (Cancelled, original date/time) until payment actually
+      // succeeds. confirmBooking/handleStripePaymentSucceeded promote
+      // these into date/time and flip status once payment completes. If
+      // the customer abandons the payment page, nothing here was ever
+      // changed.
+      appointment.pendingRebookDate = formattedDate;
+      appointment.pendingRebookTime = newTime;
+      await this.bookingRepository.save(appointment);
+
+      return {
+        message: 'New date selected — proceed to payment to confirm',
+        requiresPayment: true,
+      };
+    }
+
     appointment.date = formattedDate;
     appointment.time = newTime;
     appointment.status = AppointmentStatus.RESCHEDULED;
@@ -918,7 +1515,10 @@ export class BookingService {
       );
     }
 
-    return { message: 'Appointment rescheduled successfully' };
+    return {
+      message: 'Appointment rescheduled successfully',
+      requiresPayment: false,
+    };
   }
 
   // Get Booking Fees

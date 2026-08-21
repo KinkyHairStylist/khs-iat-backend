@@ -249,7 +249,8 @@ export class ClientController {
 
   @Delete('/client/:clientId')
   async deleteClient(@Request() req, @Param('clientId') clientId: string) {
-    const ownerId = req.user._id || req.user.userId;
+    // const ownerId = req.user._id || req.user.userId;
+    const ownerId = req.user.id || req.user.sub;
     if (!ownerId) {
       throw new HttpException(
         'User not authenticated',
@@ -692,7 +693,7 @@ export class ClientController {
 
     return {
       success: true,
-      message: `${savedContacts.length} contact(es) added successfully`,
+      message: `${savedContacts.length} ${savedContacts.length === 1 ? 'contact' : 'contacts'} added successfully`,
       data: savedContacts,
     };
   }

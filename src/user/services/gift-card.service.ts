@@ -323,7 +323,8 @@ export class GiftCardService {
     if (giftCard.soldStatus !== BusinessGiftCardSoldStatus.PURCHASED)
       return { valid: false, reason: 'Gift card not purchased' };
     if (giftCard.remainingAmount <= 0)
-      return { valid: false, reason: 'Gift card fully redeemed' };
+      // return { valid: false, reason: 'Gift card fully redeemed' };
+      return { valid: false, reason: 'Gift card already redeemed' };
 
     return {
       valid: true,
@@ -348,9 +349,11 @@ export class GiftCardService {
     if (giftCard.expiresAt < now)
       throw new BadRequestException('Gift card expired');
     if (giftCard.remainingAmount <= 0)
-      throw new BadRequestException('Gift card fully redeemed');
+      throw new BadRequestException('Gift card already redeemed');
 
     const amount = Number(giftCard.remainingAmount);
+
+    const originalOwnerId = giftCard.ownerId;
 
     // Redeem inside a transaction
     const result = await this.dataSource.manager.transaction(
@@ -358,12 +361,16 @@ export class GiftCardService {
         giftCard.remainingAmount = 0;
         giftCard.redeemedAt = now;
         giftCard.status = BusinessGiftCardStatus.USED;
+        giftCard.ownerId = user.id;
+        giftCard.ownerEmail = user.email;
+        giftCard.ownerFullName =
+          `${user.firstName ?? ''} ${user.surname ?? ''}`.trim();
 
         await manager.save(BusinessGiftCard, giftCard);
 
         // Log redemption transaction
         const tx = this.transactionRepo.create({
-          senderId: giftCard.ownerId,
+          senderId: originalOwnerId,
           recipientId: user.id,
           amount,
           type: TransactionType.EARNING,
@@ -445,6 +452,7 @@ export class GiftCardService {
         soldStatus: BusinessGiftCardSoldStatus.AVAILABLE,
         status: BusinessGiftCardStatus.ACTIVE,
       },
+      relations: ['business'],
       order: { createdAt: 'DESC' },
     });
   }

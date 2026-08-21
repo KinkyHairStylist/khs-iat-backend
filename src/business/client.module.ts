@@ -10,6 +10,7 @@ import { ClientAddressSchema } from './entities/client-address.entity';
 import { EmergencyContactSchema } from './entities/emergency-contact-schema.entity';
 import { ClientSettingsSchema } from './entities/client-settings.entity';
 import { Business } from './entities/business.entity';
+import { Review } from './entities/review.entity';
 import { ClientSettingsService } from './services/client-settings.service';
 import { ClientProfileValidationMiddleware } from './middlewares/validate-client-data.middleware';
 import { FormidableMiddleware } from './middlewares/formidable.middleware';
@@ -25,6 +26,7 @@ import { User } from 'src/all_user_entities/user.entity';
       ClientSettingsSchema,
       Business,
       User,
+      Review,
     ]),
     BusinessCloudinaryModule,
   ],

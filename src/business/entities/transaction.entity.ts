@@ -31,6 +31,7 @@ export enum PaymentMethod {
   PAYPAL = 'PayPal',
   GIFTCARD = 'GiftCard',
   CASH = 'Cash',
+  STRIPE = 'Stripe',
 }
 
 export enum TransactionStatus {

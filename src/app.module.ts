@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
 import { EmailModule } from './email/email.module';
+import { SlackModule } from './slack/slack.module';
 import { BusinessModule } from './business/business.module';
 import { AdminModule } from './admin/admin.module';
 import { GiftcardModule } from './admin/giftcard/admin_giftcard.module';
@@ -27,6 +28,7 @@ import { ModerationModule } from './admin/moderation/moderation.module';
 import { ChatModule } from './admin/live-chat/chat.module';
 import { PlatformSettingsModule } from './admin/platform-settings/platform-settings.module';
 import { NotificationSettingsModule } from './user/modules/notification-settings.module';
+import { NotificationModule } from './notifications/notification.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 
@@ -68,14 +70,22 @@ import { LandingModule } from './landing/landing.module';
       }),
       inject: [ConfigService],
     }),
+    // Global default — generous enough that normal UI usage (e.g. a
+    // settings page firing several quick save requests) doesn't trip it.
+    // Genuinely sensitive endpoints (login, signup, password reset, OTP)
+    // override this with a much stricter limit via @Throttle() instead of
+    // this number being tightened, since one shared limit across every
+    // endpoint forces an unworkable tradeoff between UX and brute-force
+    // protection.
     ThrottlerModule.forRoot([
       {
         ttl: 30_000, // 30 seconds
-        limit: 10, // 20 requests per minute
+        limit: 40,
       },
     ]),
 
     EmailModule,
+    SlackModule,
     BusinessModule,
     AdminModule,
     GiftcardModule,
@@ -103,6 +113,7 @@ import { LandingModule } from './landing/landing.module';
     ChatModule,
     PlatformSettingsModule,
     NotificationSettingsModule,
+    NotificationModule,
     ProductModule,
     InventoryModule,
     BusinessGiftCardsModule,

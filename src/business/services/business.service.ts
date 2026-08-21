@@ -6,6 +6,14 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Admin, In, Not, Repository } from 'typeorm';
+import {
+  TransactionType,
+  PaymentMethod,
+} from '../entities/transaction.entity';
+import {
+  StripePaymentIntent,
+  StripeEscrowStatus,
+} from 'src/payment/entities/stripe-payment-intent.entity';
 import { Business } from '../entities/business.entity';
 import { User } from '../../all_user_entities/user.entity';
 import { CreateBusinessDto } from '../dtos/requests/CreateBusinessDto';
@@ -32,6 +40,7 @@ import { Service } from '../entities/service.entity';
 import { AdvertisementPlan } from '../entities/advertisement-plan.entity';
 import { CreateStaffDto } from '../dtos/requests/AddStaffDto';
 import { EmergencyContact } from '../entities/emergency-contact.entity';
+import { ClientSchema } from '../entities/client.entity';
 import { Address } from '../entities/address.entity';
 import { EditStaffDto } from '../dtos/requests/EditStaffDto';
 import { GoogleCalendarService } from 'src/integration/services/google-calendar.service';
@@ -41,11 +50,17 @@ import { MailchimpService } from 'src/integration/services/mailchimp.service';
 import { BusinessOwnerSettingsService } from './business-owner-settings.service';
 import { ZohoBooksService } from 'src/integration/services/zohobooks.service';
 import { PasswordUtil } from '../utils/password.util';
+import { NotificationService } from 'src/notifications/notification.service';
+import { NotificationType } from 'src/notifications/notification.enum';
 import { promises } from 'dns';
 
 @Injectable()
 export class BusinessService {
+  private readonly logger = new Logger(BusinessService.name);
+
   constructor(
+    @InjectRepository(StripePaymentIntent)
+    private readonly stripePaymentIntentRepo: Repository<StripePaymentIntent>,
     @InjectRepository(BookingDay)
     private readonly bookingDayRepo: Repository<BookingDay>,
 
@@ -70,12 +85,16 @@ export class BusinessService {
     @InjectRepository(Address)
     private addressRepo: Repository<Address>,
 
+    @InjectRepository(ClientSchema)
+    private clientSchemaRepo: Repository<ClientSchema>,
+
     private googleCalendarService: GoogleCalendarService,
     private mailchimpService: MailchimpService,
     private emailService: EmailService,
     private readonly walletService: BusinessWalletService,
     private readonly businessOwnerSettingsService: BusinessOwnerSettingsService,
     private readonly zohoBooksService: ZohoBooksService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   /**
@@ -131,29 +150,108 @@ export class BusinessService {
   }
 
   async getBooking(id: string) {
-    return await this.appointmentRepo.findOne({ where: { id } });
+    return await this.appointmentRepo.findOne({
+      where: { id },
+      relations: ['client', 'businessClient'],
+    });
   }
 
   async completeBooking(id: string) {
     const appointment = await this.appointmentRepo.findOne({
       where: { id },
-      relations: ['business'],
+      relations: ['business', 'client', 'businessClient'],
     });
     if (!appointment) {
       throw new NotFoundException('Appointment Not Found');
     }
 
-    appointment.status = AppointmentStatus.COMPLETED;
-    await this.emailService.sendEmail(
-      appointment.client.email,
-      `Appointment with ${appointment.business.businessName} `,
-      `your appointment has been completed on ${appointment.date} `,
-      '',
-    );
+    const recipientEmail =
+      appointment.client?.email ?? appointment.businessClient?.email;
+
+    if (recipientEmail) {
+      await this.emailService.sendEmail(
+        recipientEmail,
+        `Appointment with ${appointment.business.businessName} `,
+        `your appointment has been completed on ${appointment.date} `,
+        '',
+      );
+    }
 
     appointment.status = AppointmentStatus.COMPLETED;
+
+    if (appointment.client?.id) {
+      try {
+        await this.notificationService.create({
+          userId: appointment.client.id,
+          type: NotificationType.SYSTEM,
+          title: 'Appointment Completed',
+          message: `Your appointment at ${appointment.business?.businessName || 'the salon'} for ${appointment.serviceName} has been completed.`,
+          link: '/customer/appointment',
+          metadata: {
+            appointmentId: appointment.id,
+            salonId: appointment.business?.id,
+            salonName: appointment.business?.businessName,
+          },
+        });
+      } catch (err) {
+        console.error('Failed to create in-app notification for completeBooking:', err);
+      }
+    }
 
     await this.appointmentRepo.save(appointment);
+
+    // Release any Stripe escrow held for this booking now that the
+    // appointment is done — a no-op for Paystack/gift-card/cash bookings,
+    // which have no StripePaymentIntent row at all.
+    try {
+      const heldPaymentIntents = await this.stripePaymentIntentRepo.find({
+        where: {
+          orderId: appointment.orderId,
+          status: StripeEscrowStatus.HELD,
+        },
+      });
+
+      for (const spi of heldPaymentIntents) {
+        const businessId = appointment.business.id;
+        const ownerId = appointment.business.owner?.id;
+        if (!businessId || !ownerId) continue;
+
+        try {
+          await this.walletService.getWalletByBusinessId(businessId);
+        } catch {
+          await this.walletService.createWalletForBusiness({
+            businessId,
+            ownerId,
+            currency: WalletCurrency.USD,
+            description: 'Business wallet - auto-created from booking',
+          });
+        }
+
+        await this.walletService.addFunds({
+          businessId,
+          recipientId: ownerId,
+          senderId: spi.userId,
+          amount: spi.bookingAmount,
+          type: TransactionType.EARNING,
+          description: `Escrow release for completed booking ${appointment.orderId}`,
+          referenceId: spi.stripePaymentIntentId,
+          currency: WalletCurrency.USD,
+          mode: 'Web',
+          method: PaymentMethod.STRIPE,
+        });
+
+        spi.status = StripeEscrowStatus.RELEASED;
+        spi.releasedAt = new Date();
+        await this.stripePaymentIntentRepo.save(spi);
+      }
+    } catch (escrowError) {
+      // This moves real customer money out of escrow — log loudly, but
+      // completing the appointment must still succeed even if this fails.
+      this.logger.error(
+        `Failed to release Stripe escrow for order ${appointment.orderId}: ${escrowError.message}`,
+        escrowError.stack,
+      );
+    }
 
     const settings = await this.businessOwnerSettingsService.findByBusinessId(
       appointment.business.id,
@@ -201,13 +299,20 @@ export class BusinessService {
     dto: CreateBookingDto,
     clientId: string,
   ): Promise<Appointment> {
-    const client = await this.userRepo.findOne({ where: { id: clientId } });
-    if (!client) throw new NotFoundException('Client user not found');
-
     const business = await this.businessRepo.findOne({
       where: { id: dto.businessId },
     });
     if (!business) throw new NotFoundException('Business not found');
+
+    // clientId comes from Client Management (a CRM record scoped to this
+    // business's owner), not a platform User — look it up accordingly.
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clientId || '');
+    const client = isUuid
+      ? await this.clientSchemaRepo.findOne({
+          where: { id: clientId, ownerId: business.ownerId, isActive: true },
+        })
+      : null;
+    if (!client) throw new NotFoundException('Client not found');
 
     let staff: Staff[] = [];
     if (dto.staffIds && dto.staffIds.length > 0) {
@@ -218,12 +323,19 @@ export class BusinessService {
       if (staff.length !== dto.staffIds.length) {
         throw new NotFoundException('One or more staff members not found');
       }
+    } else {
+      const firstStaff = await this.staffRepo.findOne({
+        where: { business: { id: business.id }, isActive: true },
+      });
+      if (firstStaff) {
+        staff = [firstStaff];
+      }
     }
 
     const orderId = `BKID-${Math.floor(1000000 + Math.random() * 9000000)}`;
 
     const appointment = this.appointmentRepo.create({
-      client,
+      businessClient: client,
       business,
       staff,
       serviceName: dto.serviceName,
@@ -587,28 +699,35 @@ export class BusinessService {
     return staff;
   }
 
-  async getBusinessFromStaff(mail: string) {
+  async getBusinessFromStaff(userId: string) {
     const staff = await this.staffRepo.findOne({
-      where: { email: mail },
+      where: { id: userId },
       relations: ['business', 'business.serviceList'],
     });
 
-    if (!staff) {
-      throw new NotFoundException('No staff record found for this user');
-    }
-    if (!staff.business) {
-      throw new NotFoundException('Business not found for this staff member');
+    if (staff?.business) {
+      return staff.business;
     }
 
-    return staff.business;
+    const ownedBusiness = await this.businessRepo.findOne({
+      where: { owner: { id: userId } },
+      relations: ['serviceList'],
+    });
+
+    if (ownedBusiness) {
+      return ownedBusiness;
+    }
+
+    throw new Error('No staff found');
   }
 
-  async createBlockedTime(body: CreateBlockedTimeDto) {
+  async createBlockedTime(userId: string, body: CreateBlockedTimeDto) {
+    if (!userId) throw new Error('Invalid User');
+
     let business = await this.businessRepo.findOne({
-      where: { ownerEmail: body.ownerMail },
+      where: { owner: { id: userId } },
     });
-    if (!body.ownerMail) throw new Error('Invalid User');
-    if (!business) business = await this.getBusinessFromStaff(body.ownerMail);
+    if (!business) business = await this.getBusinessFromStaff(userId);
     if (!business) throw new NotFoundException('Business not found');
 
     const blockedSlot = this.blockedSlotRepo.create({
@@ -630,12 +749,13 @@ export class BusinessService {
     return { message: 'Blocked time deleted successfully' };
   }
 
-  async getBlockedSlots(userMail: string) {
+  async getBlockedSlots(userId: string) {
+    if (!userId) throw new Error('Invalid User');
+
     let business = await this.businessRepo.findOne({
-      where: { ownerEmail: userMail },
+      where: { owner: { id: userId } },
     });
-    if (!userMail) throw new Error('Invalid User');
-    if (!business) business = await this.getBusinessFromStaff(userMail);
+    if (!business) business = await this.getBusinessFromStaff(userId);
     if (!business) throw new NotFoundException('Business not found');
 
     const blockedSlots = await this.blockedSlotRepo.find({
@@ -734,11 +854,33 @@ export class BusinessService {
   }
 
   async rejectBooking(id: string) {
-    const appointment = await this.appointmentRepo.findOne({ where: { id } });
+    const appointment = await this.appointmentRepo.findOne({
+      where: { id },
+      relations: ['client', 'business'],
+    });
     if (!appointment) {
       throw new NotFoundException('Appointment not found');
     }
     appointment.status = AppointmentStatus.CANCELLED;
+
+    if (appointment.client?.id) {
+      try {
+        await this.notificationService.create({
+          userId: appointment.client.id,
+          type: NotificationType.BOOKING_CANCELLED,
+          title: 'Booking Rejected',
+          message: `Your booking at ${appointment.business?.businessName || 'the salon'} for ${appointment.serviceName} has been rejected.`,
+          link: '/customer/appointment',
+          metadata: {
+            appointmentId: appointment.id,
+            salonId: appointment.business?.id,
+          },
+        });
+      } catch (err) {
+        console.error('Failed to create in-app notification for rejectBooking:', err);
+      }
+    }
+
     await this.appointmentRepo.save(appointment);
 
     const settings = await this.businessOwnerSettingsService.findByBusinessId(
@@ -768,11 +910,34 @@ export class BusinessService {
   }
 
   async acceptBooking(id: string) {
-    const appointment = await this.appointmentRepo.findOne({ where: { id } });
+    const appointment = await this.appointmentRepo.findOne({
+      where: { id },
+      relations: ['client', 'business'],
+    });
     if (!appointment) {
       throw new NotFoundException('Appointment not found');
     }
     appointment.status = AppointmentStatus.CONFIRMED;
+
+    if (appointment.client?.id) {
+      try {
+        await this.notificationService.create({
+          userId: appointment.client.id,
+          type: NotificationType.BOOKING_CONFIRMED,
+          title: 'Booking Accepted',
+          message: `Your booking at ${appointment.business?.businessName || 'the salon'} for ${appointment.serviceName} has been accepted.`,
+          link: '/customer/appointment',
+          metadata: {
+            appointmentId: appointment.id,
+            salonId: appointment.business?.id,
+            salonName: appointment.business?.businessName,
+          },
+        });
+      } catch (err) {
+        console.error('Failed to create in-app notification for acceptBooking:', err);
+      }
+    }
+
     await this.appointmentRepo.save(appointment);
 
     const settings = await this.businessOwnerSettingsService.findByBusinessId(
@@ -801,14 +966,14 @@ export class BusinessService {
     return appointment;
   }
 
-  async getBusinessServices(userMail: string) {
+  async getBusinessServices(userId: string) {
     let business = await this.businessRepo.findOne({
-      where: { ownerEmail: userMail },
+      where: { owner: { id: userId } },
       relations: ['serviceList'],
     });
 
-    if (!userMail) throw new Error('Invalid User');
-    if (!business) business = await this.getBusinessFromStaff(userMail);
+    if (!userId) throw new Error('Invalid User');
+    if (!business) business = await this.getBusinessFromStaff(userId);
     if (!business) {
       throw new NotFoundException('Business not found');
     }
@@ -816,12 +981,12 @@ export class BusinessService {
     return business.serviceList;
   }
 
-  async getTeamMembers(userMail: string) {
+  async getTeamMembers(userId: string) {
     let business = await this.businessRepo.findOne({
-      where: { ownerEmail: userMail },
+      where: { owner: { id: userId } },
     });
-    if (!userMail) throw new Error('Invalid User');
-    if (!business) business = await this.getBusinessFromStaff(userMail);
+    if (!userId) throw new Error('Invalid User');
+    if (!business) business = await this.getBusinessFromStaff(userId);
     if (!business) {
       throw new NotFoundException('Business not found');
     }
@@ -831,7 +996,7 @@ export class BusinessService {
         business: { id: business.id },
         isActive: true,
       },
-      relations: ['business'],
+      relations: ['business', 'addresses', 'emergencyContacts', 'services'],
     });
   }
 
@@ -891,9 +1056,10 @@ export class BusinessService {
     return plans;
   }
 
-  async createService(createServiceDto: CreateServiceDto) {
+  async createService(userId: string, createServiceDto: CreateServiceDto) {
+    if (!userId) throw new Error('Invalid User');
+
     const {
-      userMail,
       category,
       serviceType,
       images,
@@ -909,10 +1075,9 @@ export class BusinessService {
     } = createServiceDto;
 
     let business = await this.businessRepo.findOne({
-      where: { ownerEmail: userMail },
+      where: { owner: { id: userId } },
     });
-    if (!userMail) throw new Error('Invalid User');
-    if (!business) business = await this.getBusinessFromStaff(userMail);
+    if (!business) business = await this.getBusinessFromStaff(userId);
     if (!business) throw new Error('Business not found');
 
     let advertisementPlan: AdvertisementPlan | undefined;
@@ -1092,14 +1257,14 @@ export class BusinessService {
         business: { id: business.id },
         status: AppointmentStatus.RESCHEDULED,
       },
-      relations: ['business', 'staff', 'client'],
+      relations: ['business', 'staff', 'client', 'businessClient'],
       order: {
         createdAt: 'DESC',
       },
     });
   }
 
-  async getBookings(userId: string) {
+  async getBookings(userId: string, date?: string) {
     let business = await this.businessRepo.findOne({
       where: { owner: { id: userId } },
     });
@@ -1120,8 +1285,9 @@ export class BusinessService {
     return await this.appointmentRepo.find({
       where: {
         business: { id: business.id },
+        ...(date ? { date } : {}),
       },
-      relations: ['business', 'staff', 'client'],
+      relations: ['business', 'staff', 'client', 'businessClient'],
       order: {
         createdAt: 'DESC',
       },

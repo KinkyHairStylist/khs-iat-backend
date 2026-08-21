@@ -4,6 +4,7 @@ import {
   BadRequestException,
   InternalServerErrorException,
   Logger,
+  OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -17,7 +18,7 @@ import { PasswordHashingHelper } from '../../helpers/password-hashing.helper';
 import { EmailService } from '../../email/email.service';
 
 @Injectable()
-export class UserProfileService {
+export class UserProfileService implements OnModuleInit {
   private readonly logger = new Logger(UserProfileService.name);
 
   constructor(
@@ -26,6 +27,16 @@ export class UserProfileService {
     private readonly cloudinaryService: CloudinaryService,
     private readonly emailService: EmailService,
   ) {}
+
+  async onModuleInit() {
+    try {
+      await this.userRepo.query(
+        `ALTER TYPE user_gender_enum ADD VALUE IF NOT EXISTS 'OTHER';`,
+      );
+    } catch (err) {
+      // Ignore if DB type is not postgres enum or already altered
+    }
+  }
 
   async getProfile(user: User): Promise<User> {
     const foundUser = await this.userRepo.findOne({ where: { id: user.id } });
@@ -47,8 +58,16 @@ export class UserProfileService {
       console.error('Error updating profile:', error);
 
       // If it's already a NestJS exception, rethrow it
-      if (error instanceof NotFoundException) {
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
         throw error;
+      }
+
+      const errMsg = error?.message || '';
+      if (
+        errMsg.includes('invalid input value for enum') ||
+        errMsg.includes('user_gender_enum')
+      ) {
+        throw new BadRequestException('Please select a valid gender option.');
       }
 
       // Throw a generic internal error for other types

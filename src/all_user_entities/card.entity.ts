@@ -76,8 +76,11 @@ export class Card {
   @Column()
   cardHolderName: string;
 
-  @Column({ transformer: encryptionTransformer })
-  cardNumber: string; // stored encrypted in DB
+  // Nullable — cards added via Paystack tokenization never populate this at
+  // all, since the raw number never reaches the backend. Kept only for
+  // historical rows saved before that fix.
+  @Column({ nullable: true, transformer: encryptionTransformer })
+  cardNumber?: string; // stored encrypted in DB
 
   @Column()
   expiryMonth: string; // e.g. "07"

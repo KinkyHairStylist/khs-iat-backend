@@ -1,4 +1,4 @@
-﻿import { Controller, Post, Body, Get, Param, Patch, UseGuards } from '@nestjs/common';
+﻿import { Controller, Post, Body, Get, Param, Patch, UseGuards, BadRequestException } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { Role } from 'src/middleware/role.enum';
@@ -106,6 +106,14 @@ export class BookingController {
     return this.bookingService.restoreBooking(orderId);
   }
 
+  // Client confirms their own intent to attend
+  @Patch(':orderId/confirm-availability')
+  @ApiOperation({ summary: "Client confirms they'll be attending this appointment" })
+  @ApiResponse({ status: 200, description: 'Availability confirmed' })
+  async confirmAvailability(@Param('orderId') orderId: string, @GetUser() user: User) {
+    return this.bookingService.confirmAvailability(orderId, user);
+  }
+
   // Rate booking business
   @Post(':orderId/rate')
   @ApiOperation({ summary: 'Rate a business for a specific booking' })
@@ -131,6 +139,9 @@ export class BookingController {
     @Param('orderId') orderId: string,
     @Body() body: { date: string; time: string },
   ) {
+    if (!body.date || isNaN(new Date(body.date).getTime())) {
+      throw new BadRequestException('Invalid or missing date value');
+    }
     return this.bookingService.rescheduleBooking(orderId, new Date(body.date), body.time);
   }
 
