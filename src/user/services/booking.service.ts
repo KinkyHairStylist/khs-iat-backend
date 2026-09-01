@@ -90,6 +90,12 @@ export class BookingService {
     return settings.emailBookingConfirmations;
   }
 
+  private isUuid(value: string): boolean {
+    return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(
+      value,
+    );
+  }
+
   // Create Booking
   async createBooking(
     createBookingDto: any,
@@ -1151,9 +1157,18 @@ export class BookingService {
 
   // Get Booking by ID
   async getBookingById(orderId: string): Promise<Appointment[]> {
+    const whereCondition = this.isUuid(orderId) ? { id: orderId } : { orderId };
+
     const appointments = await this.bookingRepository.find({
-      where: { orderId },
-      relations: ['service'],
+      where: whereCondition,
+      relations: [
+        'service',
+        'service.assignedStaff',
+        'staff',
+        'business',
+        'business.owner',
+        'client',
+      ],
     });
     if (!appointments || appointments.length === 0) {
       throw new NotFoundException('No appointments found for this order ID');
@@ -1440,8 +1455,13 @@ export class BookingService {
     orderId: string,
     user: User,
   ): Promise<{ message: string; clientConfirmedAt: Date }> {
+    const whereCondition = this.isUuid(orderId)
+      ? { id: orderId, client: { id: user.id } }
+      : { orderId, client: { id: user.id } };
+
     const appointments = await this.bookingRepository.find({
-      where: { orderId, client: { id: user.id } },
+      where: whereCondition,
+      relations: ['business', 'business.owner', 'client', 'service'],
     });
 
     if (appointments.length === 0) {
@@ -1453,6 +1473,57 @@ export class BookingService {
       appointment.clientConfirmedAt = clientConfirmedAt;
     }
     await this.bookingRepository.save(appointments);
+
+    const firstAppointment = appointments[0];
+    const merchant = firstAppointment.business?.owner;
+    const merchantId = merchant?.id || firstAppointment.business?.ownerId;
+    const merchantEmail = merchant?.email || (firstAppointment.business as any)?.ownerEmail;
+    const merchantName = merchant?.firstName
+      ? `${merchant.firstName} ${merchant.surname || ''}`.trim()
+      : 'Salon Owner';
+    const clientName = `${user.firstName || ''} ${user.surname || ''}`.trim() || 'Client';
+    const serviceNames = [
+      ...new Set(appointments.map((a) => a.serviceName || a.service?.name || 'Service')),
+    ].join(', ');
+    const businessName = firstAppointment.business?.businessName || 'the salon';
+
+    // 1. Send in-app notification to merchant
+    if (merchantId) {
+      try {
+        await this.notificationService.create({
+          userId: merchantId,
+          type: NotificationType.SYSTEM,
+          title: 'Client Confirmed Availability',
+          message: `${clientName} has confirmed their availability for appointment ${firstAppointment.orderId || orderId} (${serviceNames}) on ${firstAppointment.date} at ${firstAppointment.time}.`,
+          link: '/merchant/dashboard/appointments',
+          metadata: {
+            orderId: firstAppointment.orderId || orderId,
+            salonId: firstAppointment.business?.id,
+            customerId: user.id,
+          },
+        });
+      } catch (err) {
+        this.logger.error('Failed to send merchant availability in-app notification:', err);
+      }
+    }
+
+    // 2. Send email notification to merchant
+    if (merchantEmail) {
+      try {
+        this.emailService.sendMerchantAvailabilityConfirmedEmail(
+          merchantEmail,
+          merchantName,
+          clientName,
+          businessName,
+          serviceNames,
+          firstAppointment.date,
+          firstAppointment.time,
+          firstAppointment.orderId || orderId,
+        );
+      } catch (err) {
+        this.logger.error('Failed to send merchant availability email:', err);
+      }
+    }
 
     return { message: 'Availability confirmed', clientConfirmedAt };
   }

@@ -431,6 +431,37 @@ export class EmailService {
     );
   }
 
+  sendMerchantAvailabilityConfirmedEmail(
+    to: string,
+    merchantName: string,
+    clientName: string,
+    businessName: string,
+    serviceName: string,
+    date: string,
+    time: string,
+    orderId: string,
+  ) {
+    const html = this.templateService.render('client-confirmed-availability', {
+      merchantName,
+      clientName,
+      businessName,
+      serviceName,
+      date,
+      time,
+      orderId,
+      frontendUrl: this.frontendUrl,
+      year: new Date().getFullYear(),
+    });
+    const text = `Hi ${merchantName}, ${clientName} has confirmed their availability to attend their appointment (${orderId}) at ${businessName} for ${serviceName} on ${date} at ${time}.`;
+    this.sendEmail(
+      to,
+      `Client Confirmed Availability: Appointment ${orderId}`,
+      text,
+      html,
+      this.deliveryTeamEmail,
+    );
+  }
+
   sendMembershipEmail(
     to: string,
     name: string,
