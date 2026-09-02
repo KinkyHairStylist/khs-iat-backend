@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { SlackService } from '../../services/slack.service';
 import {
+  SlackChannel,
   SlackEventType,
   SlackNode,
   SlackProvider,
@@ -334,6 +335,25 @@ export class UserService {
       user.email,
       user.firstName || 'Customer',
     );
+
+    try {
+      SlackService.notify({
+        node: SlackNode.USER_MANAGEMENT,
+        provider: SlackProvider.SYSTEM,
+        severity: SlackSeverity.INFO,
+        type: SlackEventType.USER_TRIGGERED,
+        trigger: `${user.firstName || user.surname || 'Customer'} <${user.email}>`,
+        body: `New customer account created
+• Name: ${user.firstName} ${user.surname}
+• Email: ${user.email}
+• User ID: ${user.id}`,
+        channel: SlackChannel.TEST_NOTIFICATIONS || SlackChannel.CRY_WOLF,
+      });
+    } catch (err) {
+      this.logger.error(
+        `Failed to send Slack notification for customer signup: ${err instanceof Error ? err.message : 'unknown error'}`,
+      );
+    }
 
     return {
       message: 'Signup successful',
