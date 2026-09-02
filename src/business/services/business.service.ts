@@ -36,6 +36,7 @@ import { CreateServiceDto } from '../dtos/requests/CreateServiceDto';
 import { UpdateServiceDto } from '../dtos/update-service.dto';
 import { DeleteServiceDto } from '../dtos/delete-service.dto';
 import { AssignStaffToServiceDto } from '../dtos/assign-staff-to-service.dto';
+import { AssignStaffToBookingDto } from '../dtos/assign-staff-to-booking.dto';
 import { Service } from '../entities/service.entity';
 import { AdvertisementPlan } from '../entities/advertisement-plan.entity';
 import { CreateStaffDto } from '../dtos/requests/AddStaffDto';
@@ -178,7 +179,13 @@ export class BusinessService {
   async getBooking(id: string) {
     return await this.appointmentRepo.findOne({
       where: { id },
-      relations: ['client', 'businessClient'],
+      relations: [
+        'client',
+        'businessClient',
+        'staff',
+        'service',
+        'service.assignedStaff',
+      ],
     });
   }
 
@@ -1236,6 +1243,42 @@ export class BusinessService {
     return {
       message: 'Staff assigned to service successfully',
       serviceId: service.id,
+      assignedStaffCount: staffMembers.length,
+    };
+  }
+
+  async assignStaffToAppointment(dto: AssignStaffToBookingDto) {
+    const { appointmentId, staffIds } = dto;
+
+    // Find the appointment (booking)
+    const appointment = await this.appointmentRepo.findOne({
+      where: { id: appointmentId },
+      relations: ['business'],
+    });
+
+    if (!appointment) {
+      throw new NotFoundException('Appointment not found');
+    }
+
+    // Find all staff members that belong to this business
+    const staffMembers = await this.staffRepo.find({
+      where: { id: In(staffIds), business: { id: appointment.business.id } },
+    });
+
+    if (staffMembers.length !== staffIds.length) {
+      throw new NotFoundException(
+        'One or more staff members not found or do not belong to this business',
+      );
+    }
+
+    // Assign (replace) staff on the booking. The appointment.staff relation is
+    // a ManyToMany, so it can hold multiple assigned staff members.
+    appointment.staff = staffMembers;
+    await this.appointmentRepo.save(appointment);
+
+    return {
+      message: 'Staff assigned to booking successfully',
+      appointmentId: appointment.id,
       assignedStaffCount: staffMembers.length,
     };
   }

@@ -30,6 +30,7 @@ import { RemoveBusinessCategoriesDto } from '../dtos/remove-business-categories.
 import { UpdateServiceDto } from '../dtos/update-service.dto';
 import { DeleteServiceDto } from '../dtos/delete-service.dto';
 import { AssignStaffToServiceDto } from '../dtos/assign-staff-to-service.dto';
+import { AssignStaffToBookingDto } from '../dtos/assign-staff-to-booking.dto';
 import { RolesGuard } from 'src/middleware/roles.guard';
 import { Role } from 'src/middleware/role.enum';
 import { Roles } from 'src/middleware/roles.decorator';
@@ -82,6 +83,15 @@ export class BusinessController {
   @Post('completeBooking/:id')
   async completeBooking(@Param('id') id: string) {
     return this.businessService.completeBooking(id);
+  }
+
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @Roles(Role.Merchant, Role.Staff, Role.BusinessStaff)
+  @RequirePermission(Permission.MANAGE_BOOKINGS)
+  @Post('assign-staff-to-booking')
+  async assignStaffToBooking(@Body() body: AssignStaffToBookingDto) {
+    return this.businessService.assignStaffToAppointment(body);
   }
 
   @ApiBearerAuth('access-token')
