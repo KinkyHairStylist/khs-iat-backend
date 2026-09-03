@@ -52,15 +52,24 @@ export class BusinessFirebaseService {
   // 3. Upload base64 strings (commonly used for cropper views)
   async uploadImageFromBase64(dataUri: string, folderPath: string): Promise<UploadResult> {
     try {
-      const matches = dataUri.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
-      if (!matches || matches.length !== 3) {
-        throw new Error('Invalid Base64 Data URI');
+      let mimeType = 'image/png';
+      let rawBase64 = dataUri || '';
+
+      const matches = (dataUri || '').match(/^data:([^;]+);base64,(.*)$/s);
+      if (matches && matches.length === 3) {
+        mimeType = matches[1];
+        rawBase64 = matches[2];
       }
 
-      const mimeType = matches[1];
-      const buffer = Buffer.from(matches[2], 'base64');
+      // Strip any whitespace, quotes, or line breaks
+      const cleanBase64 = rawBase64.replace(/[\s"']/g, '');
+      if (!cleanBase64) {
+        throw new Error('Empty base64 data received');
+      }
+
+      const buffer = Buffer.from(cleanBase64, 'base64');
       
-      const fileExtension = mimeType.split('/')[1] || 'png';
+      const fileExtension = mimeType.split('/')[1]?.split('+')[0] || 'png';
       const fileName = `${folderPath}/${uuidv4()}.${fileExtension}`;
       const file = this.bucket.file(fileName);
 
@@ -73,9 +82,11 @@ export class BusinessFirebaseService {
         imageId: fileName,
         imageUrl: file.publicUrl(),
       };
-    } catch (error) {
+    } catch (error: any) {
       console.error('Firebase Base64 Upload Error:', error);
-      throw new InternalServerErrorException('Failed to upload image from Base64');
+      throw new InternalServerErrorException(
+        error?.message || 'Failed to upload image from Base64'
+      );
     }
   }
 
