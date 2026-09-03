@@ -341,13 +341,13 @@ export class UserService {
         node: SlackNode.USER_MANAGEMENT,
         provider: SlackProvider.SYSTEM,
         severity: SlackSeverity.INFO,
-        type: SlackEventType.USER_TRIGGERED,
+        type: SlackEventType.USER_REGISTRATION,
         trigger: `${user.firstName || user.surname || 'Customer'} <${user.email}>`,
-        body: `New customer account created
-• Name: ${user.firstName} ${user.surname}
+        body: `New customer signed up
+• User ID: ${user.id}
+• Name: ${user.firstName || ''} ${user.surname || ''}
 • Email: ${user.email}
-• User ID: ${user.id}`,
-        channel: SlackChannel.TEST_NOTIFICATIONS || SlackChannel.CRY_WOLF,
+• Phone: ${user.phoneNumber || 'N/A'}`,
       });
     } catch (err) {
       this.logger.error(
