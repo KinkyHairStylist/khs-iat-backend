@@ -4,6 +4,8 @@ import { Repository } from 'typeorm';
 
 import { Service } from 'src/business/entities/service.entity';
 import { Business, BusinessStatus } from 'src/business/entities/business.entity';
+import { BookingDay } from 'src/business/entities/booking-day.entity';
+import { Staff } from 'src/business/entities/staff.entity';
 
 @Injectable()
 export class BusinessServicesService {
@@ -47,12 +49,29 @@ export class BusinessServicesService {
   async getServicesByBusinessId(businessId: string) {
     const business = await this.businessRepo.findOne({
       where: { id: businessId, status: BusinessStatus.APPROVED },
-      relations: ['serviceList', 'bookingHours', 'staff'],
     });
 
     if (!business) {
       throw new NotFoundException(`Business with id "${businessId}" not found or not approved`);
     }
+
+    const [serviceList, bookingHours, staff] = await Promise.all([
+      this.serviceRepo.find({
+        where: { business: { id: businessId } },
+        relations: ['assignedStaff'],
+        order: { createdAt: 'DESC' },
+      }),
+      this.businessRepo.manager.find(BookingDay, {
+        where: { business: { id: businessId } },
+      }),
+      this.businessRepo.manager.find(Staff, {
+        where: { business: { id: businessId } },
+      }),
+    ]);
+
+    business.serviceList = serviceList;
+    business.bookingHours = bookingHours;
+    business.staff = staff;
 
     return business;
   }

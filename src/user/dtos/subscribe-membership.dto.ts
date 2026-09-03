@@ -25,4 +25,12 @@ export class SubscribeMembershipDto {
   @IsString()
   @IsOptional()
   giftCard?: string;
+
+  @ApiPropertyOptional({
+    description: 'Payment provider: stripe or paystack',
+    example: 'stripe',
+  })
+  @IsString()
+  @IsOptional()
+  paymentProvider?: 'stripe' | 'paystack';
 }
