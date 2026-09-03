@@ -330,7 +330,8 @@ export class BusinessController {
     @Req() req: RequestWithUser,
     @Body() body: DeleteServiceDto,
   ) {
-    return this.businessService.deleteService(body);
+    const id = serviceId || body?.serviceId;
+    return this.businessService.deleteService({ serviceId: id });
   }
 
   // ── REPORTS / DETAILS ─────────────────────────────────────────────────────
