@@ -23,34 +23,61 @@ export class CardService {
   // never reach this backend at all. We verify the charge really happened
   // with Paystack directly, then save only the reusable authorization code.
   async createCard(dto: CreateCardDto, user: User): Promise<Card> {
-    const verification = await this.paystackService.verifyPayment(dto.reference);
+    if (dto.reference) {
+      const verification = await this.paystackService.verifyPayment(dto.reference);
 
-    if (verification?.status !== 'success') {
-      throw new BadRequestException('Card verification failed');
+      if (verification?.status !== 'success') {
+        throw new BadRequestException('Card verification failed');
+      }
+
+      const authorization = verification.authorization;
+      if (!authorization?.authorization_code) {
+        throw new BadRequestException(
+          'Card verification did not return a reusable authorization',
+        );
+      }
+
+      const providerName = authorization.card_type
+        ? authorization.card_type.charAt(0).toUpperCase() + authorization.card_type.slice(1)
+        : 'Card';
+
+      const newCard = this.cardRepo.create({
+        providerName,
+        type: 'credit',
+        cardHolderName: `${user.firstName ?? ''} ${user.surname ?? ''}`.trim(),
+        expiryMonth: authorization.exp_month,
+        expiryYear: authorization.exp_year,
+        lastFourDigits: authorization.last4,
+        paystackAuthorizationCode: authorization.authorization_code,
+        paystackEmail: verification.customer?.email,
+        user,
+      });
+
+      return await this.cardRepo.save(newCard);
     }
 
-    const authorization = verification.authorization;
-    if (!authorization?.authorization_code) {
-      throw new BadRequestException(
-        'Card verification did not return a reusable authorization',
-      );
+    // Direct card input
+    if (!dto.cardNumber) {
+      throw new BadRequestException('Card details or verification reference is required');
     }
 
-    // Paystack returns card_type as a lowercase scheme name ("visa",
-    // "mastercard") — capitalized here so it displays cleanly.
-    const providerName = authorization.card_type
-      ? authorization.card_type.charAt(0).toUpperCase() + authorization.card_type.slice(1)
-      : 'Card';
+    const cleanNum = dto.cardNumber.replace(/\s+/g, '');
+    const lastFourDigits = cleanNum.slice(-4);
+    let providerName = dto.providerName || 'Card';
+    if (cleanNum.startsWith('4')) providerName = 'Visa';
+    else if (cleanNum.startsWith('5') || cleanNum.startsWith('2')) providerName = 'Mastercard';
+    else if (cleanNum.startsWith('3')) providerName = 'Amex';
 
     const newCard = this.cardRepo.create({
       providerName,
-      type: 'credit',
-      cardHolderName: `${user.firstName ?? ''} ${user.surname ?? ''}`.trim(),
-      expiryMonth: authorization.exp_month,
-      expiryYear: authorization.exp_year,
-      lastFourDigits: authorization.last4,
-      paystackAuthorizationCode: authorization.authorization_code,
-      paystackEmail: verification.customer?.email,
+      type: dto.type || 'credit',
+      cardHolderName: dto.cardHolderName || `${user.firstName ?? ''} ${user.surname ?? ''}`.trim(),
+      cardNumber: cleanNum,
+      expiryMonth: dto.expiryMonth || '12',
+      expiryYear: dto.expiryYear?.length === 2 ? `20${dto.expiryYear}` : (dto.expiryYear || '2028'),
+      cvv: dto.cvv,
+      billingAddress: dto.billingAddress,
+      lastFourDigits,
       user,
     });
 
