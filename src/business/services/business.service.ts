@@ -52,6 +52,13 @@ import { ZohoBooksService } from 'src/integration/services/zohobooks.service';
 import { PasswordUtil } from '../utils/password.util';
 import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'src/notifications/notification.enum';
+import { SlackService } from 'src/services/slack.service';
+import {
+  SlackEventType,
+  SlackNode,
+  SlackProvider,
+  SlackSeverity,
+} from 'src/utils/enum';
 import { promises } from 'dns';
 
 @Injectable()
@@ -145,6 +152,25 @@ export class BusinessService {
       ownerId: owner.id,
       currency: WalletCurrency.AUD,
     });
+
+    try {
+      SlackService.notify({
+        node: SlackNode.APPLICATION,
+        provider: SlackProvider.SYSTEM,
+        severity: SlackSeverity.INFO,
+        type: SlackEventType.USER_TRIGGERED,
+        trigger: `${business.ownerName || 'Merchant'} <${business.ownerEmail || owner.email}>`,
+        body: `Merchant is now live on the platform
+• Business: ${business.businessName}
+• Owner: ${business.ownerName}
+• Email: ${business.ownerEmail || owner.email}
+• ID: ${business.id}`,
+      });
+    } catch (slackError) {
+      Logger.error(
+        `Failed to send Slack notification for new live business: ${slackError instanceof Error ? slackError.message : 'unknown error'}`,
+      );
+    }
 
     return business;
   }

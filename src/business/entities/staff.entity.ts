@@ -81,15 +81,17 @@ export class Staff {
   @ManyToMany(() => Service, (service) => service.assignedStaff)
   services: Service[];
 
+  // Not eager: Staff is nested under Appointment.staff (ManyToMany, eager),
+  // so eager-loading these OneToMany collections here multiplies every
+  // appointment row by each address/contact row (cartesian join). Callers
+  // that need them request them explicitly via `relations`.
   @OneToMany(() => Address, (address) => address.staff, {
     cascade: true,
-    eager: true,
   })
   addresses: Address[];
 
   @OneToMany(() => EmergencyContact, (contact) => contact.staff, {
     cascade: true,
-    eager: true,
   })
   emergencyContacts: EmergencyContact[];
 

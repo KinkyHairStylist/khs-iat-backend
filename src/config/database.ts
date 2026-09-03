@@ -77,8 +77,14 @@ const baseOptions: DataSourceOptions = {
   ssl: process.env.DB_SSL === 'require' ? { rejectUnauthorized: false } : false,
   synchronize: false,
   extra: {
-    max: 5,
+    max: 10, // was 5 — too easily exhausted, leaving later requests to queue indefinitely
+    min: 2,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 5000, // fail fast instead of waiting forever for a free connection
+    statement_timeout: 30000,
+    query_timeout: 30000,
   },
+  maxQueryExecutionTime: 5000, // logs any query over 5s so slow queries surface instead of hiding
 };
 
 // Backwards-compatible export: consumers (app.module + scripts) expect the
@@ -296,19 +302,3 @@ export const disconnectDB = async () => {
   }
 };
 
-// 🔥 CRITICAL: Connection pool settings
-// poolSize: 10, // Maximum number of connections in the pool
-
-// // Additional pool configuration
-// extra: {
-//   max: 10, // Maximum pool size (same as poolSize for consistency)
-//   min: 2, // Minimum pool size (keep 2 connections always ready)
-//   idleTimeoutMillis: 30000, // Close idle connections after 30 seconds
-//   connectionTimeoutMillis: 2000, // Max wait time for connection (2s)
-//   statement_timeout: 30000, // Timeout for SQL statements (30s)
-//   query_timeout: 30000, // Query timeout (30s)
-// },
-
-// // Log slow queries (helpful for debugging)
-// logging: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : false,
-// maxQueryExecutionTime: 5000, // Log queries taking longer than 5s
