@@ -72,4 +72,64 @@ export class BusinessServicesController {
   async getBusinessServices(@Param('businessId') businessId: string) {
     return this.businessServicesService.getServicesByBusinessId(businessId);
   }
+
+  /**
+   * Fetch booking hours for a specific business.
+   * GET /business/:businessId/booking-hours
+   */
+  @Public()
+  @Get(':businessId/booking-hours')
+  @ApiOperation({ summary: 'Get booking hours for a business' })
+  @ApiParam({
+    name: 'businessId',
+    type: String,
+    description: 'The UUID of the business whose booking hours you want to retrieve',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Booking hours for the specified business returned successfully.',
+  })
+  async getBusinessBookingHours(@Param('businessId') businessId: string) {
+    return this.businessServicesService.getBookingHoursByBusinessId(businessId);
+  }
+
+  /**
+   * Fetch blocked time slots for a specific business.
+   * GET /business/:businessId/blocked-slots
+   */
+  @Public()
+  @Get(':businessId/blocked-slots')
+  @ApiOperation({ summary: 'Get blocked time slots for a business' })
+  @ApiParam({
+    name: 'businessId',
+    type: String,
+    description: 'The UUID of the business whose blocked slots you want to retrieve',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Blocked time slots for the specified business returned successfully.',
+  })
+  async getBusinessBlockedSlots(@Param('businessId') businessId: string) {
+    return this.businessServicesService.getBlockedSlotsByBusinessId(businessId);
+  }
+
+  /**
+   * Fetch appointments for a specific business.
+   * GET /business/:businessId/appointments
+   */
+  @Public()
+  @Get(':businessId/appointments')
+  @ApiOperation({ summary: 'Get appointments for a business' })
+  @ApiParam({
+    name: 'businessId',
+    type: String,
+    description: 'The UUID of the business whose appointments you want to retrieve',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Appointments for the specified business returned successfully.',
+  })
+  async getBusinessAppointments(@Param('businessId') businessId: string) {
+    return this.businessServicesService.getAppointmentsByBusinessId(businessId);
+  }
 }
