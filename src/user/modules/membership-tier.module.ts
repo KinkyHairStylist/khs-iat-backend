@@ -10,6 +10,7 @@ import { Card } from 'src/all_user_entities/card.entity';
 import { Transaction } from 'src/business/entities/transaction.entity';
 import { BusinessGiftCard } from 'src/business/entities/business-giftcard.entity';
 import { PaystackService } from 'src/payment/paystack.service';
+import { StripeService } from 'src/payment/stripe.service';
 import { PlatformSettingsModule } from 'src/admin/platform-settings/platform-settings.module';
 import { EmailModule } from 'src/email/email.module';
 
@@ -20,7 +21,7 @@ import { EmailModule } from 'src/email/email.module';
     EmailModule,
   ],
   controllers: [MembershipTierController, MembershipSubscriptionController],
-  providers: [MembershipTierService, MembershipService, PaystackService],
+  providers: [MembershipTierService, MembershipService, PaystackService, StripeService],
   exports: [MembershipTierService, MembershipService],
 })
 export class MembershipModule implements OnModuleInit {

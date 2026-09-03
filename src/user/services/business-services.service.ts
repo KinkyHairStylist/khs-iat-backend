@@ -62,7 +62,7 @@ export class BusinessServicesService {
    */
   async getServicesByBusinessId(businessId: string) {
     const business = await this.businessRepo.findOne({
-      where: { id: businessId },
+      where: { id: businessId, status: BusinessStatus.APPROVED },
     });
 
     if (!business) {
