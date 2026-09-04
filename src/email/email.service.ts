@@ -42,6 +42,12 @@ export class EmailService {
       subject,
       text,
       html: html || text,
+      trackingSettings: {
+        clickTracking: {
+          enable: false,
+          enableText: false,
+        },
+      },
     };
 
     if (cc) {
@@ -53,6 +59,37 @@ export class EmailService {
 
     void this.sendWithRetry(msg, 1);
     return { success: true };
+  }
+
+  sendUserInviteEmail(to: string, role: string, inviteUrl: string) {
+    const roleNormalized = (role || 'CLIENT').toUpperCase();
+    const roleFormatted =
+      roleNormalized === 'ADMIN'
+        ? 'an Admin'
+        : roleNormalized === 'BUSINESS'
+          ? 'a Business Partner'
+          : 'a Client';
+
+    const roleTitle =
+      roleNormalized === 'ADMIN'
+        ? 'Admin'
+        : roleNormalized === 'BUSINESS'
+          ? 'Business'
+          : 'Client';
+
+    const html = this.templateService.render('user-invite', {
+      to,
+      role: roleTitle,
+      roleFormatted,
+      inviteUrl,
+      frontendUrl: this.frontendUrl,
+      year: new Date().getFullYear(),
+    });
+
+    const subject = `You've been invited to join Kinky Hairstylist as ${roleFormatted}`;
+    const text = `Hello,\n\nYou have been invited to join Kinky Hairstylist as ${roleFormatted}.\n\nPlease click the following link to complete your registration:\n${inviteUrl}\n\nThis invitation link will expire in 30 minutes.`;
+
+    return this.sendEmail(to, subject, text, html, this.deliveryTeamEmail);
   }
 
   sendWelcomeEmail(to: string, name: string) {
