@@ -385,33 +385,43 @@ export class EmailService {
   sendGiftCardEmail(
     to: string,
     name: string,
-    action: 'purchased' | 'redeemed',
+    action: 'purchased' | 'redeemed' | 'received',
     giftCardCode: string,
     giftCardAmount: number,
     recipientName?: string,
     senderName?: string,
     remainingBalance?: number,
+    message?: string,
   ) {
-    const html = this.templateService.render('gift-card', {
-      name,
-      action,
-      giftCardCode,
-      giftCardAmount,
-      recipientName,
-      senderName,
-      remainingBalance,
-      frontendUrl: this.frontendUrl,
-      year: new Date().getFullYear(),
-    });
-    const subject =
-      action === 'purchased'
-        ? 'Your gift card purchase is confirmed'
-        : 'Your gift card has been redeemed';
-    const text =
-      action === 'purchased'
-        ? `Hi ${name}, your gift card (${giftCardCode}) worth $${giftCardAmount} has been purchased successfully.`
-        : `Hi ${name}, your gift card (${giftCardCode}) has been redeemed. Remaining balance: $${remainingBalance ?? 0}.`;
-    this.sendEmail(to, subject, text, html, this.deliveryTeamEmail);
+    try {
+      const html = this.templateService.render('gift-card', {
+        name: name || 'Valued Customer',
+        action,
+        giftCardCode,
+        giftCardAmount,
+        recipientName: recipientName || '',
+        senderName: senderName || '',
+        remainingBalance: remainingBalance ?? 0,
+        message: message || '',
+        frontendUrl: this.frontendUrl,
+        year: new Date().getFullYear(),
+      });
+      const subject =
+        action === 'purchased'
+          ? 'Your gift card purchase is confirmed'
+          : action === 'received'
+          ? `${senderName || 'Someone'} sent you a $${giftCardAmount} gift card!`
+          : 'Your gift card has been redeemed';
+      const text =
+        action === 'purchased'
+          ? `Hi ${name}, your gift card (${giftCardCode}) worth $${giftCardAmount} has been purchased successfully.`
+          : action === 'received'
+          ? `Hi ${name}, ${senderName || 'Someone'} sent you a $${giftCardAmount} gift card (${giftCardCode}) for Kinky Hairstylist.`
+          : `Hi ${name}, your gift card (${giftCardCode}) has been redeemed. Remaining balance: $${remainingBalance ?? 0}.`;
+      this.sendEmail(to, subject, text, html, this.deliveryTeamEmail);
+    } catch (err) {
+      this.logger.error(`Failed to send gift card ${action} email to ${to}:`, err);
+    }
   }
 
   sendBookingConfirmationEmail(
@@ -421,20 +431,61 @@ export class EmailService {
     serviceName: string,
     date: string,
     time: string,
+    orderId?: string,
+    amountPaid?: string | number,
+    paymentMethod?: string,
   ) {
+    const formattedAmount = amountPaid != null ? `$${Number(amountPaid).toFixed(2)}` : undefined;
     const html = this.templateService.render('booking-confirmation', {
       name,
       businessName,
       serviceName,
       date,
       time,
+      orderId,
+      amountPaid: formattedAmount,
+      paymentMethod: paymentMethod || 'Card (Stripe)',
       frontendUrl: this.frontendUrl,
       year: new Date().getFullYear(),
     });
-    const text = `Hi ${name}, your appointment at ${businessName} for ${serviceName} on ${date} at ${time} has been confirmed.`;
+    const text = `Hi ${name}, your payment of ${formattedAmount || 'full amount'} for your appointment at ${businessName} for ${serviceName} on ${date} at ${time} (Order #${orderId || ''}) has been confirmed.`;
     this.sendEmail(
       to,
-      'Your appointment is confirmed',
+      `Payment & Appointment Confirmed – ${businessName}`,
+      text,
+      html,
+      this.deliveryTeamEmail,
+    );
+  }
+
+  sendMerchantBookingNotificationEmail(
+    to: string,
+    merchantName: string,
+    customerName: string,
+    businessName: string,
+    serviceName: string,
+    date: string,
+    time: string,
+    orderId: string,
+    amountPaid: string | number,
+  ) {
+    const formattedAmount = `$${Number(amountPaid).toFixed(2)}`;
+    const html = this.templateService.render('merchant-booking-notification', {
+      merchantName,
+      customerName,
+      businessName,
+      serviceName,
+      date,
+      time,
+      orderId,
+      amountPaid: formattedAmount,
+      frontendUrl: this.frontendUrl,
+      year: new Date().getFullYear(),
+    });
+    const text = `Hi ${merchantName}, ${customerName} has successfully booked and paid ${formattedAmount} for ${serviceName} on ${date} at ${time} (Order #${orderId}) at ${businessName}.`;
+    this.sendEmail(
+      to,
+      `New Booking & Payment Received (${formattedAmount}) – Order #${orderId}`,
       text,
       html,
       this.deliveryTeamEmail,

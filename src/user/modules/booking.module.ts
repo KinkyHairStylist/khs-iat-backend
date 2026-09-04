@@ -22,6 +22,7 @@ import { StripePaymentIntent } from 'src/payment/entities/stripe-payment-intent.
 import { Refund } from 'src/user/user_entities/refund.entity';
 import { NotificationSettingsModule } from './notification-settings.module';
 import { NotificationModule } from 'src/notifications/notification.module';
+import { SlackModule } from 'src/slack/slack.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { NotificationModule } from 'src/notifications/notification.module';
     ReviewModule,
     BusinessWalletModule,
     EmailModule,
+    SlackModule,
     NotificationSettingsModule,
     NotificationModule,
   ],
