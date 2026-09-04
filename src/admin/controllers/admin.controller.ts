@@ -29,6 +29,13 @@ export class AdminController {
     return this.adminService.getAllUsers();
   }
 
+  @Post('updateUserRole')
+  async updateUserRole(
+    @Body() body: { id: string; role?: 'ADMIN' | 'CLIENT' | 'CUSTOMER' },
+  ) {
+    return this.adminService.updateUserRole(body.id, body.role);
+  }
+
   @Post('getNearbySalons')
   async getNearbySalons(body: { longitude: number; latitude: number }) {
     return this.adminService.getNearbySalons(body);

@@ -46,4 +46,15 @@ export class GetUserDto {
     @IsNotEmpty()
     spent: number;
 
+    @IsOptional()
+    isStaff?: boolean;
+
+    @IsOptional()
+    isMerchant?: boolean;
+
+    @IsOptional()
+    isCustomer?: boolean;
+
+    @IsOptional()
+    persona?: string;
 }

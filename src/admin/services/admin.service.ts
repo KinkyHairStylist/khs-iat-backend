@@ -18,6 +18,7 @@ import {
   Appointment,
   AppointmentStatus,
 } from '../../business/entities/appointment.entity';
+import { AdminRole } from '../../middleware/admin-role.enum';
 import { Dispute, DisputeStatus } from '../../business/entities/dispute.entity';
 import { CreateMembershipPlanDto } from '../../business/dtos/requests/CreateMembershipDto';
 import { MembershipPlan } from '../../business/entities/membership.entity';
@@ -152,26 +153,33 @@ export class AdminService {
       order: { createdAt: 'DESC' },
     });
 
-    return users.map((user) => ({
-      id: user.id,
-      name:
-        `${user.firstName ?? ''} ${user.surname ?? ''}`.trim() || user.email,
-      initials:
-        `${user.firstName?.[0] ?? ''}${user.surname?.[0] ?? ''}`.toUpperCase(),
-      location: this.getUserLocation(user),
-      contactEmail: user.email,
-      contactPhone: user.phoneNumber ?? 'N/A',
-      status: user.isSuspended
-        ? 'Suspended'
-        : user.isVerified
-          ? 'Active'
-          : 'Pending',
-      isVerified: user.isVerified,
-      joinDate: user.createdAt?.toISOString() ?? new Date().toISOString(),
-      activity: this.formatLoginActivity(user.activity),
-      bookings: user.booking ?? 0,
-      spent: user.spent ?? 0,
-    }));
+    return users.map((user) => {
+      const persona = user.isStaff ? 'Admin' : user.isMerchant ? 'Merchant' : 'Customer';
+      return {
+        id: user.id,
+        name:
+          `${user.firstName ?? ''} ${user.surname ?? ''}`.trim() || user.email,
+        initials:
+          `${user.firstName?.[0] ?? ''}${user.surname?.[0] ?? ''}`.toUpperCase(),
+        location: this.getUserLocation(user),
+        contactEmail: user.email,
+        contactPhone: user.phoneNumber ?? 'N/A',
+        status: user.isSuspended
+          ? 'Suspended'
+          : user.isVerified
+            ? 'Active'
+            : 'Pending',
+        isVerified: user.isVerified,
+        isStaff: Boolean(user.isStaff),
+        isMerchant: Boolean(user.isMerchant),
+        isCustomer: Boolean(user.isCustomer),
+        persona,
+        joinDate: user.createdAt?.toISOString() ?? new Date().toISOString(),
+        activity: this.formatLoginActivity(user.activity),
+        bookings: user.booking ?? 0,
+        spent: user.spent ?? 0,
+      };
+    });
   }
 
   async createMembershipPlan(createMembershipPlanDto: CreateMembershipPlanDto) {
@@ -484,5 +492,41 @@ export class AdminService {
     await invalidateCache('/api/salons');
 
     return { message: `Business has been removed from luxury.` };
+  }
+
+  async updateUserRole(id: string, role?: 'ADMIN' | 'CLIENT' | 'CUSTOMER') {
+    const user = await this.userRepo.findOne({ where: { id } });
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
+
+    if (user.isMerchant && !user.isStaff) {
+      throw new BadRequestException('Role update is not supported for merchant/business accounts.');
+    }
+
+    if (role === 'ADMIN' || (role === undefined && !user.isStaff)) {
+      user.isStaff = true;
+      user.adminRole = AdminRole.ADMIN;
+      user.isCustomer = false;
+    } else {
+      user.isStaff = false;
+      user.adminRole = null;
+      user.isCustomer = true;
+    }
+
+    await this.userRepo.save(user);
+
+    return {
+      message: user.isStaff
+        ? `User ${user.firstName ?? user.email} updated to Admin role.`
+        : `Admin role removed for ${user.firstName ?? user.email}.`,
+      user: {
+        id: user.id,
+        isStaff: Boolean(user.isStaff),
+        isMerchant: Boolean(user.isMerchant),
+        isCustomer: Boolean(user.isCustomer),
+        persona: user.isStaff ? 'Admin' : user.isMerchant ? 'Merchant' : 'Customer',
+      },
+    };
   }
 }
