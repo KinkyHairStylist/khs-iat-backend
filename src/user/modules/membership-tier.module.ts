@@ -13,12 +13,14 @@ import { PaystackService } from 'src/payment/paystack.service';
 import { StripeService } from 'src/payment/stripe.service';
 import { PlatformSettingsModule } from 'src/admin/platform-settings/platform-settings.module';
 import { EmailModule } from 'src/email/email.module';
+import { SlackModule } from 'src/slack/slack.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([MembershipTier, MembershipSubscription, Card, Transaction, BusinessGiftCard]),
     PlatformSettingsModule,
     EmailModule,
+    SlackModule,
   ],
   controllers: [MembershipTierController, MembershipSubscriptionController],
   providers: [MembershipTierService, MembershipService, PaystackService, StripeService],

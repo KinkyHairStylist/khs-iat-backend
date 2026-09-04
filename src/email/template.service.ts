@@ -23,7 +23,15 @@ export class TemplateService implements OnModuleInit {
     let compiled = this.cache.get(templateName);
     if (!compiled) {
       const ext = templateName.endsWith('.ejs') ? '' : '.ejs';
-      const filePath = path.join(this.templatesDir, templateName + ext);
+      let filePath = path.join(this.templatesDir, templateName + ext);
+
+      if (!fs.existsSync(filePath)) {
+        const fallbackPath = path.join(process.cwd(), 'src', 'email', 'templates', templateName + ext);
+        if (fs.existsSync(fallbackPath)) {
+          filePath = fallbackPath;
+        }
+      }
+
       const content = fs.readFileSync(filePath, 'utf8');
       compiled = ejs.compile(content, {
         filename: filePath,

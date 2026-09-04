@@ -51,7 +51,7 @@ export class GiftCard {
   @Column({ type: 'date', nullable: true})
   purchaseDate: string;
 
-  @ManyToOne(() => Card, { eager: true })
+  @ManyToOne(() => Card, { eager: true, nullable: true, onDelete: 'SET NULL' })
   card: Card; // Selected payment method
 
   @Column({

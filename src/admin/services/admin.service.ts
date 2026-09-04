@@ -18,6 +18,7 @@ import {
   Appointment,
   AppointmentStatus,
 } from '../../business/entities/appointment.entity';
+import { AdminRole } from '../../middleware/admin-role.enum';
 import { Dispute, DisputeStatus } from '../../business/entities/dispute.entity';
 import { CreateMembershipPlanDto } from '../../business/dtos/requests/CreateMembershipDto';
 import { MembershipPlan } from '../../business/entities/membership.entity';
@@ -158,26 +159,33 @@ export class AdminService {
       order: { createdAt: 'DESC' },
     });
 
-    return users.map((user) => ({
-      id: user.id,
-      name:
-        `${user.firstName ?? ''} ${user.surname ?? ''}`.trim() || user.email,
-      initials:
-        `${user.firstName?.[0] ?? ''}${user.surname?.[0] ?? ''}`.toUpperCase(),
-      location: this.getUserLocation(user),
-      contactEmail: user.email,
-      contactPhone: user.phoneNumber ?? 'N/A',
-      status: user.isSuspended
-        ? 'Suspended'
-        : user.isVerified
-          ? 'Active'
-          : 'Pending',
-      isVerified: user.isVerified,
-      joinDate: user.createdAt?.toISOString() ?? new Date().toISOString(),
-      activity: this.formatLoginActivity(user.activity),
-      bookings: user.booking ?? 0,
-      spent: user.spent ?? 0,
-    }));
+    return users.map((user) => {
+      const persona = user.isStaff ? 'Admin' : user.isMerchant ? 'Merchant' : 'Customer';
+      return {
+        id: user.id,
+        name:
+          `${user.firstName ?? ''} ${user.surname ?? ''}`.trim() || user.email,
+        initials:
+          `${user.firstName?.[0] ?? ''}${user.surname?.[0] ?? ''}`.toUpperCase(),
+        location: this.getUserLocation(user),
+        contactEmail: user.email,
+        contactPhone: user.phoneNumber ?? 'N/A',
+        status: user.isSuspended
+          ? 'Suspended'
+          : user.isVerified
+            ? 'Active'
+            : 'Pending',
+        isVerified: user.isVerified,
+        isStaff: Boolean(user.isStaff),
+        isMerchant: Boolean(user.isMerchant),
+        isCustomer: Boolean(user.isCustomer),
+        persona,
+        joinDate: user.createdAt?.toISOString() ?? new Date().toISOString(),
+        activity: this.formatLoginActivity(user.activity),
+        bookings: user.booking ?? 0,
+        spent: user.spent ?? 0,
+      };
+    });
   }
 
   async createMembershipPlan(createMembershipPlanDto: CreateMembershipPlanDto) {
