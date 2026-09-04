@@ -20,7 +20,8 @@ import {
 } from '../../business/entities/appointment.entity';
 import { Dispute, DisputeStatus } from '../../business/entities/dispute.entity';
 import { CreateMembershipPlanDto } from '../../business/dtos/requests/CreateMembershipDto';
-import { MembershipPlan } from '../../business/entities/membership.entity';
+import { MembershipPlan, BillingCycle } from '../../business/entities/membership.entity';
+import { MembershipTier } from '../../user/user_entities/membership-tier.entity';
 import { GetMembershipPlanDto } from '../../business/dtos/response/GetMembershipPlanDto';
 import { GetSubscriptionDto } from '../../business/dtos/response/GetSubscriptionDto';
 import {
@@ -43,6 +44,8 @@ export class AdminService {
     @InjectRepository(Dispute) private disputeRepo: Repository<Dispute>,
     @InjectRepository(MembershipPlan)
     private membershipPlanRepo: Repository<MembershipPlan>,
+    @InjectRepository(MembershipTier)
+    private membershipTierRepo: Repository<MembershipTier>,
     @InjectRepository(Subscription)
     private subscriptionRepo: Repository<Subscription>,
     @InjectRepository(Payment) private paymentRepo: Repository<Payment>,
@@ -176,7 +179,28 @@ export class AdminService {
 
   async createMembershipPlan(createMembershipPlanDto: CreateMembershipPlanDto) {
     const plan = this.membershipPlanRepo.create(createMembershipPlanDto);
-    return await this.membershipPlanRepo.save(plan);
+    const savedPlan = await this.membershipPlanRepo.save(plan);
+
+    try {
+      const initialPrice = Number(savedPlan.price) + Number(savedPlan.saving || 0);
+      const durationDays = savedPlan.billingCycle === BillingCycle.YEARLY ? 365 : 30;
+      const tier = this.membershipTierRepo.create({
+        id: savedPlan.id,
+        name: savedPlan.name,
+        description: savedPlan.description,
+        initialPrice,
+        availablePrice: Number(savedPlan.price),
+        durationDays,
+        session: savedPlan.sessions || 0,
+        features: savedPlan.features || [],
+        isRecommended: Boolean(savedPlan.isPopular),
+      });
+      await this.membershipTierRepo.save(tier);
+    } catch (err) {
+      this.logger.error('Failed to sync created plan to membershipTierRepo:', err);
+    }
+
+    return savedPlan;
   }
 
   async updateMembershipPlan(
@@ -190,8 +214,41 @@ export class AdminService {
     }
 
     Object.assign(plan, createMembershipPlanDto);
+    const savedPlan = await this.membershipPlanRepo.save(plan);
 
-    return await this.membershipPlanRepo.save(plan);
+    try {
+      let tier = await this.membershipTierRepo.findOne({ where: { id } });
+      const initialPrice = Number(savedPlan.price) + Number(savedPlan.saving || 0);
+      const durationDays = savedPlan.billingCycle === BillingCycle.YEARLY ? 365 : 30;
+      if (tier) {
+        tier.name = savedPlan.name;
+        tier.description = savedPlan.description;
+        tier.initialPrice = initialPrice;
+        tier.availablePrice = Number(savedPlan.price);
+        tier.durationDays = durationDays;
+        tier.session = savedPlan.sessions || 0;
+        tier.features = savedPlan.features || [];
+        tier.isRecommended = Boolean(savedPlan.isPopular);
+        await this.membershipTierRepo.save(tier);
+      } else {
+        tier = this.membershipTierRepo.create({
+          id: savedPlan.id,
+          name: savedPlan.name,
+          description: savedPlan.description,
+          initialPrice,
+          availablePrice: Number(savedPlan.price),
+          durationDays,
+          session: savedPlan.sessions || 0,
+          features: savedPlan.features || [],
+          isRecommended: Boolean(savedPlan.isPopular),
+        });
+        await this.membershipTierRepo.save(tier);
+      }
+    } catch (err) {
+      this.logger.error('Failed to sync updated plan to membershipTierRepo:', err);
+    }
+
+    return savedPlan;
   }
 
   async removeMembershipPlan(id: string, reason: string) {
@@ -202,13 +259,74 @@ export class AdminService {
     plan.isActive = false;
     if (plan.cancellation == null) plan.cancellation = '';
     plan.cancellation += Date.now() + reason;
-    return this.membershipPlanRepo.save(plan);
+    await this.membershipPlanRepo.save(plan);
+
+    try {
+      await this.membershipTierRepo.delete({ id });
+    } catch (err) {
+      this.logger.error('Failed to remove tier from membershipTierRepo:', err);
+    }
+
+    return plan;
+  }
+
+  async setPopularPlan(id: string) {
+    const plans = await this.membershipPlanRepo.find();
+    for (const plan of plans) {
+      plan.isPopular = plan.id === id;
+      await this.membershipPlanRepo.save(plan);
+    }
+
+    try {
+      const tiers = await this.membershipTierRepo.find();
+      for (const tier of tiers) {
+        tier.isRecommended = tier.id === id;
+        await this.membershipTierRepo.save(tier);
+      }
+    } catch (err) {
+      this.logger.error('Failed to sync popular tier to membershipTierRepo:', err);
+    }
+
+    return await this.getAllMembershipPlans();
   }
 
   async getAllMembershipPlans(): Promise<GetMembershipPlanDto[]> {
-    const plans = await this.membershipPlanRepo.find({
+    let plans = await this.membershipPlanRepo.find({
       where: { isActive: true },
     });
+
+    if (plans.length === 0) {
+      const existingTiers = await this.membershipTierRepo.find();
+      if (existingTiers.length > 0) {
+        for (const t of existingTiers) {
+          const tierCategory = t.name.toLowerCase().includes('gold') || t.name.toLowerCase().includes('premium')
+            ? 'Gold'
+            : t.name.toLowerCase().includes('platinum') || t.name.toLowerCase().includes('luxury')
+            ? 'Platinum'
+            : 'Bronze';
+
+          const saving = Math.max(0, Number(t.initialPrice) - Number(t.availablePrice));
+          const plan = this.membershipPlanRepo.create({
+            id: t.id,
+            name: t.name,
+            tier: tierCategory,
+            price: Number(t.availablePrice),
+            saving: saving,
+            sessions: t.session || 0,
+            features: t.features || [],
+            isPopular: Boolean(t.isRecommended),
+            activeSubscribers: 0,
+            description: t.description || '',
+            billingCycle: t.durationDays === 365 ? BillingCycle.YEARLY : BillingCycle.MONTHLY,
+            isActive: true,
+          });
+          await this.membershipPlanRepo.save(plan);
+        }
+        plans = await this.membershipPlanRepo.find({
+          where: { isActive: true },
+        });
+      }
+    }
 
     return plans.map((plan) => ({
       id: plan.id,
@@ -220,6 +338,8 @@ export class AdminService {
       features: plan.features,
       isPopular: plan.isPopular,
       activeSubscribers: plan.activeSubscribers,
+      description: plan.description,
+      billingCycle: plan.billingCycle,
     }));
   }
 
@@ -235,15 +355,33 @@ export class AdminService {
   async getAllSubscribers(): Promise<GetSubscriptionDto[]> {
     const subscriptions = await this.subscriptionRepo.find();
 
-    return subscriptions.map((subscription) => ({
-      id: subscription.id,
-      user: subscription.user.firstName + ' ' + subscription.user.surname,
-      plan: subscription.plan.name,
-      startDate: subscription.startDate.toLocaleDateString(),
-      nextBilling: subscription.nextBilling.toLocaleDateString(),
-      amount: subscription.plan.price,
-      status: subscription.status,
-    }));
+    return subscriptions.map((subscription) => {
+      const planName = subscription.plan?.name ?? 'N/A';
+      const totalSessions = subscription.plan?.sessions ?? 0;
+      const usedSessions = subscription.duration ?? 0;
+      const remainingSessions = Math.max(0, totalSessions - usedSessions);
+
+      return {
+        id: subscription.id,
+        user: subscription.user
+          ? `${subscription.user.firstName ?? ''} ${subscription.user.surname ?? ''}`.trim() || subscription.user.email
+          : 'N/A',
+        userEmail: subscription.user?.email ?? 'N/A',
+        userPhone: subscription.user?.phoneNumber ?? 'N/A',
+        plan: planName,
+        tier: subscription.plan?.tier ?? 'Bronze',
+        startDate: subscription.startDate ? new Date(subscription.startDate).toLocaleDateString() : 'N/A',
+        nextBilling: subscription.nextBilling ? new Date(subscription.nextBilling).toLocaleDateString() : 'N/A',
+        amount: Number(subscription.plan?.price ?? 0),
+        status: subscription.status ?? Status.ACTIVE,
+        totalSessions,
+        usedSessions,
+        remainingSessions,
+        planDescription: subscription.plan?.description ?? '',
+        planFeatures: subscription.plan?.features ?? [],
+        billingCycle: subscription.plan?.billingCycle ?? 'MONTHLY',
+      };
+    });
   }
 
   async getAllAppointments() {
