@@ -14,6 +14,7 @@ import { StripeService } from 'src/payment/stripe.service';
 import { PlatformSettingsModule } from 'src/admin/platform-settings/platform-settings.module';
 import { EmailModule } from 'src/email/email.module';
 import { MembershipPlan } from 'src/business/entities/membership.entity';
+import { SlackModule } from 'src/slack/slack.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { MembershipPlan } from 'src/business/entities/membership.entity';
     ]),
     PlatformSettingsModule,
     EmailModule,
+    SlackModule,
   ],
   controllers: [MembershipTierController, MembershipSubscriptionController],
   providers: [MembershipTierService, MembershipService, PaystackService, StripeService],
