@@ -28,6 +28,7 @@ import { ClientSchema } from './entities/client.entity';
 import { GoogleCalendarModule } from 'src/integration/google-calendar.module';
 import { MailchimpModule } from 'src/integration/mail-chimp.module';
 import { BusinessOwnerSettingsModule } from './business-owner-settings.module';
+import { BusinessFirebaseModule } from './business-firebase.module';
 import { ZohoBooksModule } from 'src/integration/zohobooks.module';
 import { StripePaymentIntent } from 'src/payment/entities/stripe-payment-intent.entity';
 import { NotificationModule } from 'src/notifications/notification.module';
@@ -56,6 +57,7 @@ import { NotificationModule } from 'src/notifications/notification.module';
     GoogleCalendarModule,
     MailchimpModule,
     BusinessOwnerSettingsModule,
+    BusinessFirebaseModule,
     ZohoBooksModule,
     NotificationModule,
     forwardRef(() => GoogleCalendarModule),

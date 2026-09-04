@@ -1002,7 +1002,7 @@ export class BusinessService {
   async getBusinessServices(userId: string) {
     let business = await this.businessRepo.findOne({
       where: { owner: { id: userId } },
-      relations: ['serviceList'],
+      relations: ['serviceList', 'serviceList.assignedStaff'],
     });
 
     if (!userId) throw new Error('Invalid User');
