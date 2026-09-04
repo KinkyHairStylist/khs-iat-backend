@@ -29,6 +29,7 @@ import { StripeService } from 'src/payment/stripe.service';
 import { WalletCurrency } from 'src/admin/payment/enums/wallet.enum';
 import { PlatformSettingsService } from 'src/admin/platform-settings/platform-settings.service';
 import { EmailService } from 'src/email/email.service';
+import { SlackService } from 'src/slack/slack.service';
 
 @Injectable()
 export class MembershipService {
@@ -55,6 +56,7 @@ export class MembershipService {
     private readonly stripeService: StripeService,
     private readonly platformSettingsService: PlatformSettingsService,
     private readonly emailService: EmailService,
+    private readonly slackService: SlackService,
   ) {}
 
   // ------------------------------------------------------
@@ -276,6 +278,18 @@ export class MembershipService {
           'Failed to send membership payment email (gift card path)',
           e,
         );
+      }
+
+      try {
+        this.slackService.notify(
+          `⭐ *Membership Subscription Confirmed (Gift Card)*\n` +
+          `• *Customer*: ${user.firstName || 'Customer'} ${user.surname || ''} (${user.email})\n` +
+          `• *Plan*: ${tier.name}\n` +
+          `• *Amount Covered*: $${subscriptionAmount.toFixed(2)}\n` +
+          `• *Next Billing*: ${giftCardSub.subscription.nextBillingDate ? new Date(giftCardSub.subscription.nextBillingDate).toLocaleDateString('en-US') : 'N/A'}`
+        );
+      } catch (slackErr) {
+        this.logger.error('Failed to send Slack membership notification:', slackErr);
       }
 
       return {
@@ -660,10 +674,22 @@ export class MembershipService {
       );
     }
 
-    return {
-      message: 'Membership subscription completed successfully',
-      ...result,
-    };
+      try {
+        this.slackService.notify(
+          `⭐ *New Membership Subscription Paid*\n` +
+          `• *Customer*: ${result.userName || 'Customer'} (${result.userEmail})\n` +
+          `• *Plan*: ${result.tierName}\n` +
+          `• *Amount*: $${Number(result.subscriptionAmount || 0).toFixed(2)}\n` +
+          `• *Next Billing*: ${result.subscription.nextBillingDate ? new Date(result.subscription.nextBillingDate).toLocaleDateString('en-US') : 'N/A'}`
+        );
+      } catch (slackErr) {
+        this.logger.error('Failed to send Slack membership notification:', slackErr);
+      }
+
+      return {
+        message: 'Membership subscription completed successfully',
+        ...result,
+      };
   }
 
   // Get all subscriptions for a user

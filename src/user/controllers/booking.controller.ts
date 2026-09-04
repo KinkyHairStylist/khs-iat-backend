@@ -1,4 +1,4 @@
-﻿import { Controller, Post, Body, Get, Param, Patch, UseGuards, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, Patch, UseGuards, BadRequestException } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { Role } from 'src/middleware/role.enum';
@@ -52,6 +52,26 @@ export class BookingController {
   @ApiResponse({ status: 200, description: 'Booking completed successfully' })
   async completeBooking(@Body('reference') reference: string) {
     return this.bookingService.completeBooking(reference);
+  }
+
+  // Complete booking payment (after Stripe client confirmation)
+  @Post('complete-stripe')
+  @ApiOperation({ summary: 'Complete booking payment after Stripe client confirmation' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        paymentIntentId: { type: 'string' },
+        orderId: { type: 'string' },
+      },
+    },
+  })
+  @ApiResponse({ status: 200, description: 'Booking completed successfully' })
+  async completeStripeBooking(
+    @Body('paymentIntentId') paymentIntentId?: string,
+    @Body('orderId') orderId?: string,
+  ) {
+    return this.bookingService.completeStripeBooking(paymentIntentId, orderId);
   }
 
   // Get bookings for the authenticated user
