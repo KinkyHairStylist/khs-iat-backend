@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Card } from '../../all_user_entities/card.entity';
@@ -15,6 +15,7 @@ export class CardService {
     @InjectRepository(MembershipSubscription)
     private readonly subscriptionRepo: Repository<MembershipSubscription>,
     private readonly paystackService: PaystackService,
+    private readonly dataSource: DataSource,
   ) {}
 
   // `dto.reference` is the Paystack transaction reference from a small
@@ -123,39 +124,81 @@ export class CardService {
     });
 
     if (!card) {
-      throw new Error('Card not found');
+      throw new NotFoundException('Card not found');
     }
 
     // Check if card has associated gift cards that are not redeemed
-    const hasActiveGiftCards = card.giftCards.some(giftCard => giftCard.status === 'Active');
+    const hasActiveGiftCards = (card.giftCards || []).some(
+      (giftCard) => giftCard?.status === 'Active',
+    );
     if (hasActiveGiftCards) {
-      throw new Error('Cannot delete card with active (unredeemed) gift cards');
+      throw new BadRequestException(
+        'Cannot delete card with active (unredeemed) gift cards',
+      );
     }
 
     // Check if user has active membership subscriptions
-    const activeSubscription = await this.subscriptionRepo.findOne({
-      where: { userId: user.id, status: 'active' },
-    });
+    try {
+      const activeSubscription = await this.subscriptionRepo.findOne({
+        where: { userId: user.id, status: 'active' },
+      });
 
-    if (activeSubscription) {
-      throw new Error('Cannot delete card with active membership subscription');
+      if (activeSubscription) {
+        const allUserCards = await this.cardRepo.find({
+          where: { user: { id: user.id } },
+        });
+        if (allUserCards.length <= 1) {
+          throw new BadRequestException(
+            'Cannot delete your only saved card while having an active membership subscription',
+          );
+        }
+      }
+    } catch (subErr) {
+      if (subErr instanceof BadRequestException) throw subErr;
+      // Skip if subscription entity check fails
     }
 
     // Handle default card - if deleting default, set another card as default
     if (card.isDefault) {
       const otherCards = await this.cardRepo.find({
-        where: { user: { id: user.id }, isDefault: false },
+        where: { user: { id: user.id } },
         order: { createdAt: 'DESC' },
       });
 
-      if (otherCards.length > 0) {
-        otherCards[0].isDefault = true;
-        await this.cardRepo.save(otherCards[0]);
+      const nextCard = otherCards.find((c) => c.id !== card.id);
+      if (nextCard) {
+        nextCard.isDefault = true;
+        await this.cardRepo.save(nextCard);
       }
     }
 
+    // Safely unlink any gift cards referencing this card so foreign key constraints don't block deletion
+    try {
+      await this.dataSource.query(
+        `UPDATE "business_gift_cards" SET "cardId" = NULL WHERE "cardId" = $1`,
+        [card.id],
+      );
+    } catch (_) {}
+
+    try {
+      await this.dataSource.query(
+        `UPDATE "gift_card" SET "cardId" = NULL WHERE "cardId" = $1`,
+        [card.id],
+      );
+    } catch (_) {}
+
     // Delete the card
-    await this.cardRepo.remove(card);
+    try {
+      await this.cardRepo.remove(card);
+    } catch (removeErr) {
+      try {
+        await this.cardRepo.delete(card.id);
+      } catch (delErr: any) {
+        throw new BadRequestException(
+          delErr?.message || 'Could not delete card due to linked transactions or records.',
+        );
+      }
+    }
 
     return { message: 'Card deleted successfully' };
   }

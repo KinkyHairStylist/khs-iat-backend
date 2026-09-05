@@ -46,6 +46,7 @@ import { BusinessWalletModule } from 'src/business/wallet.module';
 import { PlatformSettingsModule } from '../../admin/platform-settings/platform-settings.module';
 import { AdminChatModule } from './admin-chat.module';
 import { NotificationModule } from 'src/notifications/notification.module';
+import { SlackModule } from 'src/slack/slack.module';
 
 @Global()
 @Module({
@@ -64,6 +65,7 @@ import { NotificationModule } from 'src/notifications/notification.module';
     forwardRef(() => BusinessModule),
     BusinessWalletModule,
     EmailModule,
+    SlackModule,
     ReferralModule,
     PhoneVerificationModule,
     CloudinaryModule,

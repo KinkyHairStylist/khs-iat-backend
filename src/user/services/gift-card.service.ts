@@ -18,6 +18,7 @@ import {
   PaymentMethod,
 } from 'src/business/entities/transaction.entity';
 import { BusinessWalletService } from 'src/business/services/wallet.service';
+import { WalletCurrency } from 'src/admin/payment/enums/wallet.enum';
 import { PaystackService } from 'src/payment/paystack.service';
 import {
   PurchaseBusinessGiftCardDto,
@@ -30,6 +31,7 @@ import {
 } from 'src/business/enum/gift-card.enum';
 import { PlatformSettingsService } from '../../admin/platform-settings/platform-settings.service';
 import { EmailService } from '../../email/email.service';
+import { SlackService } from 'src/slack/slack.service';
 
 @Injectable()
 export class GiftCardService {
@@ -48,6 +50,7 @@ export class GiftCardService {
     private readonly paystack: PaystackService,
     private readonly platformSettingsService: PlatformSettingsService,
     private readonly emailService: EmailService,
+    private readonly slackService: SlackService,
   ) {}
 
   // ------------------------------------------------------
@@ -56,11 +59,11 @@ export class GiftCardService {
   async purchaseGiftCard(dto: PurchaseBusinessGiftCardDto, purchaser: User) {
     const giftCard = await this.giftCardRepo.findOne({
       where: { code: dto.businessGiftCardId },
-      relations: ['business'],
+      relations: ['business', 'business.owner'],
     });
 
     if (!giftCard) throw new NotFoundException('Gift card not found');
-    if (!giftCard.business.owner)
+    if (!giftCard.business)
       throw new BadRequestException('Business could not be found');
     if (giftCard.soldStatus !== BusinessGiftCardSoldStatus.AVAILABLE)
       throw new BadRequestException('Gift card already purchased');
@@ -82,91 +85,150 @@ export class GiftCardService {
     const giftCardAmount = Number(giftCard.amount);
     const feeAmount = giftCardAmount * (platformFeePercent / 100);
     const totalAmount = giftCardAmount + feeAmount;
-    // Round to 2 decimal places to ensure amount is integer when converted to kobo
     const roundedTotalAmount = Math.round(totalAmount * 100) / 100;
 
-    // Initialize Paystack payment with total amount (gift card + fee)
-    const init = await this.paystack.initializePayment({
-      email: purchaser.email,
-      amount: Math.round(roundedTotalAmount * 100), // Convert to kobo and round to integer
-      callback_url: `${process.env.NEXT_PUBLIC_BASE_URL}customer/gift/purchase?template=${giftCard.template}&code=${giftCard.code}&amount=${giftCard.amount}`,
-      metadata: {
-        giftCardId: giftCard.id,
-        purchaserId: purchaser.id,
-        cardId: dto.cardId,
-        giftCardAmount: giftCardAmount,
-        feeAmount: feeAmount,
-      },
-    });
+    // Calculate expiry date
+    const expiry = new Date();
+    expiry.setDate(expiry.getDate() + (giftCard.expiryInDays || 365));
 
-    if (!init?.reference)
-      throw new BadRequestException('Unable to initialize payment');
+    // Ensure purchaser profile is fully loaded
+    const buyer =
+      (await this.dataSource.getRepository(User).findOne({
+        where: { id: purchaser.id },
+      })) || purchaser;
+    const buyerEmail = buyer.email || purchaser.email;
+    const buyerFullName =
+      `${buyer.firstName ?? purchaser.firstName ?? ''} ${buyer.surname ?? purchaser.surname ?? ''}`.trim() ||
+      'Valued Customer';
 
     // UPDATE GIFT CARD OWNERSHIP & DETAILS
-    giftCard.soldStatus = BusinessGiftCardSoldStatus.PENDING;
+    giftCard.soldStatus = BusinessGiftCardSoldStatus.PURCHASED;
     giftCard.status = BusinessGiftCardStatus.ACTIVE;
     giftCard.remainingAmount = giftCardAmount;
-
-    // Recipient is from DTO
     giftCard.recipientName = dto.recipientName ?? 'No name provided';
     giftCard.recipientEmail = dto.recipientEmail ?? 'No Email provided';
-
-    // Sender is from DTO (fullName), fallback to purchaser name if missing
+    giftCard.message = dto.message ?? '';
     giftCard.senderName =
-      dto.fullName ?? `${purchaser.firstName} ${purchaser.surname}`;
-
-    // The buyer becomes the OWNER
+      dto.fullName ?? buyerFullName;
     giftCard.ownerId = purchaser.id;
-    giftCard.ownerEmail = purchaser.email;
-    giftCard.ownerFullName = `${purchaser.firstName} ${purchaser.surname}`;
-
+    giftCard.ownerEmail = buyerEmail;
+    giftCard.ownerFullName = buyerFullName;
     giftCard.cardId = dto.cardId ?? undefined;
+    giftCard.expiresAt = expiry;
 
     await this.giftCardRepo.save(giftCard);
 
-    // Save pending gift card purchase transaction
+    const reference = `GC-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+
+    // Save completed gift card purchase transaction
     const giftCardTx = this.transactionRepo.create({
       senderId: purchaser.id,
-      recipientId: giftCard.business.ownerId,
+      recipientId: giftCard.business?.ownerId,
       amount: giftCardAmount,
       type: TransactionType.DEBIT,
-      currency: giftCard.currency as any,
+      currency: (giftCard.currency as any) || WalletCurrency.USD,
       description: `Purchase of gift card "${giftCard.title}"`,
       mode: 'Web',
-      referenceId: init.reference,
-      status: TransactionStatus.PENDING,
-      method: PaymentMethod.PAYSTACK,
+      referenceId: reference,
+      status: TransactionStatus.COMPLETED,
+      method: PaymentMethod.CARD,
       service: 'GiftCard-Purchase',
       customerName: `${purchaser.firstName} ${purchaser.surname}`,
     });
-
     await this.transactionRepo.save(giftCardTx);
 
-    // Save pending platform fee transaction
-    const feeTx = this.transactionRepo.create({
-      senderId: purchaser.id,
-      recipientId: undefined, // Platform fee goes to system
-      amount: feeAmount,
-      type: TransactionType.FEE,
-      currency: giftCard.currency as any,
-      description: `Platform fee for gift card "${giftCard.title}" purchase`,
-      mode: 'Web',
-      referenceId: init.reference,
-      status: TransactionStatus.PENDING,
-      method: PaymentMethod.PAYSTACK,
-      service: 'GiftCard-Fee',
-      customerName: `${purchaser.firstName} ${purchaser.surname}`,
-    });
+    // Save completed platform fee transaction
+    if (feeAmount > 0) {
+      const feeTx = this.transactionRepo.create({
+        senderId: purchaser.id,
+        recipientId: undefined, // Platform fee goes to system
+        amount: feeAmount,
+        type: TransactionType.FEE,
+        currency: (giftCard.currency as any) || WalletCurrency.USD,
+        description: `Platform fee for gift card "${giftCard.title}" purchase`,
+        mode: 'Web',
+        referenceId: reference,
+        status: TransactionStatus.COMPLETED,
+        method: PaymentMethod.CARD,
+        service: 'GiftCard-Fee',
+        customerName: `${purchaser.firstName} ${purchaser.surname}`,
+      });
+      await this.transactionRepo.save(feeTx);
+    }
 
-    await this.transactionRepo.save(feeTx);
+    // Update business wallet
+    try {
+      const ownerId = giftCard.business?.ownerId || giftCard.business?.owner?.id;
+      if (giftCard.businessId && ownerId) {
+        await this.walletService.addFunds({
+          businessId: giftCard.businessId,
+          recipientId: ownerId,
+          senderId: purchaser.id,
+          amount: giftCardAmount,
+          type: TransactionType.EARNING,
+          description: `Business Gift card purchase`,
+          referenceId: reference,
+        });
+      }
+    } catch (walletError) {
+      console.error('Failed to add funds to business wallet:', walletError);
+    }
+
+    // Send confirmation email to purchaser (buyer)
+    if (giftCard.ownerEmail) {
+      this.emailService.sendGiftCardEmail(
+        giftCard.ownerEmail,
+        giftCard.ownerFullName || 'Valued Customer',
+        'purchased',
+        giftCard.code,
+        giftCardAmount,
+        giftCard.recipientName || undefined,
+        giftCard.senderName || undefined,
+        undefined,
+        giftCard.message || undefined,
+      );
+    }
+
+    // Send gift card email to recipient if provided and different from purchaser
+    if (
+      giftCard.recipientEmail &&
+      giftCard.recipientEmail !== giftCard.ownerEmail &&
+      giftCard.recipientEmail !== 'No Email provided'
+    ) {
+      this.emailService.sendGiftCardEmail(
+        giftCard.recipientEmail,
+        giftCard.recipientName || 'Valued Friend',
+        'received',
+        giftCard.code,
+        giftCardAmount,
+        giftCard.recipientName || undefined,
+        giftCard.senderName || giftCard.ownerFullName || undefined,
+        undefined,
+        giftCard.message || undefined,
+      );
+    }
+
+    // Send Slack notification
+    try {
+      this.slackService.notify(
+        `🎁 *Gift Card Purchased*\n` +
+        `• *Card*: "${giftCard.title}" (\`${giftCard.code}\`)\n` +
+        `• *Purchaser*: ${giftCard.ownerFullName || 'Customer'} (${giftCard.ownerEmail || 'N/A'})\n` +
+        `• *Recipient*: ${giftCard.recipientName || 'N/A'} (${giftCard.recipientEmail || 'N/A'})\n` +
+        `• *Amount*: $${giftCardAmount.toFixed(2)}`
+      );
+    } catch (slackErr) {
+      console.error('Failed to send Slack gift card purchase notification:', slackErr);
+    }
 
     return {
-      message: 'Payment initialized',
-      giftCardAmount: giftCardAmount,
+      message: 'Gift card purchase completed successfully',
+      giftCard,
+      giftCardAmount,
       platformFee: feeAmount,
-      totalAmount: totalAmount,
-      authorizationUrl: init.authorization_url,
-      reference: init.reference,
+      totalAmount: roundedTotalAmount,
+      authorizationUrl: null,
+      reference,
     };
   }
 
@@ -286,18 +348,51 @@ export class GiftCardService {
       console.error('Failed to add funds to business wallet:', walletError);
     }
 
+    // Send confirmation email to purchaser (buyer)
     if (result.giftCard.ownerEmail) {
       this.emailService.sendGiftCardEmail(
         result.giftCard.ownerEmail,
-        result.giftCard.recipientName ||
-          result.giftCard.ownerFullName ||
-          'Valued Customer',
+        result.giftCard.ownerFullName || 'Valued Customer',
         'purchased',
         result.giftCard.code,
         result.giftCardAmount,
         result.giftCard.recipientName || undefined,
         result.giftCard.senderName || undefined,
+        undefined,
+        result.giftCard.message || undefined,
       );
+    }
+
+    // Send gift card email to recipient if provided and different from purchaser
+    if (
+      result.giftCard.recipientEmail &&
+      result.giftCard.recipientEmail !== result.giftCard.ownerEmail &&
+      result.giftCard.recipientEmail !== 'No Email provided'
+    ) {
+      this.emailService.sendGiftCardEmail(
+        result.giftCard.recipientEmail,
+        result.giftCard.recipientName || 'Valued Friend',
+        'received',
+        result.giftCard.code,
+        result.giftCardAmount,
+        result.giftCard.recipientName || undefined,
+        result.giftCard.senderName || result.giftCard.ownerFullName || undefined,
+        undefined,
+        result.giftCard.message || undefined,
+      );
+    }
+
+    // Send Slack notification
+    try {
+      this.slackService.notify(
+        `🎁 *Gift Card Purchased*\n` +
+        `• *Card*: "${result.giftCard.title}" (\`${result.giftCard.code}\`)\n` +
+        `• *Purchaser*: ${result.giftCard.ownerFullName || 'Customer'} (${result.giftCard.ownerEmail || 'N/A'})\n` +
+        `• *Recipient*: ${result.giftCard.recipientName || 'N/A'} (${result.giftCard.recipientEmail || 'N/A'})\n` +
+        `• *Amount*: $${result.giftCardAmount.toFixed(2)}`
+      );
+    } catch (slackErr) {
+      console.error('Failed to send Slack gift card purchase notification:', slackErr);
     }
 
     return {
@@ -393,17 +488,35 @@ export class GiftCardService {
       },
     );
 
-    if (user.email) {
+    let targetUser = user;
+    if (!targetUser?.email && targetUser?.id) {
+      targetUser = (await this.dataSource.getRepository(User).findOne({ where: { id: targetUser.id } })) || targetUser;
+    }
+    const userEmail = targetUser?.email || giftCard.ownerEmail;
+    const userName = `${targetUser?.firstName ?? ''} ${targetUser?.surname ?? ''}`.trim() || targetUser?.firstName || 'Valued Customer';
+
+    if (userEmail) {
       this.emailService.sendGiftCardEmail(
-        user.email,
-        user.firstName || 'Valued Customer',
+        userEmail,
+        userName,
         'redeemed',
         giftCard.code,
         amount,
         undefined,
         undefined,
-        giftCard.remainingAmount > 0 ? Number(giftCard.remainingAmount) : 0,
+        0,
       );
+    }
+
+    try {
+      this.slackService.notify(
+        `🎟️ *Gift Card Redeemed*\n` +
+        `• *Card*: "${giftCard.title}" (\`${giftCard.code}\`)\n` +
+        `• *Redeemed By*: ${userName} (${userEmail || 'N/A'})\n` +
+        `• *Amount Redeemed*: $${amount.toFixed(2)}`
+      );
+    } catch (slackErr) {
+      console.error('Failed to send Slack gift card redemption notification:', slackErr);
     }
 
     return result;

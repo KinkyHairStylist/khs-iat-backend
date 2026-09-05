@@ -42,6 +42,12 @@ export class EmailService {
       subject,
       text,
       html: html || text,
+      trackingSettings: {
+        clickTracking: {
+          enable: false,
+          enableText: false,
+        },
+      },
     };
 
     if (cc) {
@@ -53,6 +59,37 @@ export class EmailService {
 
     void this.sendWithRetry(msg, 1);
     return { success: true };
+  }
+
+  sendUserInviteEmail(to: string, role: string, inviteUrl: string) {
+    const roleNormalized = (role || 'CLIENT').toUpperCase();
+    const roleFormatted =
+      roleNormalized === 'ADMIN'
+        ? 'an Admin'
+        : roleNormalized === 'BUSINESS'
+          ? 'a Business Partner'
+          : 'a Client';
+
+    const roleTitle =
+      roleNormalized === 'ADMIN'
+        ? 'Admin'
+        : roleNormalized === 'BUSINESS'
+          ? 'Business'
+          : 'Client';
+
+    const html = this.templateService.render('user-invite', {
+      to,
+      role: roleTitle,
+      roleFormatted,
+      inviteUrl,
+      frontendUrl: this.frontendUrl,
+      year: new Date().getFullYear(),
+    });
+
+    const subject = `You've been invited to join Kinky Hairstylist as ${roleFormatted}`;
+    const text = `Hello,\n\nYou have been invited to join Kinky Hairstylist as ${roleFormatted}.\n\nPlease click the following link to complete your registration:\n${inviteUrl}\n\nThis invitation link will expire in 30 minutes.`;
+
+    return this.sendEmail(to, subject, text, html, this.deliveryTeamEmail);
   }
 
   sendWelcomeEmail(to: string, name: string) {
@@ -348,33 +385,43 @@ export class EmailService {
   sendGiftCardEmail(
     to: string,
     name: string,
-    action: 'purchased' | 'redeemed',
+    action: 'purchased' | 'redeemed' | 'received',
     giftCardCode: string,
     giftCardAmount: number,
     recipientName?: string,
     senderName?: string,
     remainingBalance?: number,
+    message?: string,
   ) {
-    const html = this.templateService.render('gift-card', {
-      name,
-      action,
-      giftCardCode,
-      giftCardAmount,
-      recipientName,
-      senderName,
-      remainingBalance,
-      frontendUrl: this.frontendUrl,
-      year: new Date().getFullYear(),
-    });
-    const subject =
-      action === 'purchased'
-        ? 'Your gift card purchase is confirmed'
-        : 'Your gift card has been redeemed';
-    const text =
-      action === 'purchased'
-        ? `Hi ${name}, your gift card (${giftCardCode}) worth $${giftCardAmount} has been purchased successfully.`
-        : `Hi ${name}, your gift card (${giftCardCode}) has been redeemed. Remaining balance: $${remainingBalance ?? 0}.`;
-    this.sendEmail(to, subject, text, html, this.deliveryTeamEmail);
+    try {
+      const html = this.templateService.render('gift-card', {
+        name: name || 'Valued Customer',
+        action,
+        giftCardCode,
+        giftCardAmount,
+        recipientName: recipientName || '',
+        senderName: senderName || '',
+        remainingBalance: remainingBalance ?? 0,
+        message: message || '',
+        frontendUrl: this.frontendUrl,
+        year: new Date().getFullYear(),
+      });
+      const subject =
+        action === 'purchased'
+          ? 'Your gift card purchase is confirmed'
+          : action === 'received'
+          ? `${senderName || 'Someone'} sent you a $${giftCardAmount} gift card!`
+          : 'Your gift card has been redeemed';
+      const text =
+        action === 'purchased'
+          ? `Hi ${name}, your gift card (${giftCardCode}) worth $${giftCardAmount} has been purchased successfully.`
+          : action === 'received'
+          ? `Hi ${name}, ${senderName || 'Someone'} sent you a $${giftCardAmount} gift card (${giftCardCode}) for Kinky Hairstylist.`
+          : `Hi ${name}, your gift card (${giftCardCode}) has been redeemed. Remaining balance: $${remainingBalance ?? 0}.`;
+      this.sendEmail(to, subject, text, html, this.deliveryTeamEmail);
+    } catch (err) {
+      this.logger.error(`Failed to send gift card ${action} email to ${to}:`, err);
+    }
   }
 
   sendBookingConfirmationEmail(
@@ -384,20 +431,61 @@ export class EmailService {
     serviceName: string,
     date: string,
     time: string,
+    orderId?: string,
+    amountPaid?: string | number,
+    paymentMethod?: string,
   ) {
+    const formattedAmount = amountPaid != null ? `$${Number(amountPaid).toFixed(2)}` : undefined;
     const html = this.templateService.render('booking-confirmation', {
       name,
       businessName,
       serviceName,
       date,
       time,
+      orderId,
+      amountPaid: formattedAmount,
+      paymentMethod: paymentMethod || 'Card (Stripe)',
       frontendUrl: this.frontendUrl,
       year: new Date().getFullYear(),
     });
-    const text = `Hi ${name}, your appointment at ${businessName} for ${serviceName} on ${date} at ${time} has been confirmed.`;
+    const text = `Hi ${name}, your payment of ${formattedAmount || 'full amount'} for your appointment at ${businessName} for ${serviceName} on ${date} at ${time} (Order #${orderId || ''}) has been confirmed.`;
     this.sendEmail(
       to,
-      'Your appointment is confirmed',
+      `Payment & Appointment Confirmed – ${businessName}`,
+      text,
+      html,
+      this.deliveryTeamEmail,
+    );
+  }
+
+  sendMerchantBookingNotificationEmail(
+    to: string,
+    merchantName: string,
+    customerName: string,
+    businessName: string,
+    serviceName: string,
+    date: string,
+    time: string,
+    orderId: string,
+    amountPaid: string | number,
+  ) {
+    const formattedAmount = `$${Number(amountPaid).toFixed(2)}`;
+    const html = this.templateService.render('merchant-booking-notification', {
+      merchantName,
+      customerName,
+      businessName,
+      serviceName,
+      date,
+      time,
+      orderId,
+      amountPaid: formattedAmount,
+      frontendUrl: this.frontendUrl,
+      year: new Date().getFullYear(),
+    });
+    const text = `Hi ${merchantName}, ${customerName} has successfully booked and paid ${formattedAmount} for ${serviceName} on ${date} at ${time} (Order #${orderId}) at ${businessName}.`;
+    this.sendEmail(
+      to,
+      `New Booking & Payment Received (${formattedAmount}) – Order #${orderId}`,
       text,
       html,
       this.deliveryTeamEmail,

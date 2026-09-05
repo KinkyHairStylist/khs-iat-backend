@@ -24,9 +24,21 @@ import { CreateMembershipPlanDto } from '../../business/dtos/requests/CreateMemb
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
+  @Get('dashboard/stats')
+  async getDashboardStats() {
+    return this.adminService.getDashboardStats();
+  }
+
   @Get('getAllUsers')
   async getAllUsers() {
     return this.adminService.getAllUsers();
+  }
+
+  @Post('updateUserRole')
+  async updateUserRole(
+    @Body() body: { id: string; role?: 'ADMIN' | 'CLIENT' | 'CUSTOMER' },
+  ) {
+    return this.adminService.updateUserRole(body.id, body.role);
   }
 
   @Post('getNearbySalons')
