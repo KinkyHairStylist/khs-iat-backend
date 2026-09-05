@@ -120,6 +120,13 @@ export class BookingService {
         throw new NotFoundException(`Service with ID ${serviceId} not found`);
       }
 
+      // Variable-priced services store price as null and hold the actual
+      // range on minPrice/maxPrice — appointments.amount is NOT NULL, so
+      // fall back to minPrice (then maxPrice, then 0). Final amount for
+      // variable services is settled during confirmBooking / at venue.
+      const bookingAmount =
+        service.price ?? service.minPrice ?? service.maxPrice ?? 0;
+
       const appointment = this.bookingRepository.create({
         client: user,
         business,
@@ -129,7 +136,7 @@ export class BookingService {
         date: createBookingDto.date,
         time: createBookingDto.time,
         duration: service.duration,
-        amount: service.price,
+        amount: bookingAmount,
         status: AppointmentStatus.PENDING,
         paymentStatus: PaymentStatus.UNPAID,
         staff: service.assignedStaff || [],
