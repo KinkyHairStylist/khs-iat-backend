@@ -87,7 +87,7 @@ export class SignUpDto {
   @IsString()
   @IsNotEmpty()
   @Matches(
-    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/,
+    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9\s]).{8,}$/,
     {
       message:
         'Password must contain at least one lowercase letter, one uppercase letter, one numeric digit, and one special character, and must be at least 8 characters long.',
@@ -230,7 +230,7 @@ export class ResetPasswordFinishDto {
   @IsString()
   @IsNotEmpty()
   @Matches(
-    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/,
+    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9\s]).{8,}$/,
     {
       message:
         'Password must contain at least one lowercase letter, one uppercase letter, one numeric digit, and one special character, and must be at least 8 characters long.',

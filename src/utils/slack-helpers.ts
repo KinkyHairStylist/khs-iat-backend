@@ -52,7 +52,7 @@ export const sendStandardSlackNotification = async (
     // the caller's explicit channel (or the Town Crier default) apply.
     let channel: SlackChannel | string;
     if (!isProductionEnv) {
-      channel = SlackChannel.CRY_WOLF;
+      channel = params.channel ?? SlackChannel.TEST_NOTIFICATIONS;
     } else {
       channel = params.channel ?? SlackChannel.TOWN_CRIER;
     }

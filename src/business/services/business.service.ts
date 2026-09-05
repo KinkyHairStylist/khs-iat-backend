@@ -36,6 +36,7 @@ import { CreateServiceDto } from '../dtos/requests/CreateServiceDto';
 import { UpdateServiceDto } from '../dtos/update-service.dto';
 import { DeleteServiceDto } from '../dtos/delete-service.dto';
 import { AssignStaffToServiceDto } from '../dtos/assign-staff-to-service.dto';
+import { AssignStaffToBookingDto } from '../dtos/assign-staff-to-booking.dto';
 import { Service } from '../entities/service.entity';
 import { AdvertisementPlan } from '../entities/advertisement-plan.entity';
 import { CreateStaffDto } from '../dtos/requests/AddStaffDto';
@@ -52,6 +53,13 @@ import { ZohoBooksService } from 'src/integration/services/zohobooks.service';
 import { PasswordUtil } from '../utils/password.util';
 import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'src/notifications/notification.enum';
+import { SlackService } from 'src/services/slack.service';
+import {
+  SlackEventType,
+  SlackNode,
+  SlackProvider,
+  SlackSeverity,
+} from 'src/utils/enum';
 import { promises } from 'dns';
 
 @Injectable()
@@ -146,13 +154,38 @@ export class BusinessService {
       currency: WalletCurrency.AUD,
     });
 
+    try {
+      SlackService.notify({
+        node: SlackNode.APPLICATION,
+        provider: SlackProvider.SYSTEM,
+        severity: SlackSeverity.INFO,
+        type: SlackEventType.USER_TRIGGERED,
+        trigger: `${business.ownerName || 'Merchant'} <${business.ownerEmail || owner.email}>`,
+        body: `Merchant is now live on the platform
+• Business: ${business.businessName}
+• Owner: ${business.ownerName}
+• Email: ${business.ownerEmail || owner.email}
+• ID: ${business.id}`,
+      });
+    } catch (slackError) {
+      Logger.error(
+        `Failed to send Slack notification for new live business: ${slackError instanceof Error ? slackError.message : 'unknown error'}`,
+      );
+    }
+
     return business;
   }
 
   async getBooking(id: string) {
     return await this.appointmentRepo.findOne({
       where: { id },
-      relations: ['client', 'businessClient'],
+      relations: [
+        'client',
+        'businessClient',
+        'staff',
+        'service',
+        'service.assignedStaff',
+      ],
     });
   }
 
@@ -969,7 +1002,7 @@ export class BusinessService {
   async getBusinessServices(userId: string) {
     let business = await this.businessRepo.findOne({
       where: { owner: { id: userId } },
-      relations: ['serviceList'],
+      relations: ['serviceList', 'serviceList.assignedStaff'],
     });
 
     if (!userId) throw new Error('Invalid User');
@@ -1210,6 +1243,42 @@ export class BusinessService {
     return {
       message: 'Staff assigned to service successfully',
       serviceId: service.id,
+      assignedStaffCount: staffMembers.length,
+    };
+  }
+
+  async assignStaffToAppointment(dto: AssignStaffToBookingDto) {
+    const { appointmentId, staffIds } = dto;
+
+    // Find the appointment (booking)
+    const appointment = await this.appointmentRepo.findOne({
+      where: { id: appointmentId },
+      relations: ['business'],
+    });
+
+    if (!appointment) {
+      throw new NotFoundException('Appointment not found');
+    }
+
+    // Find all staff members that belong to this business
+    const staffMembers = await this.staffRepo.find({
+      where: { id: In(staffIds), business: { id: appointment.business.id } },
+    });
+
+    if (staffMembers.length !== staffIds.length) {
+      throw new NotFoundException(
+        'One or more staff members not found or do not belong to this business',
+      );
+    }
+
+    // Assign (replace) staff on the booking. The appointment.staff relation is
+    // a ManyToMany, so it can hold multiple assigned staff members.
+    appointment.staff = staffMembers;
+    await this.appointmentRepo.save(appointment);
+
+    return {
+      message: 'Staff assigned to booking successfully',
+      appointmentId: appointment.id,
       assignedStaffCount: staffMembers.length,
     };
   }

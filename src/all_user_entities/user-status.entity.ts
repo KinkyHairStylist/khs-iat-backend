@@ -6,8 +6,11 @@ export class UserStatus {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
+  @Column({ nullable: true })
+  userId: string;
+
   @OneToOne(() => User, { nullable: false })
-  @JoinColumn() // THIS creates userId column in the table
+  @JoinColumn({ name: 'userId' })
   user: User;
 
   @Column({ default: false })

@@ -38,6 +38,7 @@ import {
 } from 'src/user/user_entities/refund.entity';
 import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'src/notifications/notification.enum';
+import { SlackService } from 'src/slack/slack.service';
 import { Card } from 'src/all_user_entities/card.entity';
 import { BusinessGiftCard } from 'src/business/entities/business-giftcard.entity';
 import { BusinessGiftCardStatus } from 'src/business/enum/gift-card.enum';
@@ -80,6 +81,7 @@ export class BookingService {
     private readonly emailService: EmailService,
     private readonly notificationSettingsService: NotificationSettingsService,
     private readonly notificationService: NotificationService,
+    private readonly slackService: SlackService,
   ) {}
 
   // Booking confirmation emails should only be sent if the customer hasn't
@@ -88,6 +90,12 @@ export class BookingService {
   private async shouldSendBookingConfirmationEmail(user: User): Promise<boolean> {
     const settings = await this.notificationSettingsService.getSettings(user);
     return settings.emailBookingConfirmations;
+  }
+
+  private isUuid(value: string): boolean {
+    return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(
+      value,
+    );
   }
 
   // Create Booking
@@ -339,6 +347,23 @@ export class BookingService {
           );
         }
 
+        try {
+          const serviceNames = [
+            ...new Set(appointments.map((a) => a.serviceName)),
+          ].join(', ');
+          this.slackService.notify(
+            `🎁 *Booking Confirmed via Gift Card*\n` +
+            `• *Order ID*: \`${orderId}\`\n` +
+            `• *Customer*: ${user.firstName || 'Customer'} ${user.surname || ''} (${user.email})\n` +
+            `• *Salon*: ${appointments[0].business?.businessName || 'the salon'}\n` +
+            `• *Services*: ${serviceNames}\n` +
+            `• *Appointment*: ${appointments[0].date} at ${appointments[0].time}\n` +
+            `• *Total*: $${totalAmount.toFixed(2)}`
+          );
+        } catch (slackErr) {
+          this.logger.error('Failed to send Slack gift card booking notification:', slackErr);
+        }
+
         return {
           message: 'Booking confirmed successfully with gift card',
           bookingAmount,
@@ -485,8 +510,18 @@ export class BookingService {
           },
         });
       }
+
+      this.slackService.notify(
+        `📅 *Booking Confirmed (Pay at Venue)*\n` +
+        `• *Order ID*: \`${orderId}\`\n` +
+        `• *Customer*: ${user.firstName || 'Customer'} ${user.surname || ''} (${user.email})\n` +
+        `• *Salon*: ${firstAppointment.business?.businessName || 'the salon'}\n` +
+        `• *Services*: ${serviceNames}\n` +
+        `• *Appointment*: ${firstAppointment.date} at ${firstAppointment.time}\n` +
+        `• *Amount to Pay at Venue*: $${(remainingToPay + payAtVenueSurcharge).toFixed(2)}`
+      );
     } catch (err) {
-      this.logger.error('Failed to send merchant booking notification (Stripe):', err);
+      this.logger.error('Failed to send merchant or Slack booking notification:', err);
     }
 
         return {
@@ -965,6 +1000,47 @@ export class BookingService {
     };
   }
 
+  async completeStripeBooking(
+    paymentIntentId?: string,
+    orderId?: string,
+  ): Promise<{ success: boolean; message: string }> {
+    let spi: StripePaymentIntent | null = null;
+    if (paymentIntentId) {
+      spi = await this.stripePaymentIntentRepository.findOne({
+        where: { stripePaymentIntentId: paymentIntentId },
+      });
+    } else if (orderId) {
+      spi = await this.stripePaymentIntentRepository.findOne({
+        where: { orderId },
+        order: { createdAt: 'DESC' },
+      });
+    }
+
+    if (!spi) {
+      throw new NotFoundException('Stripe payment record not found');
+    }
+
+    // Retrieve status from Stripe
+    const paymentIntent = await this.stripeService.retrievePaymentIntent(
+      spi.stripePaymentIntentId,
+    );
+
+    if (paymentIntent.status === 'succeeded') {
+      await this.handleStripePaymentSucceeded(
+        spi.stripePaymentIntentId,
+        typeof paymentIntent.latest_charge === 'string'
+          ? paymentIntent.latest_charge
+          : null,
+      );
+      return { success: true, message: 'Booking confirmed successfully' };
+    }
+
+    return {
+      success: false,
+      message: `Payment status is ${paymentIntent.status}`,
+    };
+  }
+
   // ------------------------------------------------------
   // Stripe — Handle payment_intent.succeeded webhook
   // ------------------------------------------------------
@@ -1044,41 +1120,82 @@ export class BookingService {
       },
     );
 
+    const totalAmountPaid = result.appointments.reduce((sum, a) => sum + Number(a.amount || 0), 0);
+    const serviceNames = [
+      ...new Set(result.appointments.map((a) => a.serviceName)),
+    ].join(', ');
+    const firstAppointment = result.appointments[0];
+
+    // 1. Send customer email with payment details
     if (result.userEmail && result.shouldSendConfirmationEmail) {
-      const serviceNames = [
-        ...new Set(result.appointments.map((a) => a.serviceName)),
-      ].join(', ');
       this.emailService.sendBookingConfirmationEmail(
         result.userEmail,
         result.userFirstName || 'Valued Customer',
-        result.appointments[0].business?.businessName || 'the salon',
+        firstAppointment.business?.businessName || 'the salon',
         serviceNames,
-        result.appointments[0].date,
-        result.appointments[0].time,
+        firstAppointment.date,
+        firstAppointment.time,
+        orderId,
+        totalAmountPaid,
+        'Card (Stripe)',
       );
     }
 
-      // ADD MERCHANT NOTIFICATION HERE
+    // 2. Fetch business with owner to ensure we have the merchant's ID and Email
     try {
-      const firstAppointment = result.appointments[0];
-      const merchantId = firstAppointment.business?.ownerId || firstAppointment.business?.owner?.id;
-      const serviceNames = [...new Set(result.appointments.map((a) => a.serviceName))].join(', ');
+      const business = await this.businessRepository.findOne({
+        where: { id: firstAppointment.business?.id },
+        relations: ['owner'],
+      });
+
+      const merchantId = business?.ownerId || business?.owner?.id;
+      const merchantEmail = business?.ownerEmail || business?.owner?.email;
+      const merchantName = business?.ownerName || (business?.owner ? `${business.owner.firstName ?? ''} ${business.owner.surname ?? ''}`.trim() : 'Merchant');
+
+      // 2a. In-App Notification to Merchant
       if (merchantId) {
         await this.notificationService.create({
           userId: merchantId,
           type: NotificationType.BOOKING_CONFIRMED,
-          title: 'New Booking Confirmed',
-          message: `A new booking has been placed by ${result.user.firstName} ${result.user.surname} for ${serviceNames}.`,
+          title: 'New Booking & Payment Received',
+          message: `Payment of $${totalAmountPaid.toFixed(2)} received for booking by ${result.user.firstName} ${result.user.surname} (${serviceNames}).`,
           link: '/merchant/dashboard/appointments',
           metadata: {
             orderId,
-            salonId: firstAppointment.business?.id,
+            salonId: business?.id,
             customerId: result.user.id,
+            amountPaid: totalAmountPaid,
           },
         });
       }
+
+      // 2b. Email Notification to Merchant
+      if (merchantEmail) {
+        this.emailService.sendMerchantBookingNotificationEmail(
+          merchantEmail,
+          merchantName || 'Salon Owner',
+          `${result.user.firstName} ${result.user.surname}`,
+          business?.businessName || 'Your Salon',
+          serviceNames,
+          firstAppointment.date,
+          firstAppointment.time,
+          orderId,
+          totalAmountPaid,
+        );
+      }
+
+      // 2c. Slack Notification
+      this.slackService.notify(
+        `🎉 *New Booking Payment Confirmed (Stripe)*\n` +
+        `• *Order ID*: \`${orderId}\`\n` +
+        `• *Customer*: ${result.userFirstName || 'Customer'} ${result.user.surname || ''} (${result.userEmail})\n` +
+        `• *Salon*: ${business?.businessName || firstAppointment.business?.businessName || 'the salon'}\n` +
+        `• *Services*: ${serviceNames}\n` +
+        `• *Appointment*: ${firstAppointment.date} at ${firstAppointment.time}\n` +
+        `• *Amount Paid*: $${totalAmountPaid.toFixed(2)}`
+      );
     } catch (err) {
-      this.logger.error('Failed to send merchant booking notification (Stripe):', err);
+      this.logger.error('Failed to send merchant or Slack booking notification (Stripe):', err);
     }
   }
 
@@ -1158,9 +1275,18 @@ export class BookingService {
 
   // Get Booking by ID
   async getBookingById(orderId: string): Promise<Appointment[]> {
+    const whereCondition = this.isUuid(orderId) ? { id: orderId } : { orderId };
+
     const appointments = await this.bookingRepository.find({
-      where: { orderId },
-      relations: ['service'],
+      where: whereCondition,
+      relations: [
+        'service',
+        'service.assignedStaff',
+        'staff',
+        'business',
+        'business.owner',
+        'client',
+      ],
     });
     if (!appointments || appointments.length === 0) {
       throw new NotFoundException('No appointments found for this order ID');
@@ -1447,8 +1573,13 @@ export class BookingService {
     orderId: string,
     user: User,
   ): Promise<{ message: string; clientConfirmedAt: Date }> {
+    const whereCondition = this.isUuid(orderId)
+      ? { id: orderId, client: { id: user.id } }
+      : { orderId, client: { id: user.id } };
+
     const appointments = await this.bookingRepository.find({
-      where: { orderId, client: { id: user.id } },
+      where: whereCondition,
+      relations: ['business', 'business.owner', 'client', 'service'],
     });
 
     if (appointments.length === 0) {
@@ -1460,6 +1591,57 @@ export class BookingService {
       appointment.clientConfirmedAt = clientConfirmedAt;
     }
     await this.bookingRepository.save(appointments);
+
+    const firstAppointment = appointments[0];
+    const merchant = firstAppointment.business?.owner;
+    const merchantId = merchant?.id || firstAppointment.business?.ownerId;
+    const merchantEmail = merchant?.email || (firstAppointment.business as any)?.ownerEmail;
+    const merchantName = merchant?.firstName
+      ? `${merchant.firstName} ${merchant.surname || ''}`.trim()
+      : 'Salon Owner';
+    const clientName = `${user.firstName || ''} ${user.surname || ''}`.trim() || 'Client';
+    const serviceNames = [
+      ...new Set(appointments.map((a) => a.serviceName || a.service?.name || 'Service')),
+    ].join(', ');
+    const businessName = firstAppointment.business?.businessName || 'the salon';
+
+    // 1. Send in-app notification to merchant
+    if (merchantId) {
+      try {
+        await this.notificationService.create({
+          userId: merchantId,
+          type: NotificationType.SYSTEM,
+          title: 'Client Confirmed Availability',
+          message: `${clientName} has confirmed their availability for appointment ${firstAppointment.orderId || orderId} (${serviceNames}) on ${firstAppointment.date} at ${firstAppointment.time}.`,
+          link: '/merchant/dashboard/appointments',
+          metadata: {
+            orderId: firstAppointment.orderId || orderId,
+            salonId: firstAppointment.business?.id,
+            customerId: user.id,
+          },
+        });
+      } catch (err) {
+        this.logger.error('Failed to send merchant availability in-app notification:', err);
+      }
+    }
+
+    // 2. Send email notification to merchant
+    if (merchantEmail) {
+      try {
+        this.emailService.sendMerchantAvailabilityConfirmedEmail(
+          merchantEmail,
+          merchantName,
+          clientName,
+          businessName,
+          serviceNames,
+          firstAppointment.date,
+          firstAppointment.time,
+          firstAppointment.orderId || orderId,
+        );
+      } catch (err) {
+        this.logger.error('Failed to send merchant availability email:', err);
+      }
+    }
 
     return { message: 'Availability confirmed', clientConfirmedAt };
   }

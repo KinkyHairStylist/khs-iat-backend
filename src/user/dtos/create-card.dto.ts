@@ -1,13 +1,49 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString } from 'class-validator';
+import { ApiPropertyOptional } from '@nestjs/swagger';
+import { IsOptional, IsString } from 'class-validator';
 
-// The card number/CVV never reach this backend at all — the customer enters
-// them directly into Paystack's own Inline popup, which runs a small
-// verification charge and returns this transaction reference. We exchange
-// it for a reusable authorization code (see CardService.createCard).
 export class CreateCardDto {
-  @ApiProperty({ example: 'a1b2c3d4e5' })
-  @IsNotEmpty()
+  @ApiPropertyOptional({ example: 'a1b2c3d4e5' })
+  @IsOptional()
   @IsString()
-  reference: string;
+  reference?: string;
+
+  @ApiPropertyOptional({ example: 'Visa' })
+  @IsOptional()
+  @IsString()
+  providerName?: string;
+
+  @ApiPropertyOptional({ example: 'credit' })
+  @IsOptional()
+  @IsString()
+  type?: string;
+
+  @ApiPropertyOptional({ example: 'John Doe' })
+  @IsOptional()
+  @IsString()
+  cardHolderName?: string;
+
+  @ApiPropertyOptional({ example: '4242424242424242' })
+  @IsOptional()
+  @IsString()
+  cardNumber?: string;
+
+  @ApiPropertyOptional({ example: '12' })
+  @IsOptional()
+  @IsString()
+  expiryMonth?: string;
+
+  @ApiPropertyOptional({ example: '2028' })
+  @IsOptional()
+  @IsString()
+  expiryYear?: string;
+
+  @ApiPropertyOptional({ example: '123' })
+  @IsOptional()
+  @IsString()
+  cvv?: string;
+
+  @ApiPropertyOptional({ example: '123 Main St' })
+  @IsOptional()
+  @IsString()
+  billingAddress?: string;
 }

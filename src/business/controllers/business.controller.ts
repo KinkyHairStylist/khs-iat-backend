@@ -30,6 +30,7 @@ import { RemoveBusinessCategoriesDto } from '../dtos/remove-business-categories.
 import { UpdateServiceDto } from '../dtos/update-service.dto';
 import { DeleteServiceDto } from '../dtos/delete-service.dto';
 import { AssignStaffToServiceDto } from '../dtos/assign-staff-to-service.dto';
+import { AssignStaffToBookingDto } from '../dtos/assign-staff-to-booking.dto';
 import { RolesGuard } from 'src/middleware/roles.guard';
 import { Role } from 'src/middleware/role.enum';
 import { Roles } from 'src/middleware/roles.decorator';
@@ -39,6 +40,8 @@ import { Permission } from 'src/middleware/permissions.enum';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { EmailService } from '../../email/email.service';
 import { BusinessCategory, BUSINESS_CATEGORIES } from '../types/category.enum';
+import { UploadServiceImageDto } from '../dtos/upload-service-image.dto';
+import { BusinessFirebaseService } from '../services/business-firebase.service';
 
 interface RequestWithUser extends Request {
   user: User;
@@ -50,6 +53,7 @@ export class BusinessController {
   constructor(
     private readonly businessService: BusinessService,
     private readonly emailService: EmailService,
+    private readonly businessFirebaseService: BusinessFirebaseService,
   ) {}
 
   // ── BOOKINGS ──────────────────────────────────────────────────────────────
@@ -82,6 +86,15 @@ export class BusinessController {
   @Post('completeBooking/:id')
   async completeBooking(@Param('id') id: string) {
     return this.businessService.completeBooking(id);
+  }
+
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @Roles(Role.Merchant, Role.Staff, Role.BusinessStaff)
+  @RequirePermission(Permission.MANAGE_BOOKINGS)
+  @Post('assign-staff-to-booking')
+  async assignStaffToBooking(@Body() body: AssignStaffToBookingDto) {
+    return this.businessService.assignStaffToAppointment(body);
   }
 
   @ApiBearerAuth('access-token')
@@ -271,6 +284,19 @@ export class BusinessController {
   @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
   @Roles(Role.Merchant, Role.Staff, Role.BusinessStaff)
   @RequirePermission(Permission.MANAGE_SERVICES)
+  @Post('upload-service-image')
+  async uploadServiceImage(@Body() body: UploadServiceImageDto) {
+    const { imageUrl } = await this.businessFirebaseService.uploadImageFromBase64(
+      body.dataUri,
+      'KHS/serviceImages',
+    );
+    return { success: true, data: { imageUrl } };
+  }
+
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @Roles(Role.Merchant, Role.Staff, Role.BusinessStaff)
+  @RequirePermission(Permission.MANAGE_SERVICES)
   @Put('update-service/:serviceId')
   async updateService(
     @Param('serviceId') serviceId: string,
@@ -330,7 +356,8 @@ export class BusinessController {
     @Req() req: RequestWithUser,
     @Body() body: DeleteServiceDto,
   ) {
-    return this.businessService.deleteService(body);
+    const id = serviceId || body?.serviceId;
+    return this.businessService.deleteService({ serviceId: id });
   }
 
   // ── REPORTS / DETAILS ─────────────────────────────────────────────────────

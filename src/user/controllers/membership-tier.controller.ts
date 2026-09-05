@@ -8,8 +8,6 @@ import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
 
 @ApiTags('Membership')
 @Controller('membership')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@ApiBearerAuth('access-token')
 export class MembershipTierController {
   constructor(private readonly membershipTierService: MembershipTierService) {}
 

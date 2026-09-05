@@ -19,7 +19,7 @@ export class PasswordUtil {
     const hasUpperCase = /[A-Z]/.test(password);
     const hasLowerCase = /[a-z]/.test(password);
     const hasNumbers = /\d/.test(password);
-    const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>]/.test(password);
+    const hasSpecialChar = /[^A-Za-z0-9\s]/.test(password);
 
     if (password.length < minLength) {
       throw new BadRequestException(

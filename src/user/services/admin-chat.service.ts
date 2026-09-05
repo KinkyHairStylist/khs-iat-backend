@@ -42,8 +42,7 @@ export class AdminChatService {
   // Get user online/offline status
   async getUserStatus(userId: string): Promise<boolean> {
     const status = await this.statusRepo.findOne({
-      where: { user: { id: userId } },
-      relations: ['user'],
+      where: { userId },
     });
 
     return status?.isOnline ?? false;
@@ -52,13 +51,12 @@ export class AdminChatService {
   // Set user online/offline
   async setUserOnline(userId: string, isOnline: boolean) {
     let status = await this.statusRepo.findOne({
-      where: { user: { id: userId } },
-      relations: ['user'],
+      where: { userId },
     });
 
     if (!status) {
       status = this.statusRepo.create({
-        user: { id: userId } as User,
+        userId,
         isOnline,
       });
     } else {

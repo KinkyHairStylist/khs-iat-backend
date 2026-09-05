@@ -15,6 +15,7 @@ import { AdminInvite } from './admin_entities/admin-invite.entity';
 import { Appointment } from '../business/entities/appointment.entity';
 import { Dispute } from '../business/entities/dispute.entity';
 import { MembershipPlan } from '../business/entities/membership.entity';
+import { MembershipTier } from '../user/user_entities/membership-tier.entity';
 import { Subscription } from '../business/entities/subscription.entity';
 import { Payment } from './payment/entities/payment.entity';
 import { EmailModule } from '../email/email.module';
@@ -30,7 +31,7 @@ import { StripeService } from 'src/payment/stripe.service';
   imports: [
     PassportModule.register({ defaultStrategy: 'jwt' }),
     TypeOrmModule.forFeature([User, AdminInvite]),
-    TypeOrmModule.forFeature([MembershipPlan]),
+    TypeOrmModule.forFeature([MembershipPlan, MembershipTier]),
     TypeOrmModule.forFeature([Business]),
     TypeOrmModule.forFeature([Dispute]),
     TypeOrmModule.forFeature([Appointment]),

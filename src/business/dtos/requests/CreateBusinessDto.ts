@@ -19,8 +19,8 @@ export class CreateBusinessDto {
   readonly businessName: string;
 
   @IsString({ message: 'Description must be a string.' })
-  @IsNotEmpty({ message: 'Description is required.' })
-  readonly description: string;
+  @IsOptional()
+  readonly description?: string;
 
   @IsString({ message: 'Primary audience must be a string.' })
   @IsNotEmpty({ message: 'Primary audience is required.' })

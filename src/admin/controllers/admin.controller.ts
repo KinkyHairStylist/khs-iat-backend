@@ -24,9 +24,21 @@ import { CreateMembershipPlanDto } from '../../business/dtos/requests/CreateMemb
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
+  @Get('dashboard/stats')
+  async getDashboardStats() {
+    return this.adminService.getDashboardStats();
+  }
+
   @Get('getAllUsers')
   async getAllUsers() {
     return this.adminService.getAllUsers();
+  }
+
+  @Post('updateUserRole')
+  async updateUserRole(
+    @Body() body: { id: string; role?: 'ADMIN' | 'CLIENT' | 'CUSTOMER' },
+  ) {
+    return this.adminService.updateUserRole(body.id, body.role);
   }
 
   @Post('getNearbySalons')
@@ -42,11 +54,6 @@ export class AdminController {
   @Get('getAllSubscribers')
   async getAllSubscribers() {
     return this.adminService.getAllSubscribers();
-  }
-
-  @Post('removeMembershipPlan')
-  async removeMembershipPlan(@Body() body: { id: string; reason: string }) {
-    return this.adminService.removeMembershipPlan(body.id, body.reason);
   }
 
   @Post('createMembershipPlan')
@@ -73,6 +80,16 @@ export class AdminController {
       body.id,
       body.createMembershipPlanDto,
     );
+  }
+
+  @Post('removeMembershipPlan')
+  async removeMembershipPlan(@Body() body: { id: string; reason: string }) {
+    return this.adminService.removeMembershipPlan(body.id, body.reason);
+  }
+
+  @Post('setPopularPlan')
+  async setPopularPlan(@Body() body: { id: string }) {
+    return this.adminService.setPopularPlan(body.id);
   }
 
   @Post('cancelAppointment')
