@@ -25,9 +25,11 @@ import {
   PaymentMethod,
 } from 'src/business/entities/transaction.entity';
 import { PaystackService } from 'src/payment/paystack.service';
+import { StripeService } from 'src/payment/stripe.service';
 import { WalletCurrency } from 'src/admin/payment/enums/wallet.enum';
 import { PlatformSettingsService } from 'src/admin/platform-settings/platform-settings.service';
 import { EmailService } from 'src/email/email.service';
+import { SlackService } from 'src/slack/slack.service';
 
 @Injectable()
 export class MembershipService {
@@ -51,8 +53,10 @@ export class MembershipService {
 
     private readonly dataSource: DataSource,
     private readonly paystack: PaystackService,
+    private readonly stripeService: StripeService,
     private readonly platformSettingsService: PlatformSettingsService,
     private readonly emailService: EmailService,
+    private readonly slackService: SlackService,
   ) {}
 
   // ------------------------------------------------------
@@ -76,23 +80,46 @@ export class MembershipService {
       }
     }
 
+    const isStripe = dto.paymentProvider !== 'paystack';
+
     const existing = await this.subscriptionRepo.findOne({
       where: { userId: user.id, status: 'active' },
+      relations: ['tier'],
     });
 
+    const isCurrentPlanUnexpired = Boolean(
+      existing &&
+      existing.endDate &&
+      new Date(existing.endDate) > new Date()
+    );
+
+    const currentPlanPrice = isCurrentPlanUnexpired && existing
+      ? Number(existing.monthlyCost || existing.tier?.initialPrice || existing.tier?.availablePrice || 0)
+      : 0;
+
+    const newPlanPrice = Number(tier.initialPrice || tier.availablePrice || 0);
+
+    const isUpgrade = Boolean(
+      isCurrentPlanUnexpired &&
+      existing &&
+      existing.tierId !== tier.id &&
+      newPlanPrice > currentPlanPrice
+    );
+
     if (existing) {
-      this.logger.warn(
-        `User ${user.id} blocked from subscribing — active subscription ${existing.id} (endDate: ${existing.endDate}, tier: ${existing.tier?.name})`,
+      this.logger.log(
+        `User ${user.id} has active subscription ${existing.id} (tier ${existing.tierId}, unexpired: ${isCurrentPlanUnexpired}, isUpgrade: ${isUpgrade}). Initializing payment for tier ${tier.id}.`,
       );
-      throw new BadRequestException('You already have an active subscription');
     }
 
     // Get platform fee percentage
     const paymentsSettings = await this.platformSettingsService.getPayments();
     const platformFeePercent = Number(paymentsSettings.platformFee) || 0;
 
-    // Calculate subscription amount and fee
-    const subscriptionAmount = Number(tier.initialPrice);
+    // Calculate subscription amount and fee (diff amount for unexpired upgrade)
+    const subscriptionAmount = isUpgrade
+      ? Math.max(0, newPlanPrice - currentPlanPrice)
+      : newPlanPrice;
     const feeAmount = subscriptionAmount * (platformFeePercent / 100);
     const totalAmount = subscriptionAmount + feeAmount;
 
@@ -118,14 +145,14 @@ export class MembershipService {
       remainingToPay = roundedTotalAmount - giftCardPayment;
     }
 
-    // If remaining amount exists and no card ID provided, throw error
-    if (remainingToPay > 0 && !dto.cardId) {
+    // If remaining amount exists and no card ID provided (and not using Stripe), throw error
+    if (remainingToPay > 0 && !isStripe && !dto.cardId) {
       throw new BadRequestException(
         'Payment method required for remaining amount',
       );
     }
 
-    // If there's remaining amount, validate card
+    // If there's remaining amount and cardId provided, validate card
     let card: Card | null = null;
     if (remainingToPay > 0 && dto.cardId) {
       card = await this.cardRepo.findOne({
@@ -253,6 +280,18 @@ export class MembershipService {
         );
       }
 
+      try {
+        this.slackService.notify(
+          `⭐ *Membership Subscription Confirmed (Gift Card)*\n` +
+          `• *Customer*: ${user.firstName || 'Customer'} ${user.surname || ''} (${user.email})\n` +
+          `• *Plan*: ${tier.name}\n` +
+          `• *Amount Covered*: $${subscriptionAmount.toFixed(2)}\n` +
+          `• *Next Billing*: ${giftCardSub.subscription.nextBillingDate ? new Date(giftCardSub.subscription.nextBillingDate).toLocaleDateString('en-US') : 'N/A'}`
+        );
+      } catch (slackErr) {
+        this.logger.error('Failed to send Slack membership notification:', slackErr);
+      }
+
       return {
         message:
           'Membership subscription completed successfully with gift card',
@@ -261,27 +300,48 @@ export class MembershipService {
     }
 
     // Handle partial/combined payment (gift card + card)
+    let stripeInit: { client_secret: string } | null = null;
     let paystackInit: { reference: string; authorization_url: string } | null =
       null;
-    if (remainingToPay > 0) {
-      paystackInit = await this.paystack.initializePayment({
-        email: user.email,
-        amount: Math.round(remainingToPay * 100), // Convert to kobo and round to integer
-        callback_url: `${process.env.NEXT_PUBLIC_BASE_URL}customer/membership/complete?reference=${reference}`,
-        metadata: {
-          subscriptionTierId: tier.id,
-          userId: user.id,
-          cardId: dto.cardId,
-          giftCard: dto.giftCard,
-          giftCardAmount: giftCardPayment,
-          subscriptionAmount: subscriptionAmount,
-          feeAmount: feeAmount,
-          reference: reference,
-        },
-      });
 
-      if (!paystackInit?.reference)
-        throw new BadRequestException('Unable to initialize payment');
+    if (remainingToPay > 0) {
+      if (isStripe) {
+        const paymentIntent = await this.stripeService.createPaymentIntent({
+          amount: Math.round(remainingToPay * 100), // Convert to cents
+          currency: 'usd',
+          customerEmail: user.email,
+          metadata: {
+            reference,
+            subscriptionTierId: tier.id,
+            userId: user.id,
+            cardId: dto.cardId || '',
+            giftCard: dto.giftCard || '',
+            giftCardAmount: giftCardPayment,
+            subscriptionAmount,
+            feeAmount,
+          },
+        });
+        stripeInit = { client_secret: paymentIntent.client_secret || '' };
+      } else {
+        paystackInit = await this.paystack.initializePayment({
+          email: user.email,
+          amount: Math.round(remainingToPay * 100), // Convert to kobo and round to integer
+          callback_url: `${process.env.NEXT_PUBLIC_BASE_URL}customer/membership/complete?reference=${reference}`,
+          metadata: {
+            subscriptionTierId: tier.id,
+            userId: user.id,
+            cardId: dto.cardId,
+            giftCard: dto.giftCard,
+            giftCardAmount: giftCardPayment,
+            subscriptionAmount: subscriptionAmount,
+            feeAmount: feeAmount,
+            reference: reference,
+          },
+        });
+
+        if (!paystackInit?.reference)
+          throw new BadRequestException('Unable to initialize payment');
+      }
     }
 
     // Create pending transactions
@@ -316,9 +376,9 @@ export class MembershipService {
         currency: WalletCurrency.AUD,
         description: `Card payment for membership subscription ${tier.name}`,
         mode: 'Web',
-        referenceId: paystackInit!.reference,
+        referenceId: isStripe ? reference : paystackInit!.reference,
         status: TransactionStatus.PENDING,
-        method: PaymentMethod.PAYSTACK,
+        method: isStripe ? PaymentMethod.STRIPE : PaymentMethod.PAYSTACK,
         service: 'Membership-Subscription',
         customerName: `${user.firstName} ${user.surname}`,
       });
@@ -337,7 +397,7 @@ export class MembershipService {
         mode: 'Web',
         referenceId: reference,
         status: TransactionStatus.PENDING,
-        method: PaymentMethod.PAYSTACK,
+        method: isStripe ? PaymentMethod.STRIPE : PaymentMethod.PAYSTACK,
         service: 'Membership-Fee',
         customerName: `${user.firstName} ${user.surname}`,
       });
@@ -355,24 +415,34 @@ export class MembershipService {
       giftCardAmountUsed: giftCardPayment,
       cardAmountToPay: remainingToPay,
       authorizationUrl: paystackInit?.authorization_url || null,
+      clientSecret: stripeInit?.client_secret || null,
+      paymentProvider: isStripe ? 'stripe' : 'paystack',
       reference: reference,
     };
   }
 
   // ------------------------------------------------------
   // Step 2 — Complete Subscription (Verify Payment & Create Subscription)
-  // ------------------------------------------------------
   async completeSubscription(reference: string) {
+    const lookupTx = await this.transactionRepo.findOne({
+      where: { referenceId: reference },
+    });
+
+    if (!lookupTx) {
+      throw new NotFoundException('Transaction reference not found');
+    }
+
+    const isStripe = lookupTx.method === PaymentMethod.STRIPE;
+
     // Atomically claim this reference — prevents race conditions from double-fires
     const claim = await this.transactionRepo.update(
       {
         referenceId: reference,
-        method: PaymentMethod.PAYSTACK,
         status: TransactionStatus.PENDING,
       },
       { status: TransactionStatus.PROCESSING },
     );
-    if (claim.affected === 0) {
+    if (claim.affected === 0 && lookupTx.status !== TransactionStatus.PROCESSING) {
       this.logger.log(
         `completeSubscription already claimed/processed for reference ${reference} — skipping`,
       );
@@ -382,49 +452,83 @@ export class MembershipService {
       };
     }
 
-    const lookupTx = await this.transactionRepo.findOne({
-      where: { referenceId: reference },
-    });
-    const preUserId = lookupTx?.senderId;
+    const preUserId = lookupTx.senderId;
     if (preUserId) {
       const activeBefore = await this.subscriptionRepo.findOne({
         where: { userId: preUserId, status: 'active' },
       });
       if (activeBefore) {
         this.logger.warn(
-          `User ${preUserId} has active subscription ${activeBefore.id} before Paystack verify — will upgrade inside transaction`,
+          `User ${preUserId} has active subscription ${activeBefore.id} — will upgrade inside transaction`,
         );
       }
     }
 
-    // Verify payment
-    const verification = await this.paystack.verifyPayment(reference);
+    let subscriptionTierId = '';
+    let userId = lookupTx.senderId;
+    let subscriptionAmount = 0;
+    let feeAmount = 0;
+    let giftCardAmount = 0;
+    let giftCardCode: string | undefined = undefined;
+    let cardAmountUsed = 0;
 
-    if (!verification || verification.status !== 'success') {
-      await this.transactionRepo.update(
-        { referenceId: reference },
-        { status: TransactionStatus.FAILED },
-      );
-      throw new BadRequestException('Payment verification failed');
+    if (isStripe) {
+      cardAmountUsed = Number(lookupTx.amount);
+      const feeTx = await this.transactionRepo.findOne({
+        where: { referenceId: reference, service: 'Membership-Fee' },
+      });
+      feeAmount = feeTx?.amount ? Number(feeTx.amount) : 0;
+      subscriptionAmount = Number(lookupTx.amount);
+
+      const giftTx = await this.transactionRepo.findOne({
+        where: {
+          referenceId: reference,
+          service: 'Membership-Subscription',
+          method: PaymentMethod.GIFTCARD,
+        },
+      });
+      if (giftTx) {
+        giftCardAmount = Number(giftTx.amount);
+      }
+
+      const tiers = await this.tierRepo.find();
+      const matchedTier =
+        tiers.find((t) => lookupTx.description?.includes(t.name)) || tiers[0];
+      subscriptionTierId = matchedTier.id;
+    } else {
+      // Verify payment
+      const verification = await this.paystack.verifyPayment(reference);
+
+      if (!verification || verification.status !== 'success') {
+        await this.transactionRepo.update(
+          { referenceId: reference },
+          { status: TransactionStatus.FAILED },
+        );
+        throw new BadRequestException('Payment verification failed');
+      }
+
+      const meta = verification.metadata;
+      subscriptionAmount = Number(meta.subscriptionAmount) || 0;
+      feeAmount = Number(meta.feeAmount) || 0;
+      giftCardAmount = Number(meta.giftCardAmount) || 0;
+      subscriptionTierId = meta.subscriptionTierId;
+      userId = meta.userId;
+      giftCardCode = meta.giftCard;
+      cardAmountUsed = verification.amount / 100;
     }
-
-    const meta = verification.metadata;
-    const subscriptionAmount = Number(meta.subscriptionAmount) || 0;
-    const feeAmount = Number(meta.feeAmount) || 0;
-    const giftCardAmount = Number(meta.giftCardAmount) || 0;
 
     // Start DB transaction
     const result = await this.dataSource.manager.transaction(
       async (manager) => {
         // Find tier
         const tier = await manager.findOne(MembershipTier, {
-          where: { id: meta.subscriptionTierId },
+          where: { id: subscriptionTierId },
         });
         if (!tier) throw new NotFoundException('Membership tier not found');
 
         // Find user
         const user = await manager.findOne(User, {
-          where: { id: meta.userId },
+          where: { id: userId },
         });
         if (!user) throw new NotFoundException('User not found');
 
@@ -434,8 +538,11 @@ export class MembershipService {
         });
 
         if (existing) {
+          if (existing.tierId === tier.id) {
+            throw new BadRequestException('You already have an active subscription to this tier');
+          }
           this.logger.warn(
-            `User ${user.id} already has active subscription ${existing.id} after Paystack verification — upgrading existing sub instead`,
+            `User ${user.id} already has active subscription ${existing.id} — upgrading existing sub instead`,
           );
           // Update existing subscription to new tier dates/benefits
           existing.tierId = tier.id;
@@ -453,9 +560,9 @@ export class MembershipService {
         }
 
         // Handle gift card portion if any
-        if (meta.giftCard && giftCardAmount > 0) {
+        if (giftCardCode && giftCardAmount > 0) {
           const giftCard = await manager.findOne(BusinessGiftCard, {
-            where: { code: meta.giftCard },
+            where: { code: giftCardCode },
           });
 
           if (!giftCard) throw new BadRequestException('Gift card not found');
@@ -471,7 +578,7 @@ export class MembershipService {
           await manager.update(
             Transaction,
             {
-              referenceId: meta.reference,
+              referenceId: reference,
               service: 'Membership-Subscription',
               method: PaymentMethod.GIFTCARD,
             },
@@ -511,7 +618,7 @@ export class MembershipService {
           {
             referenceId: reference,
             service: 'Membership-Subscription',
-            method: PaymentMethod.PAYSTACK,
+            status: TransactionStatus.PROCESSING,
           },
           {
             status: TransactionStatus.COMPLETED,
@@ -523,7 +630,7 @@ export class MembershipService {
           await manager.update(
             Transaction,
             {
-              referenceId: meta.reference,
+              referenceId: reference,
               service: 'Membership-Fee',
             },
             {
@@ -540,8 +647,8 @@ export class MembershipService {
           subscriptionAmount: subscriptionAmount,
           platformFee: feeAmount,
           giftCardAmountUsed: giftCardAmount,
-          cardAmountUsed: verification.amount / 100, // Convert from kobo
-          totalPaid: verification.amount / 100 + giftCardAmount,
+          cardAmountUsed: cardAmountUsed,
+          totalPaid: cardAmountUsed + giftCardAmount,
         };
       },
     );
@@ -567,10 +674,22 @@ export class MembershipService {
       );
     }
 
-    return {
-      message: 'Membership subscription completed successfully',
-      ...result,
-    };
+      try {
+        this.slackService.notify(
+          `⭐ *New Membership Subscription Paid*\n` +
+          `• *Customer*: ${result.userName || 'Customer'} (${result.userEmail})\n` +
+          `• *Plan*: ${result.tierName}\n` +
+          `• *Amount*: $${Number(result.subscriptionAmount || 0).toFixed(2)}\n` +
+          `• *Next Billing*: ${result.subscription.nextBillingDate ? new Date(result.subscription.nextBillingDate).toLocaleDateString('en-US') : 'N/A'}`
+        );
+      } catch (slackErr) {
+        this.logger.error('Failed to send Slack membership notification:', slackErr);
+      }
+
+      return {
+        message: 'Membership subscription completed successfully',
+        ...result,
+      };
   }
 
   // Get all subscriptions for a user

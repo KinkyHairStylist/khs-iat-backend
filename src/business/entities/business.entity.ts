@@ -47,7 +47,7 @@ export class Business {
 
   @ManyToOne(() => User, (user) => user.businesses, {
     onDelete: 'CASCADE',
-    eager: true,
+   
   })
   @JoinColumn({ name: 'owner_id' })
   owner: User;
@@ -96,16 +96,19 @@ export class Business {
 
   @OneToOne(() => BookingPolicies, (policies) => policies.business, {
     cascade: true,
-    eager: true,
+   
   })
   bookingPolicies: BookingPolicies;
 
   @Column({ type: 'enum', enum: CompanySize })
   companySize: CompanySize;
 
+  // Not eager: this is a OneToMany nested under Appointment.business (which
+  // IS eager), so eager-loading it here would multiply every appointment
+  // row by each booking-hours row (cartesian join). Callers that need it
+  // request it explicitly via `relations: ['bookingHours']`.
   @OneToMany(() => BookingDay, (day) => day.business, {
     cascade: true,
-    eager: true,
   })
   bookingHours: BookingDay[];
 
@@ -150,9 +153,9 @@ export class Business {
     avgResponseMins: number;
   };
 
+  // Not eager — see bookingHours above for why (same cartesian-join risk).
   @OneToMany(() => BlockedTimeSlot, (slot) => slot.business, {
     cascade: true,
-    eager: true,
   })
   blockedSlots: BlockedTimeSlot[];
 
@@ -164,7 +167,7 @@ export class Business {
     (ownerSettings) => ownerSettings.business,
     {
       cascade: true,
-      eager: true,
+      
     },
   )
   ownerSettings: BusinessOwnerSettings;

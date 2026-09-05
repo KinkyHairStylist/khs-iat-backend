@@ -15,7 +15,8 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { getTokens } from '../../helpers/token.helper';
 import { PasswordHashingHelper } from '../../helpers/password-hashing.helper';
-
+import { EmailService } from '../../email/email.service';
+import { AdminRole } from '../../middleware/admin-role.enum';
 
 @Injectable()
 export class AdminAuthService {
@@ -33,6 +34,7 @@ export class AdminAuthService {
 
     private readonly config: ConfigService,
     private readonly jwt: JwtService,
+    private readonly emailService: EmailService,
   ) {
     const frontend = this.config.get<string>('FRONTEND_URL');
     const secret = this.config.get<string>('JWT_ACCESS_SECRET');
@@ -116,7 +118,11 @@ export class AdminAuthService {
   // -----------------------------------
   async Admin_invite(email: string, role: string) {
     const exists = await this.usersRepo.findOne({ where: { email } });
-    if (exists) throw new BadRequestException('User already exists');
+    if (exists) {
+      throw new BadRequestException(
+        'A user with this email address is already registered on the platform.',
+      );
+    }
 
     const invite = this.inviteRepo.create({
       email,
@@ -130,12 +136,20 @@ export class AdminAuthService {
       { secret: this.jwtSecret, expiresIn: `${this.inviteExpireMinutes}m` },
     );
 
-    const link = `${this.frontendUrl}/admin/register?token=${token}&email=${email}&role=${role}`;
+    const roleUpper = (role || 'CLIENT').toUpperCase();
+    let link = '';
+    if (roleUpper === 'BUSINESS' || roleUpper === 'MERCHANT') {
+      link = `${this.frontendUrl}/auth?role=merchant`;
+    } else if (roleUpper === 'CLIENT' || roleUpper === 'CUSTOMER') {
+      link = `${this.frontendUrl}/auth`;
+    } else {
+      link = `${this.frontendUrl}/invites/admin-signup?token=${token}`;
+    }
 
-    await this.sendAdminInviteEmail(email, link);
+    await this.emailService.sendUserInviteEmail(email, role, link);
 
     return {
-      message: 'Admin invite sent',
+      message: `Invitation sent to ${email} as ${role}`,
     };
   }
 
@@ -143,7 +157,7 @@ export class AdminAuthService {
   // ADMIN REGISTRATION
   // -----------------------------------
   async Admin_register(dto: any, token: string) {
-    let decoded;
+    let decoded: any;
 
     try {
       decoded = await this.jwt.verifyAsync(token, {
@@ -160,6 +174,11 @@ export class AdminAuthService {
     if (!invite) throw new NotFoundException('Invitation not found');
     if (invite.expiresAt < new Date()) throw new UnauthorizedException('Expired link');
 
+    const roleNormalized = (decoded.role || 'ADMIN').toUpperCase();
+    const isStaff = roleNormalized === 'ADMIN' || roleNormalized === 'STAFF';
+    const isMerchant = roleNormalized === 'BUSINESS' || roleNormalized === 'MERCHANT';
+    const isCustomer = roleNormalized === 'CLIENT' || roleNormalized === 'CUSTOMER' || (!isStaff && !isMerchant);
+
     const hash = await PasswordHashingHelper.hashPassword(dto.password);
 
     const user = this.usersRepo.create({
@@ -170,20 +189,23 @@ export class AdminAuthService {
       phoneNumber: dto.phoneNumber,
       gender: dto.gender,
       isVerified: true,
-      isStaff: true,
-      isMerchant: false,
-      isCustomer: false,
+      isStaff,
+      adminRole: isStaff ? AdminRole.ADMIN : null,
+      isMerchant,
+      isCustomer,
     });
 
     await this.usersRepo.save(user);
     await this.inviteRepo.delete(invite.id);
 
     return {
-      message: 'Admin account created successfully',
+      message: `${roleNormalized} account created successfully`,
       user: {
         id: user.id,
         email: user.email,
-        isStaff: true,
+        isStaff: user.isStaff,
+        isMerchant: user.isMerchant,
+        isCustomer: user.isCustomer,
       },
     };
   }

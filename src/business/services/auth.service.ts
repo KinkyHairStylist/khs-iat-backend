@@ -29,6 +29,7 @@ import { CompanySize } from '../types/constants';
 import { EmailService } from '../../email/email.service';
 import { SlackService } from '../../services/slack.service';
 import {
+  SlackChannel,
   SlackEventType,
   SlackNode,
   SlackProvider,
@@ -233,24 +234,6 @@ export class AuthService {
       user.firstName || user.surname || 'Merchant',
     );
 
-    // TEMP: testing Slack wiring via login instead of repeatedly re-registering.
-    // Remove/comment out once confirmed working — logins should not normally alert Slack.
-    SlackService.notify({
-      node: SlackNode.USER_MANAGEMENT,
-      provider: SlackProvider.SYSTEM,
-      severity: SlackSeverity.INFO,
-      type: SlackEventType.USER_TRIGGERED,
-      trigger: `${user.firstName || user.surname || 'Merchant'} <${user.email}>`,
-      body: `[TEST] Merchant logged in
-• User ID: ${user.id}
-• Email: ${user.email}`,
-    });
-
-
-    
-    
-    
-
     const role = {
       isStaff: user.isStaff,
       isMerchant: user.isMerchant,
@@ -291,6 +274,26 @@ export class AuthService {
       });
 
       const savedUser = await this.userRepo.save(newUser);
+
+      try {
+        SlackService.notify({
+          node: SlackNode.USER_MANAGEMENT,
+          provider: SlackProvider.SYSTEM,
+          severity: SlackSeverity.INFO,
+          type: SlackEventType.USER_TRIGGERED,
+          trigger: `${savedUser.firstName || savedUser.surname || 'Merchant'} <${savedUser.email}>`,
+          body: `New merchant account created
+• Name: ${savedUser.firstName || ''} ${savedUser.surname || ''}
+• Email: ${savedUser.email}
+• User ID: ${savedUser.id}`,
+          channel: SlackChannel.TEST_NOTIFICATIONS || SlackChannel.CRY_WOLF,
+        });
+      } catch (err) {
+        this.logger.error(
+          'Failed to send Slack notification for merchant registration:',
+          err instanceof Error ? err.message : 'unknown error',
+        );
+      }
 
       return savedUser;
       
