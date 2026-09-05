@@ -56,11 +56,6 @@ export class AdminController {
     return this.adminService.getAllSubscribers();
   }
 
-  @Post('removeMembershipPlan')
-  async removeMembershipPlan(@Body() body: { id: string; reason: string }) {
-    return this.adminService.removeMembershipPlan(body.id, body.reason);
-  }
-
   @Post('createMembershipPlan')
   async createMembershipPlan(
     @Body() createMembershipPlanDto: CreateMembershipPlanDto,
@@ -85,6 +80,16 @@ export class AdminController {
       body.id,
       body.createMembershipPlanDto,
     );
+  }
+
+  @Post('removeMembershipPlan')
+  async removeMembershipPlan(@Body() body: { id: string; reason: string }) {
+    return this.adminService.removeMembershipPlan(body.id, body.reason);
+  }
+
+  @Post('setPopularPlan')
+  async setPopularPlan(@Body() body: { id: string }) {
+    return this.adminService.setPopularPlan(body.id);
   }
 
   @Post('cancelAppointment')
