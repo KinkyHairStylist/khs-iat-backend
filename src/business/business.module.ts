@@ -1,7 +1,7 @@
 import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
-
+import { Review } from './entities/review.entity';
 import { AuthService } from './services/auth.service';
 import { AuthController } from './controllers/auth.controller';
 import { JwtStrategy } from './middlewares/strategies/jwt.strategy';
@@ -48,6 +48,7 @@ import { NotificationModule } from 'src/notifications/notification.module';
       BlockedTimeSlot,
       BookingDay,
       Service,
+      Review,
       EmergencyContact,
       ClientSchema,
       StripePaymentIntent,

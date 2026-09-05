@@ -174,6 +174,51 @@ export class ReviewService {
     }
   }
 
+  async getMonthlySatisfaction(
+  ownerId: string,
+  businessId?: string | null,
+): Promise<ApiResponse<any>> {
+  try {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    const end = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+    const qb = this.reviewRepo
+      .createQueryBuilder('review')
+      .select('AVG(review.rating)', 'average')
+      .addSelect('COUNT(review.id)', 'count')
+      .where('review.ownerId = :ownerId', { ownerId })
+      .andWhere('review.createdAt >= :start', { start })
+      .andWhere('review.createdAt < :end', { end });
+
+    if (businessId) {
+      qb.andWhere('review.businessId = :businessId', { businessId });
+    }
+
+    const result = await qb.getRawOne();
+
+    const count = Number(result?.count || 0);
+    const rawAverage = Number(result?.average || 0);
+    const average = count > 0 ? Number(rawAverage.toFixed(1)) : 0;
+
+    return {
+      success: true,
+      data: {
+        average,
+        count,
+        percent: count > 0 ? Math.round((average / 5) * 100) : 0,
+      },
+      message: 'Monthly client satisfaction retrieved',
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: (error as Error).message,
+      message: 'Failed to fetch monthly satisfaction',
+    };
+  }
+}
+
   async reviewResponse(
     ownerId: string,
     clientId: string,

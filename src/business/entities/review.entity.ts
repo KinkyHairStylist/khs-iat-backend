@@ -20,6 +20,9 @@ export class Review {
 
   @Column({ type: 'uuid', nullable: true })
   businessId: string | null;
+  
+  @Column({ type: 'varchar', nullable: true })
+  orderId: string | null;
 
   @Column({ type: 'decimal', precision: 2, scale: 1 })
   rating: number;

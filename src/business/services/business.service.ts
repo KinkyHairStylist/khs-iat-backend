@@ -61,6 +61,7 @@ import {
   SlackSeverity,
 } from 'src/utils/enum';
 import { promises } from 'dns';
+import { Review } from '../entities/review.entity';
 
 @Injectable()
 export class BusinessService {
@@ -92,6 +93,10 @@ export class BusinessService {
 
     @InjectRepository(Address)
     private addressRepo: Repository<Address>,
+
+    @InjectRepository(Review)
+    private reviewRepo: Repository<Review>,
+
 
     @InjectRepository(ClientSchema)
     private clientSchemaRepo: Repository<ClientSchema>,
@@ -176,18 +181,22 @@ export class BusinessService {
     return business;
   }
 
-  async getBooking(id: string) {
-    return await this.appointmentRepo.findOne({
-      where: { id },
-      relations: [
-        'client',
-        'businessClient',
-        'staff',
-        'service',
-        'service.assignedStaff',
-      ],
+async getBooking(id: string) {
+  const appointment = await this.appointmentRepo.findOne({
+    where: { id },
+    relations: ['client', 'businessClient', 'staff', 'service', 'service.assignedStaff'],
+  });
+  if (!appointment) return null;
+
+  let review: Review | null = null;
+  if (appointment.orderId) {
+    review = await this.reviewRepo.findOne({
+      where: { orderId: appointment.orderId },
     });
   }
+
+  return { ...appointment, review };
+}
 
   async completeBooking(id: string) {
     const appointment = await this.appointmentRepo.findOne({

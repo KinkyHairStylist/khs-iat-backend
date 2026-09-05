@@ -460,16 +460,54 @@ export class AdminService {
     return 'done!';
   }
 
-  async getAllBusinesses() {
+async getAllBusinesses() {
     const businesses = await this.businessRepo
       .createQueryBuilder('business')
       .leftJoinAndSelect('business.staff', 'staff')
       .getMany();
 
-    // Map to include staff count
+    // Staff count per business (existing behavior)
+    const staffCounts = new Map(
+      businesses.map((business) => [
+        business.id,
+        business.staff ? business.staff.length : 0,
+      ]),
+    );
+
+    // Real revenue + bookings from completed + paid appointments
+    const statsByBusinessId = new Map<
+      string,
+      { revenue: number; bookings: number }
+    >();
+
+    const rawStats = await this.businessRepo
+      .createQueryBuilder('business')
+      .leftJoin('business.appointments', 'appointment')
+      .select('business.id', 'businessId')
+      .addSelect(
+        `COALESCE(SUM(CASE WHEN appointment.status = 'Completed' AND appointment."paymentStatus" = 'Paid' THEN appointment.amount ELSE 0 END), 0)`,
+        'revenue',
+      )
+      .addSelect(
+        `COALESCE(SUM(CASE WHEN appointment.status = 'Completed' AND appointment."paymentStatus" = 'Paid' THEN 1 ELSE 0 END), 0)`,
+        'bookings',
+      )
+      .where('appointment.id IS NOT NULL')
+      .groupBy('business.id')
+      .getRawMany<{ businessId: string; revenue: string; bookings: string }>();
+
+    for (const stat of rawStats) {
+      statsByBusinessId.set(stat.businessId, {
+        revenue: parseFloat(stat.revenue) || 0,
+        bookings: parseInt(stat.bookings, 10) || 0,
+      });
+    }
+
     return businesses.map((business) => ({
       ...business,
-      staff: business.staff ? business.staff.length : 0,
+      staff: staffCounts.get(business.id) ?? 0,
+      revenue: statsByBusinessId.get(business.id)?.revenue ?? business.revenue ?? 0,
+      bookings: statsByBusinessId.get(business.id)?.bookings ?? business.bookings ?? 0,
     }));
   }
 

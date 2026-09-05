@@ -9,6 +9,7 @@ async function run() {
     user: process.env.DB_USERNAME,
     password: process.env.DB_PASSWORD,
     database: process.env.DB_DATABASE,
+    ssl: process.env.DB_SSL === 'require' ? { rejectUnauthorized: false } : false,
   });
   await client.connect();
   console.log('Connected to database.');
@@ -16,7 +17,7 @@ async function run() {
   const result = await client.query(`
     UPDATE "user"
     SET "isStaff" = true, "adminRole" = 'super_admin'
-    WHERE email = 'admin@local.test'
+    WHERE email IN ('admin@local.test', 'test-admin@khs.local')
     RETURNING id, email, "isStaff", "adminRole";
   `);
 

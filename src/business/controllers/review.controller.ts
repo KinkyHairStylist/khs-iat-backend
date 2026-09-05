@@ -9,6 +9,7 @@
   Post,
   Request,
   UseGuards,
+  Query, 
 } from '@nestjs/common';
 import { ReviewService } from '../services/review.service';
 import { ReviewResponseDto } from '../dtos/requests/ReviewDto';
@@ -61,6 +62,25 @@ export class ReviewController {
       reviewId,
     );
 
+    return result;
+  }
+
+  @Get('business/monthly-satisfaction')
+  async getBusinessMonthlySatisfaction(
+    @Request() req,
+    @Query('businessId') businessId?: string | null,
+  ) {
+    const ownerId = req.user.id;
+    if (!ownerId) {
+      throw new HttpException(
+        'User not authenticated',
+        HttpStatus.UNAUTHORIZED,
+      );
+    } 
+    const result = await this.reviewService.getMonthlySatisfaction(
+      ownerId,
+      businessId,
+    );
     return result;
   }
 
