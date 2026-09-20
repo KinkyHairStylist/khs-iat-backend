@@ -14,7 +14,7 @@ import {
   SlackSeverity,
 } from '../../utils/enum';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, Raw, Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import axios from 'axios';
 
@@ -133,7 +133,10 @@ export class UserService {
     const verificationCode = this.generateCode();
     const verificationExpires = new Date(Date.now() + 10 * 60 * 1000);
 
-    const user = await this.userRepository.findOne({ where: { email } });
+    // Case-insensitive so "Name@x.com" and "name@x.com" are the same account here.
+    const user = await this.userRepository.findOne({
+      where: { email: Raw((alias) => `LOWER(${alias}) = :email`, { email: email.toLowerCase() }) },
+    });
 
     // Create referral record early if a referral code was provided — before early returns
     if (dto.refCode) {
@@ -177,7 +180,7 @@ export class UserService {
         const locked = await manager
           .createQueryBuilder(User, 'u')
           .setLock('pessimistic_write')
-          .where('u.email = :email', { email })
+          .where('u.email = :email', { email: user.email })
           .getOne();
 
         if (!locked) {

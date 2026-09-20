@@ -73,11 +73,9 @@ export class OtpService {
   }
 
   async requestOtp(email: string): Promise<void> {
-    const existingUser = await this.userService.findByEmail(email);
-    if (existingUser && existingUser.isVerified) {
-      throw new ConflictException(
-        'This email is already registered and verified.',
-      );
+    // Same rule and wording as AuthService.checkExistingUser at registration, so it fails here, not at the end.
+    if (await this.userService.emailExists(email)) {
+      throw new ConflictException('User with this email already exists');
     }
 
     const otp = this.generateOtp();
