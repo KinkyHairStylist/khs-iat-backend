@@ -21,6 +21,7 @@ describe('IntegrationSyncService', () => {
   let google: Record<string, jest.Mock>;
   let mailchimp: Record<string, jest.Mock>;
   let zoho: Record<string, jest.Mock>;
+  let notifications: { create: jest.Mock };
   let service: IntegrationSyncService;
 
   beforeEach(() => {
@@ -45,12 +46,14 @@ describe('IntegrationSyncService', () => {
       voidInvoice: jest.fn(),
       markDisconnected: jest.fn().mockResolvedValue(undefined),
     };
+    notifications = { create: jest.fn().mockResolvedValue({}) };
     service = new IntegrationSyncService(
       appointmentRepo as any,
       stripeRepo as any,
       google as any,
       mailchimp as any,
       zoho as any,
+      notifications as any,
     );
   });
 
@@ -166,6 +169,37 @@ describe('IntegrationSyncService', () => {
       appointmentRepo.find.mockResolvedValue([appt({ zohoInvoiceId: 'inv-1' })]);
       await expect(service.onBookingCancelled(['appt-1'])).resolves.toBeUndefined();
       expect(zoho.voidInvoice).toHaveBeenCalledWith('appt-1');
+    });
+
+    it('tells the merchant, in plain words, when Zoho would not cancel an invoice', async () => {
+      zoho.isConnected.mockResolvedValue(true);
+      zoho.voidInvoice.mockRejectedValue(new Error('payments applied'));
+      appointmentRepo.find.mockResolvedValue([
+        appt({ zohoInvoiceId: 'inv-1', serviceName: 'Silk Press' }),
+      ]);
+      await service.onBookingCancelled(['appt-1']);
+      expect(notifications.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'owner-1',
+          title: 'A ZohoBooks invoice needs your attention',
+          message: expect.stringContaining('credit note'),
+        }),
+      );
+    });
+
+    it('does not notify when the invoice was cancelled fine', async () => {
+      zoho.isConnected.mockResolvedValue(true);
+      appointmentRepo.find.mockResolvedValue([appt({ zohoInvoiceId: 'inv-1' })]);
+      await service.onBookingCancelled(['appt-1']);
+      expect(notifications.create).not.toHaveBeenCalled();
+    });
+
+    it('still finishes if the notification itself fails', async () => {
+      zoho.isConnected.mockResolvedValue(true);
+      zoho.voidInvoice.mockRejectedValue(new Error('payments applied'));
+      notifications.create.mockRejectedValue(new Error('db down'));
+      appointmentRepo.find.mockResolvedValue([appt({ zohoInvoiceId: 'inv-1' })]);
+      await expect(service.onBookingCancelled(['appt-1'])).resolves.toBeUndefined();
     });
 
     it('does nothing for an empty list', async () => {

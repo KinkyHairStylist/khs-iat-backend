@@ -8,6 +8,7 @@ import { MailchimpModule } from './mail-chimp.module';
 import { ZohoBooksModule } from './zohobooks.module';
 import { IntegrationSyncService } from './services/integration-sync.service';
 import { IntegrationsController } from './controllers/integrations.controller';
+import { NotificationModule } from 'src/notifications/notification.module';
 
 // Keeps a salon's connected apps in step with its bookings, and reports which
 // apps are connected. The booking flow depends on IntegrationSyncService.
@@ -17,6 +18,7 @@ import { IntegrationsController } from './controllers/integrations.controller';
     GoogleCalendarModule,
     MailchimpModule,
     ZohoBooksModule,
+    NotificationModule,
   ],
   providers: [IntegrationSyncService],
   controllers: [IntegrationsController],

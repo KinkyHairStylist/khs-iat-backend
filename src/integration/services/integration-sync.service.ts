@@ -10,6 +10,8 @@ import { StripePaymentIntent } from 'src/payment/entities/stripe-payment-intent.
 import { GoogleCalendarService } from './google-calendar.service';
 import { MailchimpService } from './mailchimp.service';
 import { ZohoBooksService } from './zohobooks.service';
+import { NotificationService } from 'src/notifications/notification.service';
+import { NotificationType } from 'src/notifications/notification.enum';
 import { IntegrationAuthError } from '../integration.helpers';
 
 // One place that keeps a salon's connected apps in step with its bookings, so
@@ -28,6 +30,7 @@ export class IntegrationSyncService {
     private readonly google: GoogleCalendarService,
     private readonly mailchimp: MailchimpService,
     private readonly zoho: ZohoBooksService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   // Runs one integration's step for a salon if it is connected. If the saved
@@ -154,15 +157,39 @@ export class IntegrationSyncService {
           try {
             await this.zoho.voidInvoice(appointment.id);
           } catch (error) {
-            // Books refuses to void an invoice that already has a payment
-            // applied; the merchant has to handle that one in Books.
+            // Books refuses to cancel an invoice that already has a payment
+            // recorded on it, which is nearly every paid booking. Tell the
+            // merchant in plain words so they can fix it in Books themselves.
             this.logger.warn(
               `ZohoBooks invoice for appointment ${appointment.id} was not voided: ${error.message}`,
             );
+            await this.tellMerchantInvoiceNeedsAttention(business, appointment);
           }
         }
       }),
     ]);
+  }
+
+  private async tellMerchantInvoiceNeedsAttention(
+    business: Business,
+    appointment: Appointment,
+  ): Promise<void> {
+    try {
+      await this.notificationService.create({
+        userId: business.ownerId,
+        type: NotificationType.SYSTEM,
+        title: 'A ZohoBooks invoice needs your attention',
+        message: `Booking ${appointment.orderId} (${appointment.serviceName}) was cancelled, but ZohoBooks didn't cancel its invoice. This usually means a payment is already recorded on it. Open the invoice in ZohoBooks to refund or credit it, for example with a credit note.`,
+        link: '/merchant/dashboard/settings?tab=integrations',
+        metadata: {
+          orderId: appointment.orderId,
+          appointmentId: appointment.id,
+          zohoInvoiceId: appointment.zohoInvoiceId,
+        },
+      });
+    } catch (error) {
+      this.logger.error(`Could not notify merchant about Zoho invoice: ${error.message}`);
+    }
   }
 
   /** An appointment moved to a new date/time. */
