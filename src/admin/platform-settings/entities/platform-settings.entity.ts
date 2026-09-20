@@ -51,6 +51,11 @@ export class PlatformSettingsEntity {
     commissionRate: number;
     stripePassthroughRate: number;
     stripePassthroughFixedFee: number;
+    // Cancellation money rules, platform-wide. Merchants only choose the
+    // cancellation window (business_owner_settings). Late cancellations and
+    // no-shows are the same case today: the amount collected is forfeited.
+    earlyCancellationFee: number; // flat dollars withheld on an early cancellation
+    lateCancellationStylistShare: number; // percent of a forfeited amount paid to the stylist; the rest is KHS's
     // priceId is the only value ever sent to Stripe — displayAmount is
     // read-only UI sugar so the settings screen can show "$29.99" without
     // a live Stripe round-trip. Never compute a charge from displayAmount.

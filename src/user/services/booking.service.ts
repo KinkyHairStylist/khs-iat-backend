@@ -23,6 +23,10 @@ import {
 } from 'src/business/entities/transaction.entity';
 import { WalletCurrency } from 'src/admin/payment/enums/wallet.enum';
 import { PlatformSettingsService } from 'src/admin/platform-settings/platform-settings.service';
+import {
+  DEFAULT_CANCELLATION_WINDOW_HOURS,
+  resolveCancellationWindowHours,
+} from 'src/helpers/cancellation-window.helper';
 import { EmailService } from 'src/email/email.service';
 import { TemplateService } from 'src/email/template.service';
 import { NotificationSettingsService } from './notification-settings.service';
@@ -1707,17 +1711,15 @@ export class BookingService {
     }
   }
 
-  // Cancellation policy constants — see cancelBooking. A cancellation
-  // 24h+ before the (earliest) appointment is "early"; inside that window
-  // is "late" (treated the same as a no-show, since there's no separate
-  // no-show detection today).
-  private static readonly EARLY_CANCELLATION_WINDOW_HOURS = 24;
-  private static readonly EARLY_CANCELLATION_FEE = 10; // flat dollars
-  // No deposit concept exists yet — every Stripe booking is paid in full
-  // up front — so on a late cancellation the full amount already
-  // collected plays the role a deposit would: forfeited, split 70/30
-  // stylist/KHS, same as the eventual deposit-forfeiture rule will do.
-  private static readonly LATE_CANCELLATION_STYLIST_SHARE = 0.7;
+  // Cancellation policy — see cancelBooking. A cancellation at least the
+  // merchant's cancellation window before the (earliest) appointment is
+  // "early"; inside that window is "late" (treated the same as a no-show,
+  // since there's no separate no-show detection today). The window is the
+  // merchant's own setting; the early-cancellation fee and the stylist's
+  // share of a forfeited amount are platform-wide (admin Platform Settings
+  // > Payments), falling back to these defaults if unset.
+  private static readonly DEFAULT_EARLY_CANCELLATION_FEE = 10; // flat dollars
+  private static readonly DEFAULT_LATE_CANCELLATION_STYLIST_SHARE_PERCENT = 70;
 
   // This codebase stores appointment date/time as two separate strings —
   // date "2024-01-15", time "2:00 PM" (12-hour, not ISO) — so naively
@@ -1736,16 +1738,18 @@ export class BookingService {
     return dt;
   }
 
-  // Refund policy — early cancellation (24h+ before): the customer gets
-  // back the full booking amount minus a flat $10 cancellation fee. This
+  // Refund policy — early cancellation (outside the merchant's window): the
+  // customer gets back the full booking amount minus the flat platform
+  // cancellation fee. This
   // REPLACES the earlier acquisition/commission/real-Stripe-fee
   // withholding for this path entirely; it does not stack with it.
   // Returns cents: 0 or negative means nothing left to refund.
   private calculateEarlyCancellationRefundCents(
     spi: StripePaymentIntent,
+    cancellationFee: number,
   ): number {
     const bookingAmountCents = Math.round(spi.bookingAmount * 100);
-    const feeCents = Math.round(BookingService.EARLY_CANCELLATION_FEE * 100);
+    const feeCents = Math.round(cancellationFee * 100);
     return bookingAmountCents - feeCents;
   }
 
@@ -1855,7 +1859,12 @@ export class BookingService {
     // Find all appointments for this orderId
     const appointments = await this.bookingRepository.find({
       where: { orderId },
-      relations: ['client', 'service'],
+      relations: [
+        'client',
+        'service',
+        'business.bookingPolicies',
+        'business.ownerSettings',
+      ],
     });
 
     if (appointments.length === 0) {
@@ -1903,10 +1912,11 @@ export class BookingService {
       );
     }
 
-    // Cancellation policy: 24h+ before the *earliest* appointment among
-    // the ones being cancelled is "early" (flat $10 fee); inside that
-    // window is "late" (full forfeiture, split 70/30 stylist/KHS — see
-    // the class constants above). Order-level Stripe escrow is one row
+    // Cancellation policy: at least the merchant's window before the
+    // *earliest* appointment among the ones being cancelled is "early"
+    // (flat platform fee); inside that window is "late" (full forfeiture,
+    // split stylist/KHS by the platform share — see the class constants
+    // above). Order-level Stripe escrow is one row
     // per order, but appointments are per-service with their own date/
     // time, so the earliest one governs the whole order-level refund.
     let earliestAppointmentDateTime: Date | null = null;
@@ -1922,8 +1932,19 @@ export class BookingService {
     const hoursUntilAppointment = earliestAppointmentDateTime
       ? (earliestAppointmentDateTime.getTime() - Date.now()) / (1000 * 60 * 60)
       : Infinity;
-    const isEarlyCancellation =
-      hoursUntilAppointment >= BookingService.EARLY_CANCELLATION_WINDOW_HOURS;
+    const cancellationWindowHours = resolveCancellationWindowHours(
+      appointments[0].business,
+    );
+    const isEarlyCancellation = hoursUntilAppointment >= cancellationWindowHours;
+
+    const cancellationPayments = await this.platformSettingsService.getPayments();
+    const earlyCancellationFee =
+      Number(cancellationPayments.earlyCancellationFee ?? BookingService.DEFAULT_EARLY_CANCELLATION_FEE);
+    const lateStylistShare =
+      Number(
+        cancellationPayments.lateCancellationStylistShare ??
+          BookingService.DEFAULT_LATE_CANCELLATION_STYLIST_SHARE_PERCENT,
+      ) / 100;
 
     // Pre-flight: work out the actual refund amount for any Stripe escrow
     // held on this booking BEFORE cancelling anything, for the early-
@@ -1938,10 +1959,10 @@ export class BookingService {
     const refundPlans: { spi: StripePaymentIntent; refundAmountCents: number }[] = [];
     if (isEarlyCancellation) {
       for (const spi of heldPaymentIntents) {
-        const refundAmountCents = this.calculateEarlyCancellationRefundCents(spi);
+        const refundAmountCents = this.calculateEarlyCancellationRefundCents(spi, earlyCancellationFee);
         if (refundAmountCents <= 0) {
           throw new BadRequestException(
-            `Cannot cancel: after the $${BookingService.EARLY_CANCELLATION_FEE} cancellation fee, no refundable amount remains for order ${orderId}. Contact an admin to review.`,
+            `Cannot cancel: after the $${earlyCancellationFee} cancellation fee, no refundable amount remains for order ${orderId}. Contact an admin to review.`,
           );
         }
         refundPlans.push({ spi, refundAmountCents });
@@ -2016,7 +2037,7 @@ export class BookingService {
                 amount: refundAmountCents / 100,
                 currency: spi.currency.toUpperCase(),
                 reason: cancellationsNote || 'Booking cancelled before completion',
-                adminNote: `Stripe refund ${stripeRefund.id} ($${BookingService.EARLY_CANCELLATION_FEE} cancellation fee withheld)`,
+                adminNote: `Stripe refund ${stripeRefund.id} ($${earlyCancellationFee} cancellation fee withheld)`,
                 status: RefundStatus.PROCESSED,
                 refundMethod: RefundMethod.CARD_REFUND,
               }),
@@ -2052,12 +2073,12 @@ export class BookingService {
         });
       }
     } else {
-      // Late cancellation (inside the 24h window) — no refund at all. No
+      // Late cancellation (inside the merchant's window) — no refund at all. No
       // deposit concept exists yet, so the full amount already collected
       // plays the role a deposit would once deposits ship: forfeited,
-      // split 70/30 stylist/KHS, mirroring completeBooking's own escrow-
+      // split stylist/KHS by the platform share, mirroring completeBooking's own escrow-
       // release-to-wallet mechanism (src/business/services/business.service.ts)
-      // exactly, just at a 70% share instead of 100%.
+      // exactly, just at the stylist's share instead of 100%.
       try {
         for (const spi of heldPaymentIntents) {
           const businessId = firstAppt?.business?.id;
@@ -2070,7 +2091,7 @@ export class BookingService {
           if (!businessId || !ownerId) continue;
 
           const stylistShareAmount =
-            Math.round(spi.bookingAmount * BookingService.LATE_CANCELLATION_STYLIST_SHARE * 100) / 100;
+            Math.round(spi.bookingAmount * lateStylistShare * 100) / 100;
           const khsShareAmount = Math.round((spi.bookingAmount - stylistShareAmount) * 100) / 100;
 
           try {
@@ -2133,7 +2154,7 @@ export class BookingService {
             severity: SlackSeverity.INFO,
             type: SlackEventType.PAYMENT_SUCCESS,
             trigger: `Late-cancellation forfeiture for order ${orderId}`,
-            body: `A late cancellation forfeited the full amount already paid, split 70/30 stylist/KHS.
+            body: `A late cancellation forfeited the full amount already paid, split ${Math.round(lateStylistShare * 100)}/${100 - Math.round(lateStylistShare * 100)} stylist/KHS.
 • Order: ${orderId}
 • Total forfeited: $${forfeitureSummary.amount} ${forfeitureSummary.currency}
 • Stylist share: $${forfeitureSummary.stylistShare}
@@ -2146,7 +2167,7 @@ export class BookingService {
           forfeitureError.stack,
         );
         // Escrow stays HELD forever if this fails — the business is never
-        // credited its 70% share and KHS's fee row is never written, with
+        // credited its share and KHS's fee row is never written, with
         // nothing else in the system positioned to retry it.
         StructuredSlackService.notify({
           node: SlackNode.PAYMENT,
@@ -2154,7 +2175,7 @@ export class BookingService {
           severity: SlackSeverity.CRITICAL,
           type: SlackEventType.ERROR_ALERT,
           trigger: `Late-cancellation forfeiture failed for order ${orderId}`,
-          body: `A late cancellation was processed, but crediting the stylist's 70% forfeiture share and recording KHS's fee failed — Stripe escrow is left HELD indefinitely with no automatic retry.
+          body: `A late cancellation was processed, but crediting the stylist's forfeiture share and recording KHS's fee failed — Stripe escrow is left HELD indefinitely with no automatic retry.
 • Order: ${orderId}
 • Error: ${forfeitureError instanceof Error ? forfeitureError.message : String(forfeitureError)}`,
         });
@@ -2168,7 +2189,7 @@ export class BookingService {
       if (refundSummary) {
         moneyNote = `A refund of $${refundSummary.amount.toFixed(2)} ${refundSummary.currency} has been issued to your original payment method${refundSummary.cancellationFeeWithheld > 0 ? ` ($${refundSummary.cancellationFeeWithheld.toFixed(2)} cancellation fee withheld)` : ''}.`;
       } else if (forfeitureSummary) {
-        moneyNote = `As this cancellation was made within 24 hours of the appointment, the $${forfeitureSummary.amount.toFixed(2)} ${forfeitureSummary.currency} already paid is non-refundable per our late-cancellation policy.`;
+        moneyNote = `As this cancellation was made within ${cancellationWindowHours} hours of the appointment, the $${forfeitureSummary.amount.toFixed(2)} ${forfeitureSummary.currency} already paid is non-refundable per our late-cancellation policy.`;
       }
       this.emailService.sendCancellationConfirmationEmail(
         firstAppt.client.email,
@@ -2439,6 +2460,7 @@ export class BookingService {
     stripePassthroughRate: number;
     stripePassthroughFixedFee: number;
     allowDepositPayment: boolean;
+    cancellationWindowHours: number;
   }> {
     const payments = await this.platformSettingsService.getPayments();
     const commissionRate = Number(payments.commissionRate) || 0;
@@ -2452,12 +2474,13 @@ export class BookingService {
         stripePassthroughRate,
         stripePassthroughFixedFee,
         allowDepositPayment: true,
+        cancellationWindowHours: DEFAULT_CANCELLATION_WINDOW_HOURS,
       };
     }
 
     const business = await this.businessRepository.findOne({
       where: { id: businessId },
-      relations: ['ownerSettings'],
+      relations: ['ownerSettings', 'bookingPolicies'],
     });
     if (!business) {
       throw new NotFoundException('Business not found');
@@ -2480,6 +2503,7 @@ export class BookingService {
       stripePassthroughFixedFee,
       allowDepositPayment:
         business.ownerSettings?.pricingPolicies?.allowDepositPayment !== false,
+      cancellationWindowHours: resolveCancellationWindowHours(business),
     };
   }
 

@@ -30,6 +30,7 @@ import { BusinessFirebaseService } from './business-firebase.service';
 import { User } from 'src/all_user_entities/user.entity';
 import { ApiResponse } from '../types/client.types';
 import { Business } from '../entities/business.entity';
+import { BookingPolicies } from '../entities/booking-policies.entity';
 
 @Injectable()
 export class BusinessOwnerSettingsService {
@@ -210,6 +211,17 @@ export class BusinessOwnerSettingsService {
         ...settings.pricingPolicies,
         ...updateDto.pricingPolicies,
       };
+    }
+
+    // The client-facing booking_policies row (set during onboarding) holds the
+    // same cancellation window; keep it in step so both stores agree.
+    if (updateDto.pricingPolicies?.cancellationWindow != null) {
+      await this.businessOwnerSettingsRepository.manager
+        .createQueryBuilder()
+        .update(BookingPolicies)
+        .set({ cancellationWindow: updateDto.pricingPolicies.cancellationWindow })
+        .where('"businessId" = :businessId', { businessId })
+        .execute();
     }
 
     // Deep merge integrations

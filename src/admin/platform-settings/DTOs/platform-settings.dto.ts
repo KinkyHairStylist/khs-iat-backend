@@ -1,4 +1,4 @@
-import { IsBoolean, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class UpdateGeneralSettingsDto {
   @IsOptional() @IsString() platformName?: string;
@@ -41,6 +41,8 @@ export class UpdatePaymentSettingsDto {
   @IsOptional() @IsNumber() commissionRate?: number;
   @IsOptional() @IsNumber() stripePassthroughRate?: number;
   @IsOptional() @IsNumber() stripePassthroughFixedFee?: number;
+  @IsOptional() @IsNumber() @Min(0) earlyCancellationFee?: number;
+  @IsOptional() @IsNumber() @Min(0) @Max(100) lateCancellationStylistShare?: number;
   @IsOptional() subscriptionPrices?: {
     Starter?: { priceId?: string; displayAmount?: number };
     Growth?: { priceId?: string; displayAmount?: number };

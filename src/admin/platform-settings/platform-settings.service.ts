@@ -67,6 +67,8 @@ export class PlatformSettingsService {
       commissionRate: 12,
       stripePassthroughRate: 1.75,
       stripePassthroughFixedFee: 0.30,
+      earlyCancellationFee: 10,
+      lateCancellationStylistShare: 70,
       // priceId is blank until scripts/create-subscription-stripe-prices.ts
       // is run and an admin pastes the real Stripe Price IDs in.
       subscriptionPrices: {
@@ -150,6 +152,14 @@ export class PlatformSettingsService {
     }
     if (settings.payments?.stripePassthroughFixedFee == null) {
       settings.payments.stripePassthroughFixedFee = defaults.payments.stripePassthroughFixedFee;
+      dirty = true;
+    }
+    if (settings.payments?.earlyCancellationFee == null) {
+      settings.payments.earlyCancellationFee = defaults.payments.earlyCancellationFee;
+      dirty = true;
+    }
+    if (settings.payments?.lateCancellationStylistShare == null) {
+      settings.payments.lateCancellationStylistShare = defaults.payments.lateCancellationStylistShare;
       dirty = true;
     }
     if (!settings.features?.user) {
