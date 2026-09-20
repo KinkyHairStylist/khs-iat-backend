@@ -1471,6 +1471,13 @@ export class BookingService {
     const giftCardAmount = Number(meta.giftCardAmount) || 0;
     const orderId = meta.orderId;
 
+    // This callback can be hit again for the same payment (e.g. a page
+    // refresh); the salon and KHS were already told the first time.
+    const alreadyConfirmed =
+      (await this.bookingRepository.count({
+        where: { orderId, status: AppointmentStatus.CONFIRMED },
+      })) > 0;
+
     // Start DB transaction
     const result = await this.dataSource.manager.transaction(
       async (manager) => {
@@ -1622,27 +1629,29 @@ export class BookingService {
       const firstAppointment = result.appointments[0];
       const serviceNames = [...new Set(result.appointments.map((a) => a.serviceName))].join(', ');
       const amountPaid = result.appointments.reduce((sum, a) => sum + Number(a.amount || 0), 0);
-      await this.notifyMerchantOfNewBooking({
-        businessId: firstAppointment.business?.id,
-        orderId,
-        customerId: result.user.id,
-        customerName: `${result.user.firstName} ${result.user.surname}`,
-        serviceNames,
-        date: firstAppointment.date,
-        time: firstAppointment.time,
-        amountPaid,
-      });
+      if (!alreadyConfirmed) {
+        await this.notifyMerchantOfNewBooking({
+          businessId: firstAppointment.business?.id,
+          orderId,
+          customerId: result.user.id,
+          customerName: `${result.user.firstName} ${result.user.surname}`,
+          serviceNames,
+          date: firstAppointment.date,
+          time: firstAppointment.time,
+          amountPaid,
+        });
 
-      // This path had no Slack message; KHS is told about every booking.
-      this.slackService.notify(
-        `🎉 *New Booking Payment Confirmed (Paystack)*\n` +
-        `• *Order ID*: \`${orderId}\`\n` +
-        `• *Customer*: ${result.user.firstName || 'Customer'} ${result.user.surname || ''} (${result.user.email})\n` +
-        `• *Salon*: ${firstAppointment.business?.businessName || 'the salon'}\n` +
-        `• *Services*: ${serviceNames}\n` +
-        `• *Appointment*: ${firstAppointment.date} at ${firstAppointment.time}\n` +
-        `• *Amount Paid*: $${amountPaid.toFixed(2)}`
-      );
+        // This path had no Slack message; KHS is told about every booking.
+        this.slackService.notify(
+          `🎉 *New Booking Payment Confirmed (Paystack)*\n` +
+          `• *Order ID*: \`${orderId}\`\n` +
+          `• *Customer*: ${result.user.firstName || 'Customer'} ${result.user.surname || ''} (${result.user.email})\n` +
+          `• *Salon*: ${firstAppointment.business?.businessName || 'the salon'}\n` +
+          `• *Services*: ${serviceNames}\n` +
+          `• *Appointment*: ${firstAppointment.date} at ${firstAppointment.time}\n` +
+          `• *Amount Paid*: $${amountPaid.toFixed(2)}`
+        );
+      }
     } catch (err) {
       this.logger.error('Failed to send merchant booking notification (Paystack):', err);
     }
@@ -2183,6 +2192,13 @@ export class BookingService {
     // makes restoreBooking's Pending/Unpaid restore below meaningful: a
     // cancelled appointment restored later needs to go through real
     // payment again, not silently re-appear as already paid.
+    // A booking still Pending was never confirmed or paid (e.g. the client left
+    // the payment page), so the salon and KHS never heard of it and are not
+    // told it was cancelled.
+    const salonWasTold = appointmentsToCancel.some(
+      (a) => a.status !== AppointmentStatus.PENDING,
+    );
+
     const cancelledAt = new Date();
     for (const appointment of appointmentsToCancel) {
       appointment.status = AppointmentStatus.CANCELLED;
@@ -2388,7 +2404,9 @@ export class BookingService {
         });
       }
     }
-    if (firstAppt?.client?.email) {
+    // No "your appointment was cancelled" email (which also copies KHS) for a
+    // checkout the client abandoned before it was ever confirmed.
+    if (salonWasTold && firstAppt?.client?.email) {
       const serviceNames = [
         ...new Set(appointmentsToCancel.map((a) => a.serviceName)),
       ].join(', ');
@@ -2445,7 +2463,7 @@ export class BookingService {
     } else if (forfeitureSummary) {
       merchantMoneyNote = `This was inside your ${cancellationWindowHours}-hour cancellation window, so the $${forfeitureSummary.amount.toFixed(2)} ${forfeitureSummary.currency} paid is not refunded. Your share is $${forfeitureSummary.stylistShare.toFixed(2)}.`;
     }
-    await this.notifyMerchantOfCancellation({
+    if (salonWasTold) await this.notifyMerchantOfCancellation({
       businessId: firstAppt?.business?.id,
       orderId,
       customerId: firstAppt?.client?.id ?? '',
@@ -2455,7 +2473,7 @@ export class BookingService {
       time: firstAppt?.time ?? '',
       moneyNote: merchantMoneyNote,
     });
-    if (!refundSummary && !forfeitureSummary) {
+    if (salonWasTold && !refundSummary && !forfeitureSummary) {
       this.slackService.notify(
         `🚫 *Booking Cancelled*\n` +
         `• *Order ID*: \`${orderId}\`\n` +
