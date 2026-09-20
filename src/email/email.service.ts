@@ -26,6 +26,11 @@ export class EmailService {
     return this.configService.get<string>('DELIVERY_TEAM_EMAIL');
   }
 
+  // The KHS team's mailbox, copied on booking emails. Undefined when unset.
+  get khsTeamEmail(): string | undefined {
+    return this.deliveryTeamEmail;
+  }
+
   sendEmail(
     to: string,
     subject: string,
@@ -33,6 +38,9 @@ export class EmailService {
     html?: string,
     cc?: string,
   ) {
+    // SendGrid rejects a message that lists the same address twice.
+    if (cc && cc.trim().toLowerCase() === to.trim().toLowerCase()) cc = undefined;
+
     const msg: any = {
       to,
       from: {
@@ -489,6 +497,9 @@ export class EmailService {
     time: string,
     orderId: string,
     amountPaid: string | number,
+    // For bookings not paid by card (gift card, membership): replaces the
+    // "Amount Paid" line, e.g. "Membership session used".
+    paymentNote?: string,
   ) {
     const formattedAmount = `$${Number(amountPaid).toFixed(2)}`;
     const html = this.templateService.render('merchant-booking-notification', {
@@ -500,13 +511,52 @@ export class EmailService {
       time,
       orderId,
       amountPaid: formattedAmount,
+      paymentNote,
       frontendUrl: this.frontendUrl,
       year: new Date().getFullYear(),
     });
-    const text = `Hi ${merchantName}, ${customerName} has successfully booked and paid ${formattedAmount} for ${serviceName} on ${date} at ${time} (Order #${orderId}) at ${businessName}.`;
+    const text = paymentNote
+      ? `Hi ${merchantName}, ${customerName} has booked ${serviceName} on ${date} at ${time} (Order #${orderId}) at ${businessName}. ${paymentNote}.`
+      : `Hi ${merchantName}, ${customerName} has successfully booked and paid ${formattedAmount} for ${serviceName} on ${date} at ${time} (Order #${orderId}) at ${businessName}.`;
     this.sendEmail(
       to,
-      `New Booking & Payment Received (${formattedAmount}) – Order #${orderId}`,
+      paymentNote
+        ? `New Booking Confirmed – Order #${orderId}`
+        : `New Booking & Payment Received (${formattedAmount}) – Order #${orderId}`,
+      text,
+      html,
+      this.deliveryTeamEmail,
+    );
+  }
+
+  // Tells the salon a client cancelled. The KHS team is copied.
+  sendMerchantCancellationNotificationEmail(
+    to: string,
+    merchantName: string,
+    customerName: string,
+    businessName: string,
+    serviceName: string,
+    date: string,
+    time: string,
+    orderId: string,
+    moneyNote?: string,
+  ) {
+    const html = this.templateService.render('merchant-cancellation-notification', {
+      merchantName,
+      customerName,
+      businessName,
+      serviceName,
+      date,
+      time,
+      orderId,
+      moneyNote,
+      frontendUrl: this.frontendUrl,
+      year: new Date().getFullYear(),
+    });
+    const text = `Hi ${merchantName}, ${customerName} has cancelled ${serviceName} on ${date} at ${time} (Order #${orderId}) at ${businessName}.${moneyNote ? ` ${moneyNote}` : ''}`;
+    this.sendEmail(
+      to,
+      `Booking Cancelled – Order #${orderId}`,
       text,
       html,
       this.deliveryTeamEmail,

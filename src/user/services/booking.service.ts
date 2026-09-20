@@ -331,6 +331,17 @@ export class BookingService {
     // The only confirmBooking branch that previously sent neither a
     // confirmation email nor a Slack notification.
     const serviceNames = [...new Set(appointments.map((a) => a.serviceName))].join(', ');
+    await this.notifyMerchantOfNewBooking({
+      businessId: business.id,
+      orderId,
+      customerId: user.id,
+      customerName: `${user.firstName} ${user.surname}`,
+      serviceNames,
+      date: appointments[0].date,
+      time: appointments[0].time,
+      amountPaid: totalDebit,
+      paymentNote: `Paid with membership (${sessionsNeeded} ${sessionsNeeded === 1 ? 'session' : 'sessions'} used)`,
+    });
     this.slackService.notify(
       `⭐ *Booking Confirmed via Membership Redemption*\n` +
       `• *Order ID*: \`${orderId}\`\n` +
@@ -365,6 +376,153 @@ export class BookingService {
     return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(
       value,
     );
+  }
+
+  // The business's own alerts (in-app + email) default to on: only an explicit
+  // false in Settings > Notifications turns one off. KHS is always told (email
+  // + Slack) whatever the business chose.
+  private businessAlertEnabled(
+    business: Business | null | undefined,
+    alert: 'newBookingAlerts' | 'cancellationAlerts',
+  ): boolean {
+    return (
+      business?.ownerSettings?.notifications?.businessNotifications?.[alert] !==
+      false
+    );
+  }
+
+  // Tells the salon (in-app + email) and KHS (email; Slack is sent by the
+  // caller) that a booking was confirmed. amountPaid + no paymentNote means a
+  // card payment; otherwise paymentNote says how it was paid, e.g. "Paid with
+  // a gift card".
+  private async notifyMerchantOfNewBooking(p: {
+    businessId?: string;
+    orderId: string;
+    customerId: string;
+    customerName: string;
+    serviceNames: string;
+    date: string;
+    time: string;
+    amountPaid: number;
+    paymentNote?: string;
+  }): Promise<void> {
+    try {
+      if (!p.businessId) return;
+      const business = await this.businessRepository.findOne({
+        where: { id: p.businessId },
+        relations: ['owner', 'ownerSettings'],
+      });
+      if (!business) return;
+
+      const merchantId = business.ownerId || business.owner?.id;
+      const merchantEmail = business.ownerEmail || business.owner?.email;
+      const merchantName =
+        business.ownerName ||
+        `${business.owner?.firstName ?? ''} ${business.owner?.surname ?? ''}`.trim() ||
+        'Salon Owner';
+      const businessAlerts = this.businessAlertEnabled(business, 'newBookingAlerts');
+      const isCardPayment = !p.paymentNote;
+
+      if (businessAlerts && merchantId) {
+        await this.notificationService.create({
+          userId: merchantId,
+          type: NotificationType.BOOKING_CONFIRMED,
+          title: isCardPayment ? 'New Booking & Payment Received' : 'New Booking Confirmed',
+          message: isCardPayment
+            ? `Payment of $${p.amountPaid.toFixed(2)} received for booking by ${p.customerName} (${p.serviceNames}).`
+            : `A new booking has been placed by ${p.customerName} for ${p.serviceNames}.`,
+          link: '/merchant/dashboard/appointments',
+          metadata: {
+            orderId: p.orderId,
+            salonId: business.id,
+            customerId: p.customerId,
+            amountPaid: p.amountPaid,
+          },
+        });
+      }
+
+      // The salon's email copies KHS. If the salon turned alerts off, KHS still
+      // gets the email on its own.
+      const to = (businessAlerts && merchantEmail) || this.emailService.khsTeamEmail;
+      if (to) {
+        this.emailService.sendMerchantBookingNotificationEmail(
+          to,
+          merchantName,
+          p.customerName,
+          business.businessName || 'Your Salon',
+          p.serviceNames,
+          p.date,
+          p.time,
+          p.orderId,
+          p.amountPaid,
+          p.paymentNote,
+        );
+      }
+    } catch (err) {
+      this.logger.error(`Failed to notify merchant of new booking ${p.orderId}:`, err);
+    }
+  }
+
+  // Tells the salon (in-app + email) and KHS (email; Slack is sent by the
+  // caller) that a client cancelled.
+  private async notifyMerchantOfCancellation(p: {
+    businessId?: string;
+    orderId: string;
+    customerId: string;
+    customerName: string;
+    serviceNames: string;
+    date: string;
+    time: string;
+    moneyNote?: string;
+  }): Promise<void> {
+    try {
+      if (!p.businessId) return;
+      const business = await this.businessRepository.findOne({
+        where: { id: p.businessId },
+        relations: ['owner', 'ownerSettings'],
+      });
+      if (!business) return;
+
+      const merchantId = business.ownerId || business.owner?.id;
+      const merchantEmail = business.ownerEmail || business.owner?.email;
+      const merchantName =
+        business.ownerName ||
+        `${business.owner?.firstName ?? ''} ${business.owner?.surname ?? ''}`.trim() ||
+        'Salon Owner';
+      const businessAlerts = this.businessAlertEnabled(business, 'cancellationAlerts');
+
+      if (businessAlerts && merchantId) {
+        await this.notificationService.create({
+          userId: merchantId,
+          type: NotificationType.BOOKING_CANCELLED,
+          title: 'Booking Cancelled',
+          message: `${p.customerName} cancelled ${p.serviceNames} (${p.date} at ${p.time}).`,
+          link: '/merchant/dashboard/appointments',
+          metadata: {
+            orderId: p.orderId,
+            salonId: business.id,
+            customerId: p.customerId,
+          },
+        });
+      }
+
+      const to = (businessAlerts && merchantEmail) || this.emailService.khsTeamEmail;
+      if (to) {
+        this.emailService.sendMerchantCancellationNotificationEmail(
+          to,
+          merchantName,
+          p.customerName,
+          business.businessName || 'Your Salon',
+          p.serviceNames,
+          p.date,
+          p.time,
+          p.orderId,
+          p.moneyNote,
+        );
+      }
+    } catch (err) {
+      this.logger.error(`Failed to notify merchant of cancellation ${p.orderId}:`, err);
+    }
   }
 
   // Create Booking
@@ -739,6 +897,17 @@ export class BookingService {
           const serviceNames = [
             ...new Set(appointments.map((a) => a.serviceName)),
           ].join(', ');
+          await this.notifyMerchantOfNewBooking({
+            businessId: appointments[0].business?.id,
+            orderId,
+            customerId: user.id,
+            customerName: `${user.firstName} ${user.surname}`,
+            serviceNames,
+            date: appointments[0].date,
+            time: appointments[0].time,
+            amountPaid: bookingAmount,
+            paymentNote: `Paid $${bookingAmount.toFixed(2)} with a gift card`,
+          });
           this.slackService.notify(
             `🎁 *Booking Confirmed via Gift Card*\n` +
             `• *Order ID*: \`${orderId}\`\n` +
@@ -900,25 +1069,21 @@ export class BookingService {
           this.logger.error('Failed to create in-app notification for pay-at-venue:', err);
         }
 
-          // ADD MERCHANT NOTIFICATION HERE
     try {
       const firstAppointment = appointments[0];
-      const merchantId = firstAppointment.business?.ownerId || firstAppointment.business?.owner?.id;
       const serviceNames = [...new Set(appointments.map((a) => a.serviceName))].join(', ');
-      if (merchantId) {
-        await this.notificationService.create({
-          userId: merchantId,
-          type: NotificationType.BOOKING_CONFIRMED,
-          title: 'New Booking Confirmed',
-          message: `A new booking has been placed by ${user.firstName} ${user.surname} for ${serviceNames}.`,
-          link: '/merchant/dashboard/appointments',
-          metadata: {
-            orderId,
-            salonId: firstAppointment.business?.id,
-            customerId: user.id,
-          },
-        });
-      }
+      const dueAtVenue = remainingToPay + payAtVenueSurcharge;
+      await this.notifyMerchantOfNewBooking({
+        businessId: firstAppointment.business?.id,
+        orderId,
+        customerId: user.id,
+        customerName: `${user.firstName} ${user.surname}`,
+        serviceNames,
+        date: firstAppointment.date,
+        time: firstAppointment.time,
+        amountPaid: 0,
+        paymentNote: `Client pays $${dueAtVenue.toFixed(2)} at the venue`,
+      });
 
       this.slackService.notify(
         `📅 *Booking Confirmed (Pay at Venue)*\n` +
@@ -1453,27 +1618,33 @@ export class BookingService {
       this.logger.error('Failed to create in-app notification for online booking completion:', err);
     }
 
-      // ADD MERCHANT NOTIFICATION HERE
     try {
       const firstAppointment = result.appointments[0];
-      const merchantId = firstAppointment.business?.ownerId || firstAppointment.business?.owner?.id;
       const serviceNames = [...new Set(result.appointments.map((a) => a.serviceName))].join(', ');
-      if (merchantId) {
-        await this.notificationService.create({
-          userId: merchantId,
-          type: NotificationType.BOOKING_CONFIRMED,
-          title: 'New Booking Confirmed',
-          message: `A new booking has been placed by ${result.user.firstName} ${result.user.surname} for ${serviceNames}.`,
-          link: '/merchant/dashboard/appointments',
-          metadata: {
-            orderId,
-            salonId: firstAppointment.business?.id,
-            customerId: result.user.id,
-          },
-        });
-      }
+      const amountPaid = result.appointments.reduce((sum, a) => sum + Number(a.amount || 0), 0);
+      await this.notifyMerchantOfNewBooking({
+        businessId: firstAppointment.business?.id,
+        orderId,
+        customerId: result.user.id,
+        customerName: `${result.user.firstName} ${result.user.surname}`,
+        serviceNames,
+        date: firstAppointment.date,
+        time: firstAppointment.time,
+        amountPaid,
+      });
+
+      // This path had no Slack message; KHS is told about every booking.
+      this.slackService.notify(
+        `🎉 *New Booking Payment Confirmed (Paystack)*\n` +
+        `• *Order ID*: \`${orderId}\`\n` +
+        `• *Customer*: ${result.user.firstName || 'Customer'} ${result.user.surname || ''} (${result.user.email})\n` +
+        `• *Salon*: ${firstAppointment.business?.businessName || 'the salon'}\n` +
+        `• *Services*: ${serviceNames}\n` +
+        `• *Appointment*: ${firstAppointment.date} at ${firstAppointment.time}\n` +
+        `• *Amount Paid*: $${amountPaid.toFixed(2)}`
+      );
     } catch (err) {
-      this.logger.error('Failed to send merchant booking notification (Stripe):', err);
+      this.logger.error('Failed to send merchant booking notification (Paystack):', err);
     }
 
     // Add funds to business wallet (outside transaction to avoid deadlock)
@@ -1674,50 +1845,22 @@ export class BookingService {
       );
     }
 
-    // 2. Fetch business with owner to ensure we have the merchant's ID and Email
+    // 2. Tell the salon (in-app + email, per its Notifications settings) and KHS.
+    await this.notifyMerchantOfNewBooking({
+      businessId: firstAppointment.business?.id,
+      orderId,
+      customerId: result.user.id,
+      customerName: `${result.user.firstName} ${result.user.surname}`,
+      serviceNames,
+      date: firstAppointment.date,
+      time: firstAppointment.time,
+      amountPaid: totalAmountPaid,
+    });
+
     try {
-      const business = await this.businessRepository.findOne({
-        where: { id: firstAppointment.business?.id },
-        relations: ['owner'],
-      });
+      const business = firstAppointment.business;
 
-      const merchantId = business?.ownerId || business?.owner?.id;
-      const merchantEmail = business?.ownerEmail || business?.owner?.email;
-      const merchantName = business?.ownerName || (business?.owner ? `${business.owner.firstName ?? ''} ${business.owner.surname ?? ''}`.trim() : 'Merchant');
-
-      // 2a. In-App Notification to Merchant
-      if (merchantId) {
-        await this.notificationService.create({
-          userId: merchantId,
-          type: NotificationType.BOOKING_CONFIRMED,
-          title: 'New Booking & Payment Received',
-          message: `Payment of $${totalAmountPaid.toFixed(2)} received for booking by ${result.user.firstName} ${result.user.surname} (${serviceNames}).`,
-          link: '/merchant/dashboard/appointments',
-          metadata: {
-            orderId,
-            salonId: business?.id,
-            customerId: result.user.id,
-            amountPaid: totalAmountPaid,
-          },
-        });
-      }
-
-      // 2b. Email Notification to Merchant
-      if (merchantEmail) {
-        this.emailService.sendMerchantBookingNotificationEmail(
-          merchantEmail,
-          merchantName || 'Salon Owner',
-          `${result.user.firstName} ${result.user.surname}`,
-          business?.businessName || 'Your Salon',
-          serviceNames,
-          firstAppointment.date,
-          firstAppointment.time,
-          orderId,
-          totalAmountPaid,
-        );
-      }
-
-      // 2c. Slack Notification
+      // 2c. Slack Notification (KHS, always)
       this.slackService.notify(
         `🎉 *New Booking Payment Confirmed (Stripe)*\n` +
         `• *Order ID*: \`${orderId}\`\n` +
@@ -2285,6 +2428,42 @@ export class BookingService {
       }
     } catch (err) {
       this.logger.error('Failed to create in-app notification for booking cancellation:', err);
+    }
+
+    // Tell the salon (per its Notifications settings) and KHS. The Slack
+    // message for a refund or forfeiture is sent above; only cancellations
+    // where no money moved need one here.
+    const cancelledServiceNames = [
+      ...new Set(appointmentsToCancel.map((a) => a.serviceName)),
+    ].join(', ');
+    const clientName =
+      `${firstAppt?.client?.firstName ?? ''} ${firstAppt?.client?.surname ?? ''}`.trim() ||
+      'A client';
+    let merchantMoneyNote: string | undefined;
+    if (refundSummary) {
+      merchantMoneyNote = `The client was refunded $${refundSummary.amount.toFixed(2)} ${refundSummary.currency}${refundSummary.cancellationFeeWithheld > 0 ? ` after a $${refundSummary.cancellationFeeWithheld.toFixed(2)} cancellation fee` : ''}.`;
+    } else if (forfeitureSummary) {
+      merchantMoneyNote = `This was inside your ${cancellationWindowHours}-hour cancellation window, so the $${forfeitureSummary.amount.toFixed(2)} ${forfeitureSummary.currency} paid is not refunded. Your share is $${forfeitureSummary.stylistShare.toFixed(2)}.`;
+    }
+    await this.notifyMerchantOfCancellation({
+      businessId: firstAppt?.business?.id,
+      orderId,
+      customerId: firstAppt?.client?.id ?? '',
+      customerName: clientName,
+      serviceNames: cancelledServiceNames,
+      date: firstAppt?.date ?? '',
+      time: firstAppt?.time ?? '',
+      moneyNote: merchantMoneyNote,
+    });
+    if (!refundSummary && !forfeitureSummary) {
+      this.slackService.notify(
+        `🚫 *Booking Cancelled*\n` +
+        `• *Order ID*: \`${orderId}\`\n` +
+        `• *Customer*: ${clientName}${firstAppt?.client?.email ? ` (${firstAppt.client.email})` : ''}\n` +
+        `• *Salon*: ${firstAppt?.business?.businessName || 'the salon'}\n` +
+        `• *Services*: ${cancelledServiceNames}\n` +
+        `• *Was scheduled for*: ${firstAppt?.date} at ${firstAppt?.time}`,
+      );
     }
 
     const remainingCount = appointments.filter(
