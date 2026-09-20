@@ -443,11 +443,19 @@ export class BookingService {
     // Find all appointments for this orderId
     const appointments = await this.bookingRepository.find({
       where: { orderId, client: { id: user.id } },
-      relations: ['business', 'business.owner'],
+      relations: ['business', 'business.owner', 'business.ownerSettings'],
     });
 
     if (appointments.length === 0) {
       throw new NotFoundException('No appointments found for this order ID');
+    }
+
+    // Merchants can turn the 50% deposit option off for their salon; unset counts as on.
+    if (
+      depositOnly &&
+      appointments[0].business?.ownerSettings?.pricingPolicies?.allowDepositPayment === false
+    ) {
+      throw new BadRequestException('This salon does not accept deposit payments');
     }
 
     if (
@@ -2430,6 +2438,7 @@ export class BookingService {
     commissionRate: number;
     stripePassthroughRate: number;
     stripePassthroughFixedFee: number;
+    allowDepositPayment: boolean;
   }> {
     const payments = await this.platformSettingsService.getPayments();
     const commissionRate = Number(payments.commissionRate) || 0;
@@ -2442,10 +2451,14 @@ export class BookingService {
         commissionRate,
         stripePassthroughRate,
         stripePassthroughFixedFee,
+        allowDepositPayment: true,
       };
     }
 
-    const business = await this.businessRepository.findOne({ where: { id: businessId } });
+    const business = await this.businessRepository.findOne({
+      where: { id: businessId },
+      relations: ['ownerSettings'],
+    });
     if (!business) {
       throw new NotFoundException('Business not found');
     }
@@ -2465,6 +2478,8 @@ export class BookingService {
       commissionRate,
       stripePassthroughRate,
       stripePassthroughFixedFee,
+      allowDepositPayment:
+        business.ownerSettings?.pricingPolicies?.allowDepositPayment !== false,
     };
   }
 

@@ -187,6 +187,10 @@ export class PricingPoliciesDto {
   @IsOptional()
   acceptCashPayment?: boolean;
 
+  @IsBoolean()
+  @IsOptional()
+  allowDepositPayment?: boolean;
+
   @IsString()
   @IsOptional()
   cancellationPolicyText?: string;

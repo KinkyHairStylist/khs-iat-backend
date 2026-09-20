@@ -156,6 +156,10 @@ export class PricingPolicies {
 
   @Column({ default: false, nullable: true })
   acceptCashPayment: boolean;
+
+  // Whether clients may use the 50% deposit option at checkout. Unset/true = offered.
+  @Column({ default: true, nullable: true })
+  allowDepositPayment: boolean;
 }
 
 @Entity('business_owner_settings')
