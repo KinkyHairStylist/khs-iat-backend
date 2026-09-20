@@ -27,6 +27,12 @@ import {
   DEFAULT_CANCELLATION_WINDOW_HOURS,
   resolveCancellationWindowHours,
 } from 'src/helpers/cancellation-window.helper';
+import {
+  checkBookingAgainstRules,
+  parseDurationToMinutes,
+  resolveBookingRules,
+  wallClockNowMs,
+} from 'src/helpers/booking-rules.helper';
 import { EmailService } from 'src/email/email.service';
 import { TemplateService } from 'src/email/template.service';
 import { NotificationSettingsService } from './notification-settings.service';
@@ -369,6 +375,7 @@ export class BookingService {
     // Get business
     const business = await this.businessRepository.findOne({
       where: { id: createBookingDto.salonId },
+      relations: ['bookingPolicies', 'ownerSettings'],
     });
 
     if (!business) {
@@ -416,10 +423,67 @@ export class BookingService {
       appointments.push(appointment);
     }
 
+    // The salon's scheduling rules (lead time, advance limit, same-day
+    // cutoff, buffer, double booking) — checked before anything is saved.
+    await this.assertBookingAllowedByRules(
+      business,
+      createBookingDto.date,
+      createBookingDto.time,
+      appointments.reduce((sum, a) => sum + parseDurationToMinutes(a.duration), 0) || 30,
+      createBookingDto.timezoneOffsetMinutes,
+    );
+
     // Save appointments
     await this.bookingRepository.save(appointments);
 
     return { orderId, appointments };
+  }
+
+  // Throws a BadRequestException with a client-readable reason when the
+  // requested slot breaks the salon's booking rules. excludeOrderId lets a
+  // reschedule ignore the appointment being moved.
+  private async assertBookingAllowedByRules(
+    business: Business,
+    date: string,
+    time: string,
+    durationMinutes: number,
+    timezoneOffsetMinutes?: number,
+    excludeOrderId?: string,
+  ): Promise<void> {
+    const rules = resolveBookingRules(business);
+
+    let existing: { date: string; time: string; duration: string }[] = [];
+    if (!rules.allowDoubleBookings) {
+      const qb = this.bookingRepository
+        .createQueryBuilder('a')
+        .select(['a.id', 'a.date', 'a.time', 'a.duration', 'a.status', 'a.createdAt'])
+        .where('a.business_id = :businessId', { businessId: business.id })
+        .andWhere('a.date = :date', { date: String(date).slice(0, 10) })
+        .andWhere('a.status != :cancelled', { cancelled: AppointmentStatus.CANCELLED });
+      if (excludeOrderId) {
+        qb.andWhere('a."orderId" != :excludeOrderId', { excludeOrderId });
+      }
+      const rows = await qb.getMany();
+
+      // An unpaid PENDING hold only blocks the slot until it expires, the
+      // same window expireStalePendingBookings uses.
+      const holdCutoff = Date.now() - BookingService.PENDING_EXPIRY_MINUTES * 60 * 1000;
+      existing = rows.filter(
+        (r) =>
+          r.status !== AppointmentStatus.PENDING ||
+          new Date(r.createdAt).getTime() >= holdCutoff,
+      );
+    }
+
+    const problem = checkBookingAgainstRules({
+      rules,
+      date,
+      time,
+      durationMinutes,
+      nowWallClockMs: wallClockNowMs(timezoneOffsetMinutes),
+      existing,
+    });
+    if (problem) throw new BadRequestException(problem);
   }
 
   // Promotes a staged Rebook date/time onto the real date/time fields and
@@ -2374,6 +2438,7 @@ export class BookingService {
     orderId: string,
     newDate: Date,
     newTime: string,
+    timezoneOffsetMinutes?: number,
   ): Promise<{ message: string; requiresPayment: boolean }> {
     const appointment = await this.bookingRepository.findOne({
       where: { orderId },
@@ -2393,6 +2458,23 @@ export class BookingService {
     if (isNaN(requestedDateTime.getTime()) || requestedDateTime <= new Date()) {
       throw new BadRequestException(
         'Cannot reschedule to a past date/time',
+      );
+    }
+
+    // Moving an appointment is a booking too: the salon's lead time, advance
+    // limit, same-day cutoff, buffer and double-booking rules all apply.
+    const salon = await this.businessRepository.findOne({
+      where: { id: appointment.business.id },
+      relations: ['bookingPolicies', 'ownerSettings'],
+    });
+    if (salon) {
+      await this.assertBookingAllowedByRules(
+        salon,
+        newDate.toISOString().split('T')[0],
+        newTime,
+        parseDurationToMinutes(appointment.duration),
+        timezoneOffsetMinutes,
+        orderId,
       );
     }
 

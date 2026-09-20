@@ -8,6 +8,7 @@ import { BookingDay } from 'src/business/entities/booking-day.entity';
 import { BlockedTimeSlot } from 'src/business/entities/blocked-time-slot.entity';
 import { Appointment } from 'src/business/entities/appointment.entity';
 import { Staff } from 'src/business/entities/staff.entity';
+import { resolveBookingRules } from 'src/helpers/booking-rules.helper';
 
 @Injectable()
 export class BusinessServicesService {
@@ -63,6 +64,7 @@ export class BusinessServicesService {
   async getServicesByBusinessId(businessId: string) {
     const business = await this.businessRepo.findOne({
       where: { id: businessId, status: BusinessStatus.APPROVED },
+      relations: ['bookingPolicies', 'ownerSettings'],
     });
 
     if (!business) {
@@ -105,6 +107,8 @@ export class BusinessServicesService {
       staff,
       blockedSlots,
       appointments,
+      // Scheduling rules the booking modal applies when listing time slots.
+      bookingRules: resolveBookingRules(business),
     };
   }
 

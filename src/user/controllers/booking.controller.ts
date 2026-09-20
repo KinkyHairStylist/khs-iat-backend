@@ -157,12 +157,17 @@ export class BookingController {
   })
   async rescheduleBooking(
     @Param('orderId') orderId: string,
-    @Body() body: { date: string; time: string },
+    @Body() body: { date: string; time: string; timezoneOffsetMinutes?: number },
   ) {
     if (!body.date || isNaN(new Date(body.date).getTime())) {
       throw new BadRequestException('Invalid or missing date value');
     }
-    return this.bookingService.rescheduleBooking(orderId, new Date(body.date), body.time);
+    return this.bookingService.rescheduleBooking(
+      orderId,
+      new Date(body.date),
+      body.time,
+      body.timezoneOffsetMinutes,
+    );
   }
 
   // (Existing) Get salon time slots (static example)

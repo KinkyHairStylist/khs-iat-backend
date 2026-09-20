@@ -181,12 +181,29 @@ export class BusinessOwnerSettingsService {
       }
     }
 
+    // The client-facing booking_policies row (set during onboarding) holds the
+    // salon's cancellation window, lead time and buffer too; changes here are
+    // mirrored onto it so both stores agree and the booking flow reads one value.
+    const bookingPolicyUpdate: Partial<
+      Pick<BookingPolicies, 'cancellationWindow' | 'minimumLeadTime' | 'bufferTime'>
+    > = {};
+
     // Deep merge bookingRules
     if (updateDto.bookingRules) {
+      const { minimumLeadTimeMinutes, ...rules } = updateDto.bookingRules;
       settings.bookingRules = {
         ...settings.bookingRules,
-        ...updateDto.bookingRules,
+        ...rules,
       };
+      if (minimumLeadTimeMinutes != null) {
+        bookingPolicyUpdate.minimumLeadTime = minimumLeadTimeMinutes;
+        settings.bookingRules.minimumLeadTimeHours = Math.ceil(
+          minimumLeadTimeMinutes / 60,
+        );
+      }
+      if (rules.bufferTimeBetweenAppointmentsMinutes != null) {
+        bookingPolicyUpdate.bufferTime = rules.bufferTimeBetweenAppointmentsMinutes;
+      }
     }
 
     // Deep merge clientManagement
@@ -213,13 +230,15 @@ export class BusinessOwnerSettingsService {
       };
     }
 
-    // The client-facing booking_policies row (set during onboarding) holds the
-    // same cancellation window; keep it in step so both stores agree.
     if (updateDto.pricingPolicies?.cancellationWindow != null) {
+      bookingPolicyUpdate.cancellationWindow =
+        updateDto.pricingPolicies.cancellationWindow;
+    }
+    if (Object.keys(bookingPolicyUpdate).length > 0) {
       await this.businessOwnerSettingsRepository.manager
         .createQueryBuilder()
         .update(BookingPolicies)
-        .set({ cancellationWindow: updateDto.pricingPolicies.cancellationWindow })
+        .set(bookingPolicyUpdate)
         .where('"businessId" = :businessId', { businessId })
         .execute();
     }
