@@ -5,11 +5,13 @@ import { ZohoBooksService } from './services/zohobooks.service';
 import { ZohoBooksController } from './controllers/zohobooks.controller';
 import { Appointment } from 'src/business/entities/appointment.entity';
 import { BusinessOwnerSettingsModule } from 'src/business/business-owner-settings.module';
+import { IntegrationCoreModule } from './integration-core.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Appointment, ZohoBooksCredentials]),
     BusinessOwnerSettingsModule,
+    IntegrationCoreModule,
   ],
   providers: [ZohoBooksService],
   controllers: [ZohoBooksController],

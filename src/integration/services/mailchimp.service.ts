@@ -1,422 +1,202 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import axios, { AxiosInstance } from 'axios';
+import { createHash } from 'crypto';
 import { MailchimpCredentials } from '../entities/mail-chimp.entity';
 import { Appointment } from 'src/business/entities/appointment.entity';
-import mailchimp from '@mailchimp/mailchimp_marketing';
-import { UpdateBusinessOwnerSettingsDto } from 'src/business/dtos/requests/BusinessOwnerSettingsDto';
 import { BusinessOwnerSettingsService } from 'src/business/services/business-owner-settings.service';
+import { decrypt, encrypt } from 'src/admin/platform-settings/utils/settings-encryption.util';
+import { IntegrationAccessService } from './integration-access.service';
+import { IntegrationAuthError, mailchimpDataCentre } from '../integration.helpers';
 
+export interface MailchimpAudience {
+  id: string;
+  name: string;
+}
+
+export type MailchimpConnectResult =
+  | { connected: true; audienceName: string }
+  | { connected: false; needsAudience: true; audiences: MailchimpAudience[] };
+
+// Each salon connects its OWN Mailchimp account (its API key and audience), so
+// its client list goes to its own marketing list, not KHS's. Requests go
+// straight to Mailchimp's REST API with the salon's key on that one request;
+// the SDK keeps one global config, which two salons syncing at once would share.
 @Injectable()
 export class MailchimpService {
-  private apiKey;
-  private audienceId;
+  private readonly logger = new Logger(MailchimpService.name);
 
   constructor(
     @InjectRepository(MailchimpCredentials)
     private mailchimpCredsRepo: Repository<MailchimpCredentials>,
     @InjectRepository(Appointment)
     private appointmentRepo: Repository<Appointment>,
-
     private readonly businessOwnerSettingsService: BusinessOwnerSettingsService,
-  ) {
-    const apiKey = process.env.MAILCHIMP_API_KEY;
-    const audienceId = process.env.MAILCHIMP_AUDIENCE_ID;
+    private readonly access: IntegrationAccessService,
+  ) {}
 
-    if (!apiKey || !audienceId) {
-      throw new Error('Mailchimp credentials not found');
-    }
-
-    this.apiKey = apiKey;
-    this.audienceId = audienceId;
+  private api(apiKey: string, dataCentre: string): AxiosInstance {
+    return axios.create({
+      baseURL: `https://${dataCentre}.api.mailchimp.com/3.0`,
+      auth: { username: 'khs', password: apiKey },
+      timeout: 15_000,
+    });
   }
 
   /**
-   * Connect Mailchimp with API key
+   * Connect with the salon's own Mailchimp API key. If the account has more than
+   * one audience and none was chosen, the audiences are returned so the merchant
+   * can pick; nothing is saved until an audience is settled.
    */
   async connect(
     ownerId: string,
     businessId: string,
-    updateDto: UpdateBusinessOwnerSettingsDto,
-  ): Promise<MailchimpCredentials> {
-    // Extract server prefix from API key (last part after the dash)
-    const serverPrefix = this.apiKey.split('-').pop() || '';
+    input: { apiKey?: string; audienceId?: string },
+  ): Promise<MailchimpConnectResult> {
+    await this.access.assertOwnsBusiness(ownerId, businessId);
 
-    // Test the API key
-    mailchimp.setConfig({
-      apiKey: this.apiKey,
-      server: serverPrefix,
-    });
-
-    try {
-      await mailchimp.ping.get();
-
-      // Save credentials
-      let credentials = await this.mailchimpCredsRepo.findOne({
-        where: { business: { id: businessId } },
-      });
-
-      if (credentials) {
-        credentials.apiKey = this.apiKey;
-        credentials.serverPrefix = serverPrefix;
-        credentials.audienceId = this.audienceId || credentials.audienceId;
-      } else {
-        credentials = this.mailchimpCredsRepo.create({
-          business: { id: businessId },
-          apiKey: this.apiKey,
-          serverPrefix,
-          audienceId: this.audienceId,
-        });
-      }
-
-      await this.mailchimpCredsRepo.save(credentials);
-
-      await this.businessOwnerSettingsService.update(
-        ownerId,
-        businessId,
-        updateDto,
-      );
-
-      return credentials;
-    } catch (error) {
+    const apiKey = (input.apiKey ?? '').trim();
+    const dataCentre = mailchimpDataCentre(apiKey);
+    if (!dataCentre) {
       throw new BadRequestException(
-        'Invalid Mailchimp API key: ' + error.message,
+        "That doesn't look like a Mailchimp API key. It ends with a dash and a code like -us21.",
       );
     }
+
+    const client = this.api(apiKey, dataCentre);
+    let audiences: MailchimpAudience[];
+    try {
+      await client.get('/ping');
+      const { data } = await client.get('/lists', {
+        params: { count: 100, fields: 'lists.id,lists.name' },
+      });
+      audiences = (data.lists ?? []).map((l: any) => ({ id: l.id, name: l.name }));
+    } catch (error) {
+      if (error.response?.status === 401) {
+        throw new BadRequestException('Mailchimp did not accept that API key.');
+      }
+      throw new BadRequestException(
+        'Could not reach Mailchimp: ' + (error.response?.data?.detail || error.message),
+      );
+    }
+
+    if (audiences.length === 0) {
+      throw new BadRequestException(
+        'Your Mailchimp account has no audience yet. Create one in Mailchimp, then connect again.',
+      );
+    }
+
+    let audience = input.audienceId
+      ? audiences.find((a) => a.id === input.audienceId)
+      : audiences.length === 1
+        ? audiences[0]
+        : undefined;
+    if (input.audienceId && !audience) {
+      throw new BadRequestException('That audience was not found in your Mailchimp account.');
+    }
+    if (!audience) {
+      return { connected: false, needsAudience: true, audiences };
+    }
+
+    const existing = await this.mailchimpCredsRepo.findOne({
+      where: { business: { id: businessId } },
+    });
+    const credentials =
+      existing ?? this.mailchimpCredsRepo.create({ business: { id: businessId } });
+    credentials.apiKey = encrypt(apiKey);
+    credentials.serverPrefix = dataCentre;
+    credentials.audienceId = audience.id;
+    await this.mailchimpCredsRepo.save(credentials);
+
+    await this.businessOwnerSettingsService.update(ownerId, businessId, {
+      integrations: { mailChimp: true },
+    });
+
+    return { connected: true, audienceName: audience.name };
   }
 
-  /**
-   * Get configured Mailchimp client for business
-   */
+  async isConnected(businessId: string): Promise<boolean> {
+    return this.mailchimpCredsRepo.exists({
+      where: { business: { id: businessId } },
+    });
+  }
+
   private async getClient(businessId: string) {
     const credentials = await this.mailchimpCredsRepo.findOne({
       where: { business: { id: businessId } },
     });
-
     if (!credentials) {
-      throw new BadRequestException(
-        'Mailchimp not connected for this business',
-      );
+      throw new BadRequestException('Mailchimp is not connected for this business');
     }
-
-    mailchimp.setConfig({
-      apiKey: credentials.apiKey,
-      server: credentials.serverPrefix,
-    });
-
-    return { client: mailchimp, audienceId: credentials.audienceId };
+    return {
+      client: this.api(decrypt(credentials.apiKey), credentials.serverPrefix),
+      audienceId: credentials.audienceId,
+    };
   }
 
   /**
-   * Add/Update client as Mailchimp contact
+   * Add the appointment's client to the salon's audience. New contacts are added
+   * as "pending", so Mailchimp sends them its standard confirmation email before
+   * they receive any marketing; existing contacts keep their current status.
    */
   async syncContact(appointmentId: string): Promise<void> {
     const appointment = await this.appointmentRepo.findOne({
       where: { id: appointmentId },
       relations: ['business', 'client', 'businessClient'],
     });
-
-    if (!appointment) {
-      throw new BadRequestException('Appointment not found');
-    }
+    if (!appointment) throw new BadRequestException('Appointment not found');
 
     const email = appointment.client?.email ?? appointment.businessClient?.email;
-    if (!email) return; // no contact info to sync (shouldn't normally happen)
+    if (!email) return;
 
     const firstName =
       appointment.client?.firstName ?? appointment.businessClient?.firstName ?? '';
     const lastName = appointment.client
-      ? appointment.client.surname?.split(' ').slice(1).join(' ') || ''
-      : appointment.businessClient?.lastName || '';
+      ? appointment.client.surname ?? ''
+      : appointment.businessClient?.lastName ?? '';
 
-    const { client: mc, audienceId } = await this.getClient(
-      appointment.business.id,
-    );
+    const { client, audienceId } = await this.getClient(appointment.business.id);
+    if (!audienceId) throw new BadRequestException('Mailchimp audience not configured');
 
-    if (!audienceId) {
-      throw new BadRequestException('Mailchimp audience not configured');
-    }
+    const subscriberHash = createHash('md5')
+      .update(email.trim().toLowerCase())
+      .digest('hex');
 
     try {
-      const subscriberHash = require('crypto')
-        .createHash('md5')
-        .update(email.toLowerCase())
-        .digest('hex');
-
-      // Add or update contact
-      await mc.lists.setListMember(audienceId, subscriberHash, {
+      await client.put(`/lists/${audienceId}/members/${subscriberHash}`, {
         email_address: email,
-        status_if_new: 'subscribed',
-        merge_fields: {
-          FNAME: firstName.split(' ')[0],
-          LNAME: lastName,
-        },
-        tags: ['customer', 'appointment-booked'],
+        status_if_new: 'pending',
+        merge_fields: { FNAME: firstName.split(' ')[0], LNAME: lastName },
+        tags: ['khs-client'],
       });
     } catch (error) {
-      console.error('Failed to sync contact to Mailchimp:', error);
-      throw new BadRequestException('Failed to sync contact: ' + error.message);
-    }
-  }
-
-  /**
-   * Send appointment confirmation email
-   */
-  async sendAppointmentConfirmation(appointmentId: string): Promise<void> {
-    const appointment = await this.appointmentRepo.findOne({
-      where: { id: appointmentId },
-      relations: ['business', 'client', 'businessClient', 'staff'],
-    });
-
-    if (!appointment) {
-      throw new BadRequestException('Appointment not found');
-    }
-
-    const email = appointment.client?.email ?? appointment.businessClient?.email;
-    const firstName =
-      appointment.client?.firstName ?? appointment.businessClient?.firstName;
-    if (!email) return; // no contactable email for this booking
-
-    const { client: mc } = await this.getClient(appointment.business.id);
-
-    try {
-      await mc.messages.send({
-        message: {
-          subject: `Appointment Confirmation - ${appointment.serviceName}`,
-          text: `
-Hi ${firstName},
-
-Your appointment has been confirmed!
-
-Service: ${appointment.serviceName}
-Date: ${appointment.date}
-Time: ${appointment.time}
-Duration: ${appointment.duration}
-Staff: ${appointment.staff.map((s) => s.firstName).join(', ')}
-Location: ${appointment.business.businessAddress}
-
-Amount: $${appointment.amount}
-Payment Status: ${appointment.paymentStatus}
-
-${appointment.specialRequests ? `Special Requests: ${appointment.specialRequests}` : ''}
-
-If you need to reschedule or cancel, please contact us.
-
-Thank you,
-${appointment.business.businessName}
-          `.trim(),
-          from_email: appointment.business.ownerEmail,
-          to: [
-            {
-              email,
-              name: firstName,
-              type: 'to',
-            },
-          ],
-        },
-      });
-    } catch (error) {
-      console.error('Failed to send email via Mailchimp:', error);
-    }
-  }
-
-  /**
-   * Send appointment reminder (24 hours before)
-   */
-  async sendAppointmentReminder(appointmentId: string): Promise<void> {
-    const appointment = await this.appointmentRepo.findOne({
-      where: { id: appointmentId },
-      relations: ['business', 'client', 'businessClient', 'staff'],
-    });
-
-    if (!appointment) return;
-
-    const email = appointment.client?.email ?? appointment.businessClient?.email;
-    const firstName =
-      appointment.client?.firstName ?? appointment.businessClient?.firstName;
-    if (!email) return;
-
-    const { client: mc } = await this.getClient(appointment.business.id);
-
-    try {
-      await mc.messages.send({
-        message: {
-          subject: `Reminder: Appointment Tomorrow - ${appointment.serviceName}`,
-          text: `
-Hi ${firstName},
-
-This is a friendly reminder about your upcoming appointment tomorrow!
-
-Service: ${appointment.serviceName}
-Date: ${appointment.date}
-Time: ${appointment.time}
-Staff: ${appointment.staff.map((s) => s.firstName).join(', ')}
-Location: ${appointment.business.businessAddress}
-
-We look forward to seeing you!
-
-${appointment.business.businessName}
-          `.trim(),
-          from_email: appointment.business.ownerEmail,
-          to: [
-            {
-              email,
-              name: firstName,
-              type: 'to',
-            },
-          ],
-        },
-      });
-    } catch (error) {
-      console.error('Failed to send reminder via Mailchimp:', error);
-    }
-  }
-
-  /**
-   * Send appointment acceptance/approval email
-   */
-  async sendAppointmentAcceptance(appointmentId: string): Promise<void> {
-    const appointment = await this.appointmentRepo.findOne({
-      where: { id: appointmentId },
-      relations: ['business', 'client', 'businessClient', 'staff'],
-    });
-
-    if (!appointment) {
-      throw new BadRequestException('Appointment not found');
-    }
-
-    const email = appointment.client?.email ?? appointment.businessClient?.email;
-    const firstName =
-      appointment.client?.firstName ?? appointment.businessClient?.firstName;
-    if (!email) return;
-
-    const { client: mc } = await this.getClient(appointment.business.id);
-
-    try {
-      await mc.messages.send({
-        message: {
-          subject: `Appointment Approved - ${appointment.serviceName}`,
-          text: `
-Hi ${firstName},
-
-Great news! Your appointment request has been approved.
-
-Appointment Details:
-Service: ${appointment.serviceName}
-Date: ${appointment.date}
-Time: ${appointment.time}
-Duration: ${appointment.duration}
-Staff: ${appointment.staff.map((s) => s.firstName).join(', ')}
-Location: ${appointment.business.businessAddress}
-
-Amount: $${appointment.amount}
-Payment Status: ${appointment.paymentStatus}
-
-${appointment.specialRequests ? `Special Requests: ${appointment.specialRequests}` : ''}
-
-Please arrive 10 minutes early. If you need to reschedule or have any questions, feel free to contact us.
-
-We look forward to seeing you!
-
-${appointment.business.businessName}
-${appointment.business.ownerPhone || ''}
-${appointment.business.ownerEmail}
-          `.trim(),
-          from_email: appointment.business.ownerEmail,
-          to: [
-            {
-              email,
-              name: firstName,
-              type: 'to',
-            },
-          ],
-        },
-      });
-    } catch (error) {
-      console.error('Failed to send acceptance email via Mailchimp:', error);
+      if (error.response?.status === 401) {
+        throw new IntegrationAuthError('Mailchimp no longer accepts the saved API key. Please reconnect.');
+      }
+      this.logger.error(
+        `Failed to sync contact to Mailchimp: ${error.response?.data?.detail || error.message}`,
+      );
       throw new BadRequestException(
-        'Failed to send acceptance email: ' + error.message,
+        'Failed to sync contact: ' + (error.response?.data?.detail || error.message),
       );
     }
   }
 
-  /**
-   * Send appointment rejection email
-   */
-  async sendAppointmentRejection(
-    appointmentId: string,
-    rejectionReason?: string,
-  ): Promise<void> {
-    const appointment = await this.appointmentRepo.findOne({
-      where: { id: appointmentId },
-      relations: ['business', 'client', 'businessClient', 'staff'],
-    });
-
-    if (!appointment) {
-      throw new BadRequestException('Appointment not found');
-    }
-
-    const email = appointment.client?.email ?? appointment.businessClient?.email;
-    const firstName =
-      appointment.client?.firstName ?? appointment.businessClient?.firstName;
-    if (!email) return;
-
-    const { client: mc } = await this.getClient(appointment.business.id);
-
-    try {
-      await mc.messages.send({
-        message: {
-          subject: `Appointment Request Declined - ${appointment.serviceName}`,
-          text: `
-Hi ${firstName},
-
-We regret to inform you that your appointment request has been declined.
-
-Appointment Details:
-Service: ${appointment.serviceName}
-Date: ${appointment.date}
-Time: ${appointment.time}
-${rejectionReason ? `\nReason: ${rejectionReason}` : ''}
-
-We apologize for any inconvenience this may cause. Please feel free to contact us to reschedule or discuss alternative dates and times.
-
-Thank you for your understanding.
-
-${appointment.business.businessName}
-${appointment.business.ownerPhone || ''}
-${appointment.business.ownerEmail}
-          `.trim(),
-          from_email: appointment.business.ownerEmail,
-          to: [
-            {
-              email,
-              name: firstName,
-              type: 'to',
-            },
-          ],
-        },
-      });
-    } catch (error) {
-      console.error('Failed to send rejection email via Mailchimp:', error);
-      throw new BadRequestException(
-        'Failed to send rejection email: ' + error.message,
-      );
-    }
+  async disconnect(ownerId: string, businessId: string): Promise<void> {
+    await this.access.assertOwnsBusiness(ownerId, businessId);
+    await this.forget(businessId, ownerId);
   }
 
-  /**
-   * Disconnect Mailchimp
-   */
-  async disconnect(
-    ownerId: string,
-    businessId: string,
-    updateDto: UpdateBusinessOwnerSettingsDto,
-  ): Promise<void> {
-    await this.businessOwnerSettingsService.update(
-      ownerId,
-      businessId,
-      updateDto,
-    );
+  /** The saved key stopped working: forget it so the UI shows Connect again. */
+  async markDisconnected(businessId: string, ownerId: string): Promise<void> {
+    await this.forget(businessId, ownerId);
+  }
+
+  private async forget(businessId: string, ownerId: string): Promise<void> {
     await this.mailchimpCredsRepo.delete({ business: { id: businessId } });
+    await this.businessOwnerSettingsService.update(ownerId, businessId, {
+      integrations: { mailChimp: false },
+    });
   }
 }

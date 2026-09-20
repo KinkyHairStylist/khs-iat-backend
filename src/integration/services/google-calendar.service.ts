@@ -1,393 +1,359 @@
 import {
-  Injectable,
-  NotFoundException,
   BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { google } from 'googleapis';
+import { google, calendar_v3 } from 'googleapis';
 import { GoogleCredentials } from '../entities/google-credentials.entity';
 import { Appointment } from 'src/business/entities/appointment.entity';
 import { BusinessOwnerSettingsService } from 'src/business/services/business-owner-settings.service';
-import { UpdateBusinessOwnerSettingsDto } from 'src/business/dtos/requests/BusinessOwnerSettingsDto';
+import { IntegrationAccessService } from './integration-access.service';
+import {
+  IntegrationAuthError,
+  eventLocalTimes,
+  integrationRedirectUri,
+} from '../integration.helpers';
+
+const TIME_ZONE_TTL_MS = 60 * 60 * 1000;
 
 @Injectable()
 export class GoogleCalendarService {
-  //   private oauth2Client: OAuth2Client;
-  private oauth2Client;
+  private readonly logger = new Logger(GoogleCalendarService.name);
+  private readonly timeZones = new Map<string, { zone: string; at: number }>();
 
   constructor(
     @InjectRepository(GoogleCredentials)
     private googleCredsRepo: Repository<GoogleCredentials>,
     @InjectRepository(Appointment)
     private appointmentRepo: Repository<Appointment>,
-
     private readonly businessOwnerSettingsService: BusinessOwnerSettingsService,
-  ) {
-    // Initialize OAuth2 client with your credentials
-    this.oauth2Client = new google.auth.OAuth2(
-      process.env.GOOGLE_CLIENT_ID,
-      process.env.GOOGLE_CLIENT_SECRET,
-      process.env.GOOGLE_REDIRECT_URI,
-    );
+    private readonly access: IntegrationAccessService,
+  ) {}
+
+  // One OAuth client per call. A shared client would hold whichever salon's
+  // tokens were set last, so two salons syncing at once could write to each
+  // other's calendars.
+  private newOAuthClient() {
+    const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } = process.env;
+    const redirectUri = integrationRedirectUri('google-calendar');
+    if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !redirectUri) {
+      throw new BadRequestException(
+        'Google Calendar is not set up on this server yet.',
+      );
+    }
+    return new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, redirectUri);
   }
 
   /**
-   * Generate Google OAuth URL for business to authorize
+   * The Google sign-in URL for the merchant to authorise. `state` is signed and
+   * tied to this merchant and salon.
    */
-  getAuthUrl(businessId: string): string {
-    const scopes = [
-      'https://www.googleapis.com/auth/calendar',
-      'https://www.googleapis.com/auth/calendar.events',
-    ];
+  async getAuthUrl(businessId: string, ownerId: string): Promise<string> {
+    await this.access.assertOwnsBusiness(ownerId, businessId);
 
-    return this.oauth2Client.generateAuthUrl({
+    return this.newOAuthClient().generateAuthUrl({
       access_type: 'offline',
-      scope: scopes,
+      scope: [
+        'https://www.googleapis.com/auth/calendar',
+        'https://www.googleapis.com/auth/calendar.events',
+      ],
       prompt: 'consent',
-      state: businessId,
+      state: this.access.signState('google-calendar', businessId, ownerId),
     });
   }
 
   /**
-   * Handle OAuth callback and store credentials
+   * Finish the OAuth hand-off: verify the signed state, swap the code for
+   * tokens and store them for the salon.
    */
   async handleOAuthCallback(
     code: string,
-    businessId: string,
+    state: string,
     ownerId: string,
-    updateDto: UpdateBusinessOwnerSettingsDto,
-  ): Promise<GoogleCredentials> {
+  ): Promise<void> {
+    if (!code) throw new BadRequestException('Missing authorisation code.');
+    const businessId = this.access.verifyState('google-calendar', state, ownerId);
+    await this.access.assertOwnsBusiness(ownerId, businessId);
+
+    let tokens;
     try {
-      const { tokens } = await this.oauth2Client.getToken(code);
-
-      // Check if credentials exist
-      let credentials = await this.googleCredsRepo.findOne({
-        where: { business: { id: businessId } },
-      });
-
-      if (credentials) {
-        // Update existing credentials
-        credentials.accessToken = tokens.access_token;
-        credentials.refreshToken =
-          tokens.refresh_token || credentials.refreshToken;
-        credentials.expiryDate = tokens.expiry_date;
-      } else {
-        // Create new credentials
-        credentials = this.googleCredsRepo.create({
-          business: { id: businessId },
-          accessToken: tokens.access_token,
-          refreshToken: tokens.refresh_token,
-          expiryDate: tokens.expiry_date,
-          calendarId: 'primary', // Use primary calendar by default
-        });
-      }
-
-      await this.googleCredsRepo.save(credentials);
-
-      await this.businessOwnerSettingsService.update(
-        ownerId,
-        businessId,
-        updateDto,
-      );
-
-      return credentials;
+      ({ tokens } = await this.newOAuthClient().getToken(code));
     } catch (error) {
       throw new BadRequestException(
         'Failed to authenticate with Google: ' + error.message,
       );
     }
+
+    const existing = await this.googleCredsRepo.findOne({
+      where: { business: { id: businessId } },
+    });
+    const refreshToken = tokens.refresh_token || existing?.refreshToken;
+    if (!tokens.access_token || !refreshToken) {
+      throw new BadRequestException(
+        'Google did not grant ongoing access. Remove KHS from your Google account permissions and connect again.',
+      );
+    }
+
+    const credentials =
+      existing ??
+      this.googleCredsRepo.create({
+        business: { id: businessId },
+        calendarId: 'primary',
+      });
+    credentials.accessToken = tokens.access_token;
+    credentials.refreshToken = refreshToken;
+    credentials.expiryDate = tokens.expiry_date ?? Date.now() + 3600 * 1000;
+    credentials.updatedAt = new Date();
+    await this.googleCredsRepo.save(credentials);
+
+    await this.businessOwnerSettingsService.update(ownerId, businessId, {
+      integrations: { googleCalendar: true },
+    });
+  }
+
+  async isConnected(businessId: string): Promise<boolean> {
+    return this.googleCredsRepo.exists({
+      where: { business: { id: businessId } },
+    });
   }
 
   /**
-   * Get authenticated calendar client for a business
+   * An authenticated calendar client for the salon. Google refreshes an expired
+   * access token by itself; the new one is written back so it isn't lost.
    */
-  async getCalendarClient(businessId: string) {
+  private async getCalendar(businessId: string): Promise<{
+    calendar: calendar_v3.Calendar;
+    calendarId: string;
+  }> {
     const credentials = await this.googleCredsRepo.findOne({
       where: { business: { id: businessId } },
     });
-
     if (!credentials) {
       throw new NotFoundException(
         'Google Calendar not connected for this business',
       );
     }
 
-    // Set credentials
-    this.oauth2Client.setCredentials({
+    const oauth = this.newOAuthClient();
+    oauth.setCredentials({
       access_token: credentials.accessToken,
       refresh_token: credentials.refreshToken,
-      expiry_date: credentials.expiryDate,
+      expiry_date: Number(credentials.expiryDate),
+    });
+    oauth.on('tokens', (tokens) => {
+      if (!tokens.access_token) return;
+      void this.googleCredsRepo
+        .update(
+          { id: credentials.id },
+          {
+            accessToken: tokens.access_token,
+            expiryDate: tokens.expiry_date ?? Date.now() + 3600 * 1000,
+            updatedAt: new Date(),
+          },
+        )
+        .catch((err) =>
+          this.logger.error(`Failed to store refreshed Google token: ${err.message}`),
+        );
     });
 
-    // Check if token needs refresh
-    if (Date.now() >= credentials.expiryDate) {
-      const { credentials: newTokens } =
-        await this.oauth2Client.refreshAccessToken();
-
-      // Update stored credentials
-      credentials.accessToken = newTokens.access_token;
-      credentials.expiryDate = newTokens.expiry_date;
-      await this.googleCredsRepo.save(credentials);
-
-      this.oauth2Client.setCredentials(newTokens);
-    }
-
-    return google.calendar({ version: 'v3', auth: this.oauth2Client });
+    return {
+      calendar: google.calendar({ version: 'v3', auth: oauth }),
+      calendarId: credentials.calendarId || 'primary',
+    };
   }
 
-  /**
-   * Create a calendar event from appointment
-   */
-  async createCalendarEvent(appointmentId: string): Promise<string> {
+  // A revoked or expired grant surfaces as `invalid_grant`.
+  private asIntegrationError(error: any, action: string): Error {
+    const text = `${error?.message ?? ''} ${error?.response?.data?.error ?? ''}`;
+    if (/invalid_grant|invalid_credentials|unauthorized_client/i.test(text)) {
+      return new IntegrationAuthError(
+        'Google Calendar access was revoked. Please reconnect.',
+      );
+    }
+    return new BadRequestException(`Failed to ${action}: ${error?.message}`);
+  }
+
+  // The calendar's own time zone: appointment times are stored as wall-clock
+  // strings, so they have to be read in the zone the merchant's calendar uses.
+  private async timeZoneFor(
+    businessId: string,
+    calendar: calendar_v3.Calendar,
+    calendarId: string,
+  ): Promise<string> {
+    const cached = this.timeZones.get(businessId);
+    if (cached && Date.now() - cached.at < TIME_ZONE_TTL_MS) return cached.zone;
+
+    const { data } = await calendar.calendars.get({ calendarId });
+    const zone = data.timeZone || 'UTC';
+    this.timeZones.set(businessId, { zone, at: Date.now() });
+    return zone;
+  }
+
+  private async loadAppointment(appointmentId: string): Promise<Appointment> {
     const appointment = await this.appointmentRepo.findOne({
       where: { id: appointmentId },
       relations: ['business', 'client', 'businessClient', 'staff'],
     });
+    if (!appointment) throw new NotFoundException('Appointment not found');
+    return appointment;
+  }
 
-    if (!appointment) {
-      throw new NotFoundException('Appointment not found');
-    }
-
-    const calendar = await this.getCalendarClient(appointment.business.id);
-
-    // Parse date and time
-    const startDateTime = this.parseDateTime(
+  private buildEvent(appointment: Appointment, timeZone: string) {
+    const times = eventLocalTimes(
       appointment.date,
       appointment.time,
+      appointment.duration,
     );
-    const durationMinutes = this.parseDuration(appointment.duration);
-    const endDateTime = new Date(
-      startDateTime.getTime() + durationMinutes * 60000,
-    );
+    if (!times) {
+      throw new BadRequestException('Appointment has no valid date and time.');
+    }
 
     const clientEmail =
       appointment.client?.email ?? appointment.businessClient?.email;
     const clientName = appointment.client
-      ? `${appointment.client.firstName} ${appointment.client.surname}`
+      ? `${appointment.client.firstName} ${appointment.client.surname}`.trim()
       : appointment.businessClient
-        ? `${appointment.businessClient.firstName} ${appointment.businessClient.lastName}`
+        ? `${appointment.businessClient.firstName} ${appointment.businessClient.lastName}`.trim()
         : 'Client';
+    const staff = appointment.staff ?? [];
 
-    // Create attendees list
     const attendees = [
       ...(clientEmail ? [{ email: clientEmail, displayName: clientName }] : []),
-      ...appointment.staff.map((s) => ({
-        email: s.email,
-        displayName: s.firstName + ' ' + s.lastName,
-      })),
+      ...staff
+        .filter((s) => !!s.email)
+        .map((s) => ({
+          email: s.email,
+          displayName: `${s.firstName ?? ''} ${s.lastName ?? ''}`.trim(),
+        })),
     ];
 
-    const event = {
+    return {
       summary: `${appointment.serviceName} - ${clientName}`,
-      description: `
-Service: ${appointment.serviceName}
-Client: ${clientName}
-Staff: ${appointment.staff.map((s) => s.firstName).join(', ')}
-Duration: ${appointment.duration}
-Amount: $${appointment.amount}
-Status: ${appointment.status}
-${appointment.specialRequests ? `\nSpecial Requests: ${appointment.specialRequests}` : ''}
-      `.trim(),
-      start: {
-        dateTime: startDateTime.toISOString(),
-        timeZone: 'America/New_York', // Adjust based on business timezone
-      },
-      end: {
-        dateTime: endDateTime.toISOString(),
-        timeZone: 'America/New_York',
-      },
+      description: [
+        `Service: ${appointment.serviceName}`,
+        `Client: ${clientName}`,
+        `Staff: ${staff.map((s) => s.firstName).join(', ')}`,
+        `Duration: ${appointment.duration}`,
+        `Amount: $${appointment.amount}`,
+        `Status: ${appointment.status}`,
+        appointment.specialRequests
+          ? `\nSpecial Requests: ${appointment.specialRequests}`
+          : '',
+      ]
+        .join('\n')
+        .trim(),
+      start: { dateTime: times.start, timeZone },
+      end: { dateTime: times.end, timeZone },
       attendees,
       reminders: {
         useDefault: false,
         overrides: [
-          { method: 'email', minutes: 24 * 60 }, // 1 day before
-          { method: 'popup', minutes: 60 }, // 1 hour before
+          { method: 'email', minutes: 24 * 60 },
+          { method: 'popup', minutes: 60 },
         ],
       },
-      colorId: '2', // Sage color for appointments
+      colorId: '2',
     };
+  }
+
+  /** Create the calendar event for an appointment; returns Google's event id. */
+  async createCalendarEvent(appointmentId: string): Promise<string> {
+    const appointment = await this.loadAppointment(appointmentId);
+    const businessId = appointment.business.id;
+    const { calendar, calendarId } = await this.getCalendar(businessId);
 
     try {
-      const credentials = await this.googleCredsRepo.findOne({
-        where: { business: { id: appointment.business.id } },
-      });
-
-      if (!credentials) {
-        throw new NotFoundException('Credentials not found');
-      }
+      const timeZone = await this.timeZoneFor(businessId, calendar, calendarId);
       const response = await calendar.events.insert({
-        calendarId: credentials.calendarId || 'primary',
-        requestBody: event,
-        sendUpdates: 'all', // Send email notifications to all attendees
+        calendarId,
+        requestBody: this.buildEvent(appointment, timeZone),
+        sendUpdates: 'all',
       });
-
       return response.data.id as string;
     } catch (error) {
-      throw new BadRequestException(
-        'Failed to create calendar event: ' + error.message,
-      );
+      if (error instanceof BadRequestException) throw error;
+      throw this.asIntegrationError(error, 'create calendar event');
     }
   }
 
-  /**
-   * Update existing calendar event
-   */
+  /** Move/refresh an existing event to match the appointment. */
   async updateCalendarEvent(
     appointmentId: string,
     googleEventId: string,
   ): Promise<void> {
-    const appointment = await this.appointmentRepo.findOne({
-      where: { id: appointmentId },
-      relations: ['business', 'client', 'businessClient', 'staff'],
-    });
-
-    if (!appointment) {
-      throw new NotFoundException('Appointment not found');
-    }
-
-    const calendar = await this.getCalendarClient(appointment.business.id);
-
-    const startDateTime = this.parseDateTime(
-      appointment.date,
-      appointment.time,
-    );
-    const durationMinutes = this.parseDuration(appointment.duration);
-    const endDateTime = new Date(
-      startDateTime.getTime() + durationMinutes * 60000,
-    );
-
-    const clientEmail =
-      appointment.client?.email ?? appointment.businessClient?.email;
-    const clientName = appointment.client
-      ? `${appointment.client.firstName} ${appointment.client.surname}`
-      : appointment.businessClient
-        ? `${appointment.businessClient.firstName} ${appointment.businessClient.lastName}`
-        : 'Client';
-
-    const attendees = [
-      ...(clientEmail ? [{ email: clientEmail, displayName: clientName }] : []),
-      ...appointment.staff.map((s) => ({
-        email: s.email,
-        displayName: s.firstName + ' ' + s.lastName,
-      })),
-    ];
-
-    const event = {
-      summary: `${appointment.serviceName} - ${clientName}`,
-      description: `
-Service: ${appointment.serviceName}
-Client: ${clientName}
-Staff: ${appointment.staff.map((s) => s.firstName).join(', ')}
-Duration: ${appointment.duration}
-Amount: $${appointment.amount}
-Status: ${appointment.status}
-${appointment.specialRequests ? `\nSpecial Requests: ${appointment.specialRequests}` : ''}
-      `.trim(),
-      start: {
-        dateTime: startDateTime.toISOString(),
-        timeZone: 'America/New_York',
-      },
-      end: {
-        dateTime: endDateTime.toISOString(),
-        timeZone: 'America/New_York',
-      },
-      attendees,
-    };
+    const appointment = await this.loadAppointment(appointmentId);
+    const businessId = appointment.business.id;
+    const { calendar, calendarId } = await this.getCalendar(businessId);
 
     try {
-      const credentials = await this.googleCredsRepo.findOne({
-        where: { business: { id: appointment.business.id } },
-      });
-
-      if (!credentials) {
-        throw new NotFoundException('Credentials not found');
-      }
-
+      const timeZone = await this.timeZoneFor(businessId, calendar, calendarId);
       await calendar.events.update({
-        calendarId: credentials.calendarId || 'primary',
+        calendarId,
         eventId: googleEventId,
-        requestBody: event,
+        requestBody: this.buildEvent(appointment, timeZone),
         sendUpdates: 'all',
       });
     } catch (error) {
-      throw new BadRequestException(
-        'Failed to update calendar event: ' + error.message,
-      );
+      if (error instanceof BadRequestException) throw error;
+      throw this.asIntegrationError(error, 'update calendar event');
     }
   }
 
-  /**
-   * Delete calendar event
-   */
+  /** Remove an event. An event that is already gone counts as removed. */
   async deleteCalendarEvent(
     businessId: string,
     googleEventId: string,
   ): Promise<void> {
-    const calendar = await this.getCalendarClient(businessId);
+    const { calendar, calendarId } = await this.getCalendar(businessId);
 
     try {
-      const credentials = await this.googleCredsRepo.findOne({
-        where: { business: { id: businessId } },
-      });
-
-      if (!credentials) {
-        throw new NotFoundException('Credentials not found');
-      }
-
       await calendar.events.delete({
-        calendarId: credentials.calendarId || 'primary',
+        calendarId,
         eventId: googleEventId,
         sendUpdates: 'all',
       });
     } catch (error) {
-      throw new BadRequestException(
-        'Failed to delete calendar event: ' + error.message,
-      );
+      const status = error?.code ?? error?.response?.status;
+      if (status === 404 || status === 410) return;
+      throw this.asIntegrationError(error, 'delete calendar event');
     }
   }
 
-  /**
-   * Helper: Parse date and time strings to DateTime
-   */
-  private parseDateTime(date: string, time: string): Date {
-    // Assuming date format: "2024-01-15" and time format: "2:00 PM"
-    const [timePart, meridiem] = time.split(' ');
-    let [hours, minutes] = timePart.split(':').map(Number);
-
-    if (meridiem === 'PM' && hours !== 12) {
-      hours += 12;
-    } else if (meridiem === 'AM' && hours === 12) {
-      hours = 0;
-    }
-
-    const dateTime = new Date(date);
-    dateTime.setHours(hours, minutes, 0, 0);
-    return dateTime;
+  /** Merchant disconnects: revoke at Google (best effort), forget the tokens. */
+  async disconnect(ownerId: string, businessId: string): Promise<void> {
+    await this.access.assertOwnsBusiness(ownerId, businessId);
+    await this.forget(businessId, ownerId, true);
   }
 
-  /**
-   * Helper: Parse duration string to minutes
-   */
-  private parseDuration(duration: string): number {
-    // Assuming format: "4:00 PM (120 min)"
-    const match = duration.match(/\((\d+)\s*min\)/);
-    return match ? parseInt(match[1]) : 60; // Default 60 minutes
+  /** Credentials stopped working: forget them so the UI shows Connect again. */
+  async markDisconnected(businessId: string, ownerId: string): Promise<void> {
+    await this.forget(businessId, ownerId, false);
   }
 
-  /**
-   * Disconnect Google Calendar
-   */
-  async disconnect(
-    ownerId: string,
+  private async forget(
     businessId: string,
-    updateDto: UpdateBusinessOwnerSettingsDto,
+    ownerId: string,
+    revoke: boolean,
   ): Promise<void> {
-    await this.businessOwnerSettingsService.update(
-      ownerId,
-      businessId,
-      updateDto,
-    );
+    const credentials = await this.googleCredsRepo.findOne({
+      where: { business: { id: businessId } },
+    });
+
+    if (credentials && revoke) {
+      try {
+        await this.newOAuthClient().revokeToken(credentials.refreshToken);
+      } catch (error) {
+        this.logger.warn(`Google token revoke failed (continuing): ${error.message}`);
+      }
+    }
+
     await this.googleCredsRepo.delete({ business: { id: businessId } });
+    this.timeZones.delete(businessId);
+    await this.businessOwnerSettingsService.update(ownerId, businessId, {
+      integrations: { googleCalendar: false },
+    });
   }
 }

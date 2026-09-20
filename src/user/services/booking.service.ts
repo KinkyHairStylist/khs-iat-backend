@@ -27,6 +27,7 @@ import {
   DEFAULT_CANCELLATION_WINDOW_HOURS,
   resolveCancellationWindowHours,
 } from 'src/helpers/cancellation-window.helper';
+import { IntegrationSyncService } from 'src/integration/services/integration-sync.service';
 import {
   checkBookingAgainstRules,
   parseDurationToMinutes,
@@ -117,7 +118,17 @@ export class BookingService {
     private readonly notificationSettingsService: NotificationSettingsService,
     private readonly notificationService: NotificationService,
     private readonly slackService: SlackService,
+    private readonly integrationSync: IntegrationSyncService,
   ) {}
+
+  // Keeps the salon's connected apps (Google Calendar, Mailchimp, ZohoBooks) in
+  // step with a booking. Fire and forget: a slow or failing integration never
+  // delays or fails the booking itself.
+  private syncIntegrations(run: () => Promise<void>): void {
+    void run().catch((err) =>
+      this.logger.error(`Integration sync failed: ${err?.message}`),
+    );
+  }
 
   // Booking confirmation emails should only be sent if the customer hasn't
   // turned them off in Settings — defaults to true (matches the entity's
@@ -342,6 +353,7 @@ export class BookingService {
       amountPaid: totalDebit,
       paymentNote: `Paid with membership (${sessionsNeeded} ${sessionsNeeded === 1 ? 'session' : 'sessions'} used)`,
     });
+    this.syncIntegrations(() => this.integrationSync.onBookingConfirmed(orderId));
     this.slackService.notify(
       `⭐ *Booking Confirmed via Membership Redemption*\n` +
       `• *Order ID*: \`${orderId}\`\n` +
@@ -908,6 +920,7 @@ export class BookingService {
             amountPaid: bookingAmount,
             paymentNote: `Paid $${bookingAmount.toFixed(2)} with a gift card`,
           });
+          this.syncIntegrations(() => this.integrationSync.onBookingConfirmed(orderId));
           this.slackService.notify(
             `🎁 *Booking Confirmed via Gift Card*\n` +
             `• *Order ID*: \`${orderId}\`\n` +
@@ -1084,6 +1097,7 @@ export class BookingService {
         amountPaid: 0,
         paymentNote: `Client pays $${dueAtVenue.toFixed(2)} at the venue`,
       });
+      this.syncIntegrations(() => this.integrationSync.onBookingConfirmed(orderId));
 
       this.slackService.notify(
         `📅 *Booking Confirmed (Pay at Venue)*\n` +
@@ -1640,6 +1654,7 @@ export class BookingService {
           time: firstAppointment.time,
           amountPaid,
         });
+        this.syncIntegrations(() => this.integrationSync.onBookingConfirmed(orderId));
 
         // This path had no Slack message; KHS is told about every booking.
         this.slackService.notify(
@@ -1865,6 +1880,7 @@ export class BookingService {
       time: firstAppointment.time,
       amountPaid: totalAmountPaid,
     });
+    this.syncIntegrations(() => this.integrationSync.onBookingConfirmed(orderId));
 
     try {
       const business = firstAppointment.business;
@@ -2463,6 +2479,9 @@ export class BookingService {
     } else if (forfeitureSummary) {
       merchantMoneyNote = `This was inside your ${cancellationWindowHours}-hour cancellation window, so the $${forfeitureSummary.amount.toFixed(2)} ${forfeitureSummary.currency} paid is not refunded. Your share is $${forfeitureSummary.stylistShare.toFixed(2)}.`;
     }
+    this.syncIntegrations(() =>
+      this.integrationSync.onBookingCancelled(appointmentsToCancel.map((a) => a.id)),
+    );
     if (salonWasTold) await this.notifyMerchantOfCancellation({
       businessId: firstAppt?.business?.id,
       orderId,
@@ -2707,6 +2726,9 @@ export class BookingService {
     appointment.time = newTime;
     appointment.status = AppointmentStatus.RESCHEDULED;
     await this.bookingRepository.save(appointment);
+    this.syncIntegrations(() =>
+      this.integrationSync.onBookingRescheduled(appointment.id),
+    );
 
     if (appointment.client?.email) {
       this.emailService.sendRescheduleConfirmationEmail(

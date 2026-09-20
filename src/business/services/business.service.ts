@@ -407,7 +407,11 @@ async getBooking(id: string) {
 
     if (settings.integrations.mailChimp) {
       // sync client for email marketing
-      await this.mailchimpService.syncContact(appointment.id);
+      try {
+        await this.mailchimpService.syncContact(appointment.id);
+      } catch (error) {
+        console.error('Failed to sync contact to Mailchimp:', error);
+      }
     }
 
     if (settings.integrations.googleCalendar) {
@@ -426,15 +430,13 @@ async getBooking(id: string) {
 
     if (settings.integrations.zohoBooks) {
       try {
-        // Create customer and invoice in ZohoBooks
-        const invoiceId = await this.zohoBooksService.createInvoice(id);
-
-        // Record payment
-        await this.zohoBooksService.recordPayment(id, invoiceId);
-
-        // Store invoice ID in appointment
+        // Create the invoice if the booking doesn't have one yet (online bookings
+        // get theirs when they are confirmed) and record the venue payment once.
+        const { invoiceId, created } = await this.zohoBooksService.ensureInvoice(id);
+        if (created) {
+          await this.zohoBooksService.recordPayment(id, invoiceId, undefined, 'cash');
+        }
         appointment.zohoInvoiceId = invoiceId;
-        await this.appointmentRepo.save(appointment);
       } catch (error) {
         console.error('Failed to sync with ZohoBooks:', error);
       }
@@ -518,8 +520,11 @@ async getBooking(id: string) {
     }
 
     if (settings.integrations.mailChimp) {
-      // integrate Mailchimp: appointment confirmation
-      await this.mailchimpService.sendAppointmentConfirmation(appointment.id);
+      try {
+        await this.mailchimpService.syncContact(appointment.id);
+      } catch (error) {
+        console.error('Failed to sync contact to Mailchimp:', error);
+      }
     }
 
     return appointment;
@@ -1061,11 +1066,6 @@ async getBooking(id: string) {
       }
     }
 
-    if (settings.integrations.mailChimp) {
-      // integrate mailchimp: appointment rejection mail
-      await this.mailchimpService.sendAppointmentRejection(appointment.id);
-    }
-
     return appointment;
   }
 
@@ -1131,8 +1131,11 @@ async getBooking(id: string) {
     }
 
     if (settings.integrations.mailChimp) {
-      // integrate Mailchimp: appointment acceptance
-      await this.mailchimpService.sendAppointmentAcceptance(appointment.id);
+      try {
+        await this.mailchimpService.syncContact(appointment.id);
+      } catch (error) {
+        console.error('Failed to sync contact to Mailchimp:', error);
+      }
     }
 
     return appointment;
