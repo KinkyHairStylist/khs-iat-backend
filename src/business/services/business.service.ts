@@ -146,6 +146,28 @@ export class BusinessService {
 
     await this.businessRepo.save(business);
 
+    // Sign-up asks two questions that belong to the salon's owner settings.
+    // A failure here must not fail the registration; the owner can still set
+    // both later under Settings > Booking Rules.
+    const { allowDoubleBookings, allowDepositPayment } =
+      createBusinessDto.bookingPolicies ?? {};
+    if (allowDoubleBookings !== undefined || allowDepositPayment !== undefined) {
+      try {
+        await this.businessOwnerSettingsService.update(owner.id, business.id, {
+          ...(allowDoubleBookings !== undefined && {
+            bookingRules: { allowDoubleBookings },
+          }),
+          ...(allowDepositPayment !== undefined && {
+            pricingPolicies: { allowDepositPayment },
+          }),
+        });
+      } catch (error) {
+        Logger.error(
+          `Failed to save sign-up booking choices for business ${business.id}: ${error.message}`,
+        );
+      }
+    }
+
     try {
       this.emailService.sendMerchantUnderReviewEmail(
         business.ownerEmail || owner.email,
