@@ -9,6 +9,7 @@ import {
   MinLength,
   IsNumber,
   Min,
+  Max,
   IsIn,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -328,6 +329,7 @@ export class ClientFiltersDto {
   @IsOptional()
   @IsNumber()
   @Min(1)
+  @Max(200)
   limit?: number;
 }
 

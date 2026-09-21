@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { Brackets, DataSource, Repository } from 'typeorm';
 import {
   ClientFormData,
   ClientlistResponse,
@@ -19,6 +19,7 @@ import { EmergencyContactSchema } from '../entities/emergency-contact-schema.ent
 import { ClientSettingsSchema } from '../entities/client-settings.entity';
 import { Review } from '../entities/review.entity';
 import { formatClientType } from '../utils/client.utils';
+import { groupAppointmentsByClient, summarizeClientAppointments } from '../utils/client-stats';
 import { ClientFiltersDto, UpdateClientDto } from '../dtos/requests/ClientDto';
 import {
   BusinessCloudinaryService,
@@ -546,6 +547,35 @@ export class ClientService {
         ratings.map((r) => [r.clientId, Number(r.avgRating)]),
       );
 
+      // Visits, what they were worth and the next booking, from each client's real appointments.
+      const emails = clients.map((c) => c.email?.trim().toLowerCase()).filter((e): e is string => !!e);
+      const appointmentQuery = this.appointmentRepo
+        .createQueryBuilder('a')
+        .leftJoin('a.businessClient', 'bc')
+        .leftJoin('a.client', 'u')
+        .leftJoin('a.business', 'b')
+        .select(['a.id', 'a.date', 'a.time', 'a.status', 'a.amount'])
+        .addSelect(['bc.id', 'u.email'])
+        .where('bc.id IN (:...clientIds)', { clientIds })
+        .orWhere(
+          new Brackets((qb) => {
+            qb.where('b.ownerId = :ownerId', { ownerId });
+            if (emails.length) qb.andWhere('LOWER(u.email) IN (:...emails)', { emails });
+            else qb.andWhere('1 = 0');
+          }),
+        );
+      const appointmentRows = (await appointmentQuery.getMany()).map((a) => ({
+        id: a.id,
+        date: a.date,
+        time: a.time,
+        status: a.status,
+        amount: a.amount,
+        businessClientId: a.businessClient?.id ?? null,
+        clientEmail: a.client?.email ?? null,
+      }));
+      const appointmentsByClient = groupAppointmentsByClient(clients, appointmentRows);
+      const today = new Date().toISOString().slice(0, 10);
+
       // Transform data (settings already loaded via leftJoinAndSelect)
       const clientsWithSettings = clients.map((client) => ({
         id: client.id,
@@ -564,6 +594,7 @@ export class ClientService {
         createdAt: client.createdAt,
         updatedAt: client.updatedAt,
         averageRating: ratingMap.get(client.id) ?? 0,
+        ...summarizeClientAppointments(appointmentsByClient.get(client.id) ?? [], today),
         ownerId,
       }));
 
