@@ -17,7 +17,13 @@ function setup(opts: { alreadySold?: boolean } = {}) {
   };
   const withRelations = {
     ...giftCard,
-    business: { id: 'biz-1', ownerId: 'owner-1', businessName: 'KHS Seed Salon' },
+    business: {
+      id: 'biz-1',
+      ownerId: 'owner-1',
+      businessName: 'KHS Seed Salon',
+      ownerEmail: 'owner@example.com',
+      ownerName: 'Olu Owner',
+    },
   };
   const purchaser = { id: 'cust-1', email: 'c@example.com', firstName: 'Cee', surname: 'Customer' };
 
@@ -35,7 +41,11 @@ function setup(opts: { alreadySold?: boolean } = {}) {
     create: jest.fn((value: any) => value),
     save: jest.fn(async (value: any) => value),
   };
-  const emailService = { sendGiftCardEmail: jest.fn() };
+  const emailService = {
+    sendGiftCardEmail: jest.fn(),
+    sendMerchantGiftCardSoldEmail: jest.fn(),
+    khsTeamEmail: 'team@example.com',
+  };
   const slackService = { notify: jest.fn() };
   const notificationService = { create: jest.fn().mockResolvedValue({}) };
 
@@ -117,12 +127,28 @@ describe('buying a gift card', () => {
     );
   });
 
+  it('emails the salon that its gift card was sold', async () => {
+    const { complete, emailService } = setup();
+
+    await complete();
+
+    expect(emailService.sendMerchantGiftCardSoldEmail).toHaveBeenCalledWith(
+      'owner@example.com',
+      'Olu Owner',
+      'KHS Seed Salon',
+      'Cee Customer',
+      'Spa credit',
+      100,
+    );
+  });
+
   it('does not credit or notify again when the purchase of a sold card is completed a second time', async () => {
-    const { complete, notificationService, walletService } = setup({ alreadySold: true });
+    const { complete, notificationService, walletService, emailService } = setup({ alreadySold: true });
 
     await complete();
 
     expect(walletService.addFunds).not.toHaveBeenCalled();
     expect(notificationService.create).not.toHaveBeenCalled();
+    expect(emailService.sendMerchantGiftCardSoldEmail).not.toHaveBeenCalled();
   });
 });

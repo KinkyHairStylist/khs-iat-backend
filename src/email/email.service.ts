@@ -478,6 +478,39 @@ export class EmailService {
     }
   }
 
+  // Tells the salon one of its gift cards was sold. The KHS team is copied.
+  sendMerchantGiftCardSoldEmail(
+    to: string,
+    merchantName: string,
+    businessName: string,
+    purchaserName: string,
+    giftCardTitle: string,
+    amount: number,
+  ) {
+    try {
+      const formattedAmount = `$${Number(amount).toFixed(2)}`;
+      const html = this.templateService.render('merchant-gift-card-sold', {
+        merchantName,
+        businessName,
+        purchaserName,
+        giftCardTitle,
+        amount: formattedAmount,
+        frontendUrl: this.frontendUrl,
+        year: new Date().getFullYear(),
+      });
+      const text = `Hi ${merchantName}, ${purchaserName} bought your gift card "${giftCardTitle}" from ${businessName} for ${formattedAmount}. The amount has been added to your wallet.`;
+      this.sendEmail(
+        to,
+        `Gift card sold (${formattedAmount}) – ${businessName}`,
+        text,
+        html,
+        this.deliveryTeamEmail,
+      );
+    } catch (err) {
+      this.logger.error(`Failed to send gift card sold email to ${to}:`, err);
+    }
+  }
+
   sendBookingConfirmationEmail(
     to: string,
     name: string,

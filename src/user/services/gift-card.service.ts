@@ -36,6 +36,15 @@ import { SlackService } from 'src/slack/slack.service';
 import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'src/notifications/notification.enum';
 
+// The salon a gift card belongs to, as needed to tell it about a sale.
+type SoldBy = {
+  ownerId?: string;
+  businessName?: string;
+  ownerEmail?: string;
+  ownerName?: string;
+  owner?: { email?: string; firstName?: string; surname?: string };
+};
+
 @Injectable()
 export class GiftCardService {
   constructor(
@@ -223,7 +232,7 @@ export class GiftCardService {
             platformFee: feeAmount,
             totalPaid: giftCardAmount + feeAmount,
             alreadyCompleted: true,
-            business: undefined as { ownerId?: string; businessName?: string } | undefined,
+            business: undefined as SoldBy | undefined,
           };
         }
 
@@ -236,7 +245,7 @@ export class GiftCardService {
         // Load business and owner relations after basic validations
         const giftCardWithRelations = await manager.findOne(BusinessGiftCard, {
           where: { id: meta.giftCardId },
-          relations: ['business', 'owner'],
+          relations: ['business', 'business.owner', 'owner'],
         });
         if (!giftCardWithRelations?.business)
           throw new NotFoundException('Gift card business not found');
@@ -299,7 +308,7 @@ export class GiftCardService {
           giftCardAmount: giftCardAmount,
           platformFee: feeAmount,
           totalPaid: giftCardAmount + feeAmount,
-          business: giftCardWithRelations.business as { ownerId?: string; businessName?: string } | undefined,
+          business: giftCardWithRelations.business as SoldBy | undefined,
         };
       },
     );
@@ -388,6 +397,30 @@ export class GiftCardService {
       }
     } catch (notifyError) {
       console.error('Failed to notify the salon of a gift card sale:', notifyError);
+    }
+
+    // Email the salon too. The email service copies the KHS team; if the salon has no email on
+    // file the KHS team gets it on its own.
+    try {
+      const salon = result.business;
+      const merchantEmail = salon?.ownerEmail || salon?.owner?.email;
+      const to = merchantEmail || this.emailService.khsTeamEmail;
+      if (to) {
+        const merchantName =
+          salon?.ownerName ||
+          `${salon?.owner?.firstName ?? ''} ${salon?.owner?.surname ?? ''}`.trim() ||
+          'Salon Owner';
+        this.emailService.sendMerchantGiftCardSoldEmail(
+          to,
+          merchantName,
+          salon?.businessName || 'your salon',
+          result.giftCard.ownerFullName || 'A customer',
+          result.giftCard.title,
+          result.giftCardAmount,
+        );
+      }
+    } catch (emailError) {
+      console.error('Failed to email the salon about a gift card sale:', emailError);
     }
 
     // Send Slack notification
