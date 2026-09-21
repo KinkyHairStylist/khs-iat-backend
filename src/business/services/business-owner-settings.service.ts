@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { assertCanManageBusiness } from '../utils/business-access';
 import {
   BookingRules,
   BusinessNotifications,
@@ -271,7 +272,9 @@ export class BusinessOwnerSettingsService {
     return await this.businessOwnerSettingsRepository.save(settings);
   }
 
-  async delete(businessId: string): Promise<void> {
+  async delete(businessId: string, user?: any): Promise<void> {
+    const business = await this.businessRepo.findOne({ where: { id: businessId } });
+    assertCanManageBusiness(user, business);
     const settings = await this.findByBusinessId(businessId);
     await this.businessOwnerSettingsRepository.remove(settings);
   }

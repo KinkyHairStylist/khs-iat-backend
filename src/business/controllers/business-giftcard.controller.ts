@@ -34,6 +34,9 @@ import { Repository } from 'typeorm';
 import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
 import { RolesGuard } from 'src/middleware/roles.guard';
 import { Roles } from 'src/middleware/roles.decorator';
+import { BusinessGiftCardSoldStatus } from '../enum/gift-card.enum';
+import { BusinessGiftCard } from '../entities/business-giftcard.entity';
+import { assertCanManageBusiness } from '../utils/business-access';
 import { Role } from 'src/middleware/role.enum';
 
 @ApiTags('Business Gift Cards')
@@ -48,6 +51,14 @@ export class BusinessGiftCardsController {
     @InjectRepository(Business)
     private businessRepository: Repository<Business>,
   ) {}
+
+  // A salon can only touch its own gift cards; a platform admin can touch any.
+  private async assertCanManageCard(cardId: string, user: any): Promise<BusinessGiftCard> {
+    const card = await this.giftCardsService.findOne(cardId);
+    const business = await this.businessRepository.findOne({ where: { id: card.businessId } });
+    assertCanManageBusiness(user, business);
+    return card;
+  }
 
   @Post('create')
   @ApiOperation({ summary: 'Create a new gift card' })
@@ -187,6 +198,7 @@ export class BusinessGiftCardsController {
   @Patch(':id/mark-expired')
   @ApiOperation({ summary: 'Mark gift card as expired' })
   async markAsExpired(@Request() req, @Param('id') id: string) {
+    await this.assertCanManageCard(id, req.user);
     try {
       const ownerId = req.user.id || req.user.sub;
 
@@ -216,6 +228,7 @@ export class BusinessGiftCardsController {
   @Patch(':id/mark-deleted')
   @ApiOperation({ summary: 'Mark gift card as deleted' })
   async markAsDeleted(@Request() req, @Param('id') id: string) {
+    await this.assertCanManageCard(id, req.user);
     try {
       const ownerId = req.user.id || req.user.sub;
 
@@ -246,25 +259,28 @@ export class BusinessGiftCardsController {
   @ApiOperation({ summary: 'Get a gift card by ID' })
   @ApiResponse({ status: 200, description: 'Gift card found' })
   @ApiResponse({ status: 404, description: 'Gift card not found' })
-  findOne(@Param('id') id: string) {
-    return this.giftCardsService.findOne(id);
+  async findOne(@Request() req, @Param('id') id: string) {
+    return this.assertCanManageCard(id, req.user);
   }
 
   @Get('code/:code')
   @ApiOperation({ summary: 'Get a gift card by code' })
   @ApiResponse({ status: 200, description: 'Gift card found' })
   @ApiResponse({ status: 404, description: 'Gift card not found' })
-  findByCode(@Param('code') code: string) {
-    return this.giftCardsService.findByCode(code);
+  async findByCode(@Request() req, @Param('code') code: string) {
+    const card = await this.giftCardsService.findByCode(code);
+    return this.assertCanManageCard(card.id, req.user);
   }
 
   @Patch(':id')
   @ApiOperation({ summary: 'Update a gift card' })
   @ApiResponse({ status: 200, description: 'Gift card updated successfully' })
   async update(
+    @Request() req,
     @Param('id') id: string,
     @Body() updateGiftCardDto: UpdateBusinessGiftCardDto,
   ) {
+    await this.assertCanManageCard(id, req.user);
     try {
       const result = await this.giftCardsService.update(id, updateGiftCardDto);
       return {
@@ -286,19 +302,24 @@ export class BusinessGiftCardsController {
   @ApiOperation({ summary: 'Redeem a gift card' })
   @ApiResponse({ status: 200, description: 'Gift card redeemed successfully' })
   @ApiResponse({ status: 400, description: 'Invalid redemption request' })
-  redeem(@Body() redeemDto: RedeemBusinessGiftCardDto) {
+  async redeem(@Request() req, @Body() redeemDto: RedeemBusinessGiftCardDto) {
+    // Only the salon that issued a card (or an admin) can redeem it.
+    const card = await this.giftCardsService.findByCode(redeemDto.code);
+    await this.assertCanManageCard(card.id, req.user);
     return this.giftCardsService.redeem(redeemDto);
   }
 
   @Patch(':id/mark-sent')
   @ApiOperation({ summary: 'Mark gift card as sent' })
-  markAsSent(@Param('id') id: string) {
+  async markAsSent(@Request() req, @Param('id') id: string) {
+    await this.assertCanManageCard(id, req.user);
     return this.giftCardsService.markAsSent(id);
   }
 
   @Patch(':id/mark-delivered')
   @ApiOperation({ summary: 'Mark gift card as delivered' })
-  markAsDelivered(@Param('id') id: string) {
+  async markAsDelivered(@Request() req, @Param('id') id: string) {
+    await this.assertCanManageCard(id, req.user);
     return this.giftCardsService.markAsDelivered(id);
   }
 
@@ -306,7 +327,8 @@ export class BusinessGiftCardsController {
   @ApiOperation({ summary: 'Cancel a gift card' })
   @ApiResponse({ status: 200, description: 'Gift card cancelled successfully' })
   @ApiResponse({ status: 400, description: 'Cannot cancel redeemed gift card' })
-  cancel(@Param('id') id: string) {
+  async cancel(@Request() req, @Param('id') id: string) {
+    await this.assertCanManageCard(id, req.user);
     return this.giftCardsService.cancel(id);
   }
 
@@ -314,7 +336,12 @@ export class BusinessGiftCardsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete a gift card' })
   @ApiResponse({ status: 204, description: 'Gift card deleted successfully' })
-  remove(@Param('id') id: string) {
+  async remove(@Request() req, @Param('id') id: string) {
+    const card = await this.assertCanManageCard(id, req.user);
+    // A card a customer has bought holds their money; deleting it would wipe their balance.
+    if (card.soldStatus === BusinessGiftCardSoldStatus.PURCHASED) {
+      throw new BadRequestException('A gift card that has been sold can\'t be deleted. Cancel it instead.');
+    }
     return this.giftCardsService.remove(id);
   }
 

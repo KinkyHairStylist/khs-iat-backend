@@ -67,6 +67,7 @@ import {
 import { promises } from 'dns';
 import { Review } from '../entities/review.entity';
 import { merchantPayout } from 'src/user/services/booking-fees';
+import { assertCanManageBusiness } from '../utils/business-access';
 
 @Injectable()
 export class BusinessService {
@@ -1431,16 +1432,19 @@ async getBooking(id: string) {
     return this.serviceRepo.save(service);
   }
 
-  async deleteService(deleteServiceDto: DeleteServiceDto) {
+  async deleteService(deleteServiceDto: DeleteServiceDto, user?: any) {
     const { serviceId } = deleteServiceDto;
 
     const service = await this.serviceRepo.findOne({
       where: { id: serviceId },
+      relations: ['business'],
     });
 
     if (!service) {
       throw new NotFoundException('Service not found');
     }
+    // Only the salon that offers a service (or an admin) can delete it.
+    assertCanManageBusiness(user, service.business);
 
     // Check if service has any appointments
     const appointmentCount = await this.appointmentRepo.count({

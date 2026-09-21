@@ -331,8 +331,8 @@ export class BusinessOwnerSettingsController {
 
   @Delete(':businessId')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async delete(@Param('businessId') businessId: string): Promise<void> {
-    return await this.businessOwnerSettingsService.delete(businessId);
+  async delete(@Request() req, @Param('businessId') businessId: string): Promise<void> {
+    return await this.businessOwnerSettingsService.delete(businessId, req.user);
   }
 
   @Get('settings/:businessId')
