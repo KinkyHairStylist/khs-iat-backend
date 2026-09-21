@@ -61,6 +61,7 @@ import {
 import { Card } from 'src/all_user_entities/card.entity';
 import { BusinessGiftCard } from 'src/business/entities/business-giftcard.entity';
 import { BusinessGiftCardStatus } from 'src/business/enum/gift-card.enum';
+import { assertGiftCardUsable } from './gift-card-usability';
 import { User } from 'src/all_user_entities/user.entity';
 import { ReviewService } from 'src/business/services/review.service';
 import { BusinessWalletService } from 'src/business/services/wallet.service';
@@ -747,11 +748,7 @@ export class BookingService {
         where: { code: giftCard },
       });
 
-      if (!gift) throw new BadRequestException('Gift card not found');
-      if (gift.status !== BusinessGiftCardStatus.ACTIVE)
-        throw new BadRequestException('Gift card is not active');
-      if (gift.remainingAmount <= 0)
-        throw new BadRequestException('Gift card has no balance');
+      assertGiftCardUsable(gift, appointments[0].business.id);
 
       giftCardPayment = Math.min(
         Number(gift.remainingAmount),
@@ -766,10 +763,13 @@ export class BookingService {
     // Handle full gift card payment (no card needed) - check this FIRST
     if (remainingToPay <= 0) {
       return await this.dataSource.manager.transaction(async (manager) => {
+        // Locked so two confirmations racing on one card cannot both spend it.
         const gift = await manager.findOne(BusinessGiftCard, {
           where: { code: giftCard },
+          lock: { mode: 'pessimistic_write' },
         });
-        if (!gift || Number(gift.remainingAmount) < totalAmount) {
+        assertGiftCardUsable(gift, appointments[0].business.id);
+        if (Number(gift.remainingAmount) < totalAmount) {
           throw new BadRequestException('Insufficient gift card balance');
         }
 

@@ -400,6 +400,10 @@ export class GiftCardService {
     if (giftCard.remainingAmount <= 0)
       // return { valid: false, reason: 'Gift card fully redeemed' };
       return { valid: false, reason: 'Gift card already redeemed' };
+    if (giftCard.status !== BusinessGiftCardStatus.ACTIVE)
+      return { valid: false, reason: 'Gift card is not active' };
+    if (dto.businessId && giftCard.businessId !== dto.businessId)
+      return { valid: false, reason: 'Gift card is for a different salon', reasonCode: 'wrong_salon' };
 
     return {
       valid: true,
@@ -421,6 +425,12 @@ export class GiftCardService {
 
     const now = new Date();
 
+    // Unsold salon stock and deactivated cards cannot be redeemed.
+    if (
+      giftCard.soldStatus !== BusinessGiftCardSoldStatus.PURCHASED ||
+      giftCard.status === BusinessGiftCardStatus.INACTIVE
+    )
+      throw new BadRequestException('Gift card is not active');
     if (giftCard.expiresAt < now)
       throw new BadRequestException('Gift card expired');
     if (giftCard.remainingAmount <= 0)
