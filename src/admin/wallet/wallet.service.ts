@@ -22,6 +22,17 @@ export class WalletService {
       return str.charAt(0).toUpperCase() + str.slice(1);
     };
 
+    // The platform fee on a payment is the commission and acquisition fee rows recorded against
+    // the same payment; the Stripe processing fee goes to Stripe, not to KHS.
+    const platformFeeByReference = new Map<string, number>();
+    for (const tx of transactions) {
+      if (tx.type !== TransactionType.FEE || tx.feeSubtype === 'StripePassthrough' || !tx.referenceId) continue;
+      platformFeeByReference.set(
+        tx.referenceId,
+        (platformFeeByReference.get(tx.referenceId) ?? 0) + Number(tx.amount),
+      );
+    }
+
     return transactions.map((tx) => ({
       id: tx.id,
 
@@ -48,6 +59,12 @@ export class WalletService {
       method: tx.method, // ← this is your PaymentMethod enum
 
       referenceId: tx.referenceId || null,
+
+      fee:
+        tx.type === TransactionType.DEBIT && tx.referenceId
+          ? Math.round((platformFeeByReference.get(tx.referenceId) ?? 0) * 100) / 100
+          : 0,
+      createdAt: tx.createdAt.toISOString(),
 
       date: tx.createdAt.toISOString().split('T')[0],
       time: tx.createdAt.toLocaleTimeString('en-US', {

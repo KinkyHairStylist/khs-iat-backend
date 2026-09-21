@@ -55,6 +55,15 @@ export class PaymentController {
     return this.paymentService.getPaymentMethodStats();
   }
 
+  // Must stay above the ':id' route below, which would otherwise take 'overview' as an id.
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.Admin, Role.SuperAdmin, Role.Client)
+  @Get('overview')
+  async overview() {
+    return this.paymentService.getPaymentsOverview();
+  }
+
   @ApiBearerAuth('access-token')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.Admin, Role.SuperAdmin, Role.Client)
