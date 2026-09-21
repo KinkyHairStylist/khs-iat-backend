@@ -313,6 +313,11 @@ export class ClientFiltersDto {
   @IsEnum(ClientType)
   clientType?: ClientType;
 
+  // "active" lists only clients who hold an active membership package with this merchant.
+  @IsOptional()
+  @IsIn(['active'])
+  membership?: string;
+
   @IsOptional()
   @IsIn(['createdAt', 'firstName', 'lastName', 'email', 'phone', 'updatedAt'])
   sortBy?: string;

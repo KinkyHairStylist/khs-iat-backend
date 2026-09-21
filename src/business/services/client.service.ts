@@ -459,6 +459,7 @@ export class ClientService {
       const {
         search,
         clientType,
+        membership,
         sortBy = 'createdAt',
         sortOrder = 'desc',
         page = 1,
@@ -482,11 +483,33 @@ export class ClientService {
         );
       }
 
-      // Client type filter (join with settings table)
+      // Client type filter. VIP is no longer offered (a membership is what marks a special client), so a
+      // client still tagged VIP is treated as Regular.
       if (clientType && clientType !== 'all') {
-        queryBuilder.andWhere('client.clientType = :clientType', {
-          clientType,
-        });
+        if (clientType === ClientType.REGULAR) {
+          queryBuilder.andWhere('client.clientType IN (:...regularTypes)', {
+            regularTypes: [ClientType.REGULAR, ClientType.VIP],
+          });
+        } else {
+          queryBuilder.andWhere('client.clientType = :clientType', {
+            clientType,
+          });
+        }
+      }
+
+      // Members: clients whose KHS account (same email) holds an active membership package at one of this
+      // merchant's salons.
+      if (membership === 'active') {
+        queryBuilder.andWhere(`EXISTS (
+          SELECT 1 FROM merchant_membership_purchases mp
+          JOIN "user" mu ON mu.id = mp."clientId"
+          JOIN businesses mb ON mb.id = mp."businessId"
+          WHERE LOWER(mu.email) = LOWER(client.email)
+            AND mb.owner_id = :ownerId
+            AND mp.status = 'ACTIVE'
+            AND mp."remainingSessions" > 0
+            AND mp."expiresAt" > NOW()
+        )`);
       }
 
       // Sorting — allowlist prevents column name injection
@@ -576,6 +599,24 @@ export class ClientService {
       const appointmentsByClient = groupAppointmentsByClient(clients, appointmentRows);
       const today = new Date().toISOString().slice(0, 10);
 
+      // Which of these clients are members, and how many sessions they have left.
+      const memberRows: { email: string; sessions: number }[] = emails.length
+        ? await this.dataSource.query(
+            `SELECT LOWER(u.email) AS email, SUM(p."remainingSessions")::int AS sessions
+               FROM merchant_membership_purchases p
+               JOIN "user" u ON u.id = p."clientId"
+               JOIN businesses b ON b.id = p."businessId"
+              WHERE b.owner_id = $1
+                AND LOWER(u.email) = ANY($2)
+                AND p.status = 'ACTIVE'
+                AND p."remainingSessions" > 0
+                AND p."expiresAt" > NOW()
+              GROUP BY 1`,
+            [ownerId, emails],
+          )
+        : [];
+      const sessionsByEmail = new Map(memberRows.map((r) => [r.email, r.sessions]));
+
       // Transform data (settings already loaded via leftJoinAndSelect)
       const clientsWithSettings = clients.map((client) => ({
         id: client.id,
@@ -595,6 +636,8 @@ export class ClientService {
         updatedAt: client.updatedAt,
         averageRating: ratingMap.get(client.id) ?? 0,
         ...summarizeClientAppointments(appointmentsByClient.get(client.id) ?? [], today),
+        isMember: sessionsByEmail.has(client.email?.trim().toLowerCase() ?? ''),
+        membershipSessionsLeft: sessionsByEmail.get(client.email?.trim().toLowerCase() ?? '') ?? 0,
         ownerId,
       }));
 
