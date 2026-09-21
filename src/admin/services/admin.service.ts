@@ -610,6 +610,7 @@ async getAllBusinesses() {
     const businesses = await this.businessRepo
       .createQueryBuilder('business')
       .leftJoinAndSelect('business.staff', 'staff')
+      .orderBy('business.createdAt', 'DESC')
       .getMany();
 
     // Staff count per business (existing behavior)
