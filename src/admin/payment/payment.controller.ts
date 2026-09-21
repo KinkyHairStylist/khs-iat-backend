@@ -155,12 +155,4 @@ export class PaymentController {
   ) {
     return this.paymentService.refundStripeEscrow(orderId, reason);
   }
-
-  @ApiBearerAuth('access-token')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.Admin, Role.SuperAdmin, Role.Client)
-  @Delete('delete-all')
-  async deleteAllPayments() {
-    return this.paymentService.deleteAllPayments();
-  }
 }

@@ -561,11 +561,6 @@ export class PaymentService {
     return { message: 'Escrow refunded successfully', refunded };
   }
 
-  async deleteAllPayments() {
-    const result = await this.paymentRepo.clear();
-    return { message: 'All payments deleted.', result };
-  }
-
   async getPaymentMethodStats() {
     const raw = await this.transactionRepo
       .createQueryBuilder('t')

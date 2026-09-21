@@ -5,7 +5,7 @@ import {
   Body,
   Param,
   Patch,
-  Delete,
+  Req,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
@@ -44,26 +44,20 @@ export class GiftcardController {
     return await this.giftcardService.deactivateGiftCard(id, body.reason);
   }
 
-  @Patch(':id/refund/:amount')
-  async refund(
+  // Restores a sold card's balance to its full value. There is no amount to send: the server never
+  // lets a balance go above what the card was worth. (:amount is ignored; the old refund route is
+  // kept so anything still calling it doesn't break.)
+  @Patch([':id/restore-balance', ':id/refund/:amount'])
+  async restoreBalance(
     @Param('id') id: string,
-    @Param('amount') amount: string,
     @Body() body: RefundGiftCardDto,
+    @Req() req: { user?: { email?: string } },
   ) {
-    return await this.giftcardService.refundGiftCard(
-      id,
-      parseFloat(amount),
-      body.reason,
-    );
+    return await this.giftcardService.restoreBalance(id, body.reason, req.user?.email);
   }
 
   @Get(':id/usage')
   async getUsageHistory(@Param('id') id: string) {
     return await this.giftcardService.getUsageHistory(id);
-  }
-
-  @Delete('delete-all')
-  async deleteAll() {
-    return this.giftcardService.deleteAllGiftCards();
   }
 }
