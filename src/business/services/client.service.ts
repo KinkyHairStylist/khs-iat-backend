@@ -18,8 +18,8 @@ import { ClientAddressSchema } from '../entities/client-address.entity';
 import { EmergencyContactSchema } from '../entities/emergency-contact-schema.entity';
 import { ClientSettingsSchema } from '../entities/client-settings.entity';
 import { Review } from '../entities/review.entity';
-import { formatClientType } from '../utils/client.utils';
 import { groupAppointmentsByClient, summarizeClientAppointments } from '../utils/client-stats';
+import { clientSegment, newClientCutoff } from '../utils/client-segments';
 import { ClientFiltersDto, UpdateClientDto } from '../dtos/requests/ClientDto';
 import {
   BusinessCloudinaryService,
@@ -483,17 +483,14 @@ export class ClientService {
         );
       }
 
-      // Client type filter. VIP is no longer offered (a membership is what marks a special client), so a
-      // client still tagged VIP is treated as Regular.
+      // New and Regular are worked out from when the person became a client, not from a typed-in tag
+      // (VIP is gone: a membership is what marks a special client). New is the last 30 days.
       if (clientType && clientType !== 'all') {
-        if (clientType === ClientType.REGULAR) {
-          queryBuilder.andWhere('client.clientType IN (:...regularTypes)', {
-            regularTypes: [ClientType.REGULAR, ClientType.VIP],
-          });
+        const cutoff = newClientCutoff();
+        if (clientType === ClientType.NEW) {
+          queryBuilder.andWhere('client.createdAt >= :cutoff', { cutoff });
         } else {
-          queryBuilder.andWhere('client.clientType = :clientType', {
-            clientType,
-          });
+          queryBuilder.andWhere('client.createdAt < :cutoff', { cutoff });
         }
       }
 
@@ -628,7 +625,7 @@ export class ClientService {
         gender: client.gender,
         pronouns: client.pronouns,
         address: addressMap.get(client.id) || undefined,
-        clientType: formatClientType(client.clientType || ClientType.REGULAR),
+        clientType: clientSegment(client.createdAt),
         clientSource: client.clientSource,
         profileImage: client.profileImage,
         isActive: client.isActive,
