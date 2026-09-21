@@ -22,7 +22,7 @@ const card = (over: Partial<BusinessGiftCard> = {}) =>
 const serviceFor = (found: BusinessGiftCard | null) => {
   const repo = { findOne: jest.fn().mockResolvedValue(found) };
   const none = {} as any;
-  return new GiftCardService(repo as any, none, none, none, none, none, none, none, none, none);
+  return new GiftCardService(repo as any, none, none, none, none, none, none, none, none, none, none);
 };
 
 describe('GiftCardService.validateGiftCard', () => {

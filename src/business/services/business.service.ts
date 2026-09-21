@@ -398,15 +398,28 @@ async getBooking(id: string) {
           });
         }
         if (shortfall > 0) {
-          await this.walletService.debitWithPendingFallback({
-            businessId,
-            amount: shortfall,
-            type: TransactionType.FEE,
-            feeSubtype: 'Acquisition',
-            referenceId: spi.stripePaymentIntentId,
-            description: `Fees on gift card booking ${appointment.orderId}`,
-            senderId: ownerId,
-          });
+          // Split what is still owed between the two fees, in proportion, so each is recorded as
+          // its own kind.
+          const acquisition = Number(spi.acquisitionFeeAmount);
+          const commission = Number(spi.commissionFeeAmount);
+          const feeTotal = acquisition + commission;
+          const acquisitionShare = feeTotal > 0 ? Math.round(((shortfall * acquisition) / feeTotal) * 100) / 100 : 0;
+          const commissionShare = Math.round((shortfall - acquisitionShare) * 100) / 100;
+          for (const [kind, amount] of [
+            ['Acquisition', acquisitionShare],
+            ['Commission', commissionShare],
+          ] as const) {
+            if (amount <= 0) continue;
+            await this.walletService.debitWithPendingFallback({
+              businessId,
+              amount,
+              type: TransactionType.FEE,
+              feeSubtype: kind,
+              referenceId: spi.stripePaymentIntentId,
+              description: `${kind} on gift card booking ${appointment.orderId}`,
+              senderId: ownerId,
+            });
+          }
         }
 
         spi.status = StripeEscrowStatus.RELEASED;

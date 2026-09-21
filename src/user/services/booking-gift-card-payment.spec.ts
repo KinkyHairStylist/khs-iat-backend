@@ -137,53 +137,60 @@ describe('paying a booking with a gift card', () => {
     expect(walletService.addFunds).not.toHaveBeenCalled();
   });
 
-  it('charges no commission on the part a gift card pays', async () => {
-    const { confirm } = setup({ giftBalance: 100 });
+  it('takes the commission on the whole booking from the salon when a gift card pays all of it', async () => {
+    const { confirm, walletService } = setup({ giftBalance: 100 });
 
     const result = await confirm();
 
-    expect(result.fees).toEqual({ acquisitionFee: 0, commission: 0 });
+    // 12% of the $35 booking, debited from the salon's wallet (it was credited when the card was sold).
+    expect(result.fees.commission).toBeCloseTo(4.2, 2);
+    expect(walletService.debitWithPendingFallback).toHaveBeenCalledWith(
+      expect.objectContaining({ businessId: BUSINESS, amount: expect.closeTo(4.2, 2), feeSubtype: 'Commission' }),
+    );
   });
 
-  it('takes commission only on the part paid by card when the gift card covers some of it', async () => {
+  it('takes the commission on the whole booking when a gift card covers only part of it', async () => {
     const { confirm, stripePaymentIntentRepository, stripeService } = setup({ giftBalance: 20 });
 
     const result = await confirm();
 
-    // $35 booking, $20 from the gift card, so $15 goes on the card and 12% of that is $1.80.
-    expect(result.fees.commission).toBeCloseTo(1.8, 2);
+    // $35 booking, $20 from the gift card, $15 on the card. Commission is 12% of the $35.
+    expect(result.fees.commission).toBeCloseTo(4.2, 2);
     expect(stripePaymentIntentRepository.create).toHaveBeenCalledWith(
-      expect.objectContaining({ bookingAmount: 15, commissionFeeAmount: expect.closeTo(1.8, 2) }),
+      expect.objectContaining({ bookingAmount: 15, commissionFeeAmount: expect.closeTo(4.2, 2) }),
     );
     // The customer is charged the $15 plus the card fee, never the commission.
     const chargedCents = stripeService.createPaymentIntent.mock.calls[0][0].amount;
     expect(chargedCents).toBe(Math.round((15 + (15 * 1.75) / 100 + 0.3) * 100));
   });
 
-  it('still charges the acquisition fee on a first booking paid entirely by gift card', async () => {
+  it('takes the acquisition fee too on a first booking paid entirely by gift card', async () => {
     const { confirm, walletService } = setup({ giftBalance: 100, firstBooking: true });
 
     const result = await confirm();
 
-    // 10% of the $35 booking, debited from the salon's wallet. The salon is not credited again.
+    // 10% of the $35 booking, plus the commission, both debited from the salon's wallet.
     expect(result.fees.acquisitionFee).toBeCloseTo(3.5, 2);
     expect(walletService.debitWithPendingFallback).toHaveBeenCalledWith(
-      expect.objectContaining({ businessId: BUSINESS, amount: expect.closeTo(3.5, 2), feeSubtype: 'Acquisition' }),
+      expect.objectContaining({ amount: expect.closeTo(3.5, 2), feeSubtype: 'Acquisition' }),
+    );
+    expect(walletService.debitWithPendingFallback).toHaveBeenCalledWith(
+      expect.objectContaining({ amount: expect.closeTo(4.2, 2), feeSubtype: 'Commission' }),
     );
     expect(walletService.addFunds).not.toHaveBeenCalled();
   });
 
-  it('keeps the acquisition fee on the whole booking when a gift card covers only part of a first booking', async () => {
+  it('keeps both fees on the whole booking when a gift card covers only part of a first booking', async () => {
     const { confirm, stripePaymentIntentRepository } = setup({ giftBalance: 20, firstBooking: true });
 
     const result = await confirm();
 
     expect(result.fees.acquisitionFee).toBeCloseTo(3.5, 2);
-    expect(result.fees.commission).toBeCloseTo(1.8, 2);
+    expect(result.fees.commission).toBeCloseTo(4.2, 2);
     expect(stripePaymentIntentRepository.create).toHaveBeenCalledWith(
       expect.objectContaining({
         acquisitionFeeAmount: expect.closeTo(3.5, 2),
-        commissionFeeAmount: expect.closeTo(1.8, 2),
+        commissionFeeAmount: expect.closeTo(4.2, 2),
       }),
     );
   });
@@ -193,6 +200,8 @@ describe('paying a booking with a gift card', () => {
 
     await confirm();
 
-    expect(walletService.debitWithPendingFallback).not.toHaveBeenCalled();
+    expect(walletService.debitWithPendingFallback).not.toHaveBeenCalledWith(
+      expect.objectContaining({ feeSubtype: 'Acquisition' }),
+    );
   });
 });

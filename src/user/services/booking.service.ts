@@ -139,13 +139,14 @@ export class BookingService {
     return settings.emailBookingConfirmations;
   }
 
-  // Takes the acquisition fee from the salon's wallet, for a booking whose money was already credited
-  // to the salon (a gift card bought earlier). Never fails the booking: it alerts instead.
-  private async debitAcquisitionFee(
+  // Takes a fee from the salon's wallet, for a booking whose money was already credited to the salon
+  // (a gift card bought earlier). Never fails the booking: it alerts instead.
+  private async debitBookingFee(
     businessId: string,
     ownerId: string,
     amount: number,
     orderId: string,
+    kind: 'Acquisition' | 'Commission',
   ): Promise<void> {
     try {
       try {
@@ -162,20 +163,20 @@ export class BookingService {
         businessId,
         amount,
         type: TransactionType.FEE,
-        feeSubtype: 'Acquisition',
+        feeSubtype: kind,
         referenceId: orderId,
-        description: `Acquisition fee for appointment order ${orderId}`,
+        description: `${kind === 'Acquisition' ? 'Acquisition fee' : 'Commission'} for appointment order ${orderId}`,
         senderId: ownerId,
       });
     } catch (error) {
-      this.logger.error(`Acquisition fee debit failed for order ${orderId}: ${error?.message}`);
+      this.logger.error(`${kind} debit failed for order ${orderId}: ${error?.message}`);
       StructuredSlackService.notify({
         node: SlackNode.PAYMENT,
         provider: SlackProvider.STRIPE,
         severity: SlackSeverity.CRITICAL,
         type: SlackEventType.ERROR_ALERT,
-        trigger: `Acquisition fee not collected for order ${orderId}`,
-        body: `A gift-card-paid booking was confirmed, but debiting the acquisition fee from the salon's wallet failed, so KHS did not collect it.
+        trigger: `${kind} not collected for order ${orderId}`,
+        body: `A gift-card-paid booking was confirmed, but debiting the ${kind.toLowerCase()} from the salon's wallet failed, so KHS did not collect it.
 • Order: ${orderId}
 • Amount: $${amount.toFixed(2)}
 • Error: ${error instanceof Error ? error.message : String(error)}`,
@@ -799,19 +800,16 @@ export class BookingService {
 
     // Acquisition fee (tier %, one-time per business+client) + flat commission — replaces the old
     // single flat platformFee. See calculateBookingFees for the race-safe first-booking detection.
-    // A deposit booking keeps its fees on the full price: they come out of the deposit at completion.
-    const feeBase = depositOnly ? bookingAmount : Math.max(0, bookingAmount - giftCardPayment);
-    const fees = await this.calculateBookingFees(
-      appointments[0].business,
-      user.id,
-      orderId,
-      bookingAmount,
-    );
-    // The acquisition fee is for bringing a new customer to the salon, so a gift card doesn't
-    // waive it: it stays on the whole booking. Commission was taken when the card was bought,
-    // so it only applies to the part paid by card.
-    const acquisitionFeeAmount = fees.acquisitionFeeAmount;
-    const commissionAmount = bookingAmount > 0 ? (fees.commissionAmount * feeBase) / bookingAmount : 0;
+    // Both are on the whole booking, whatever pays for it: a gift card doesn't waive them. The salon
+    // was credited the gift card's full value when it was sold, so the part of the fees that the
+    // card payment can't cover is debited from the salon's wallet.
+    const { acquisitionFeeAmount, commissionAmount } =
+      await this.calculateBookingFees(
+        appointments[0].business,
+        user.id,
+        orderId,
+        bookingAmount,
+      );
     const feeAmount = acquisitionFeeAmount + commissionAmount;
     // Who the fee transactions below are recorded against.
     const feePayerId = appointments[0].business?.owner?.id ?? user.id;
@@ -862,36 +860,17 @@ export class BookingService {
         });
         await manager.save(Transaction, bookingTx);
 
-        // The acquisition fee is debited from the salon's wallet, which was credited when the gift
-        // card was sold. That records the fee too.
+        // The salon was credited the gift card's full value when it was sold, so both fees are
+        // debited from its wallet. That records them too.
         if (acquisitionFeeAmount > 0) {
-          await this.debitAcquisitionFee(
-            appointments[0].business.id,
-            feePayerId,
-            acquisitionFeeAmount,
-            orderId,
-          );
+          await this.debitBookingFee(appointments[0].business.id, feePayerId, acquisitionFeeAmount, orderId, 'Acquisition');
         }
         if (commissionAmount > 0) {
-          const commTx = manager.create(Transaction, {
-            senderId: feePayerId,
-            amount: commissionAmount,
-            type: TransactionType.FEE,
-            feeSubtype: 'Commission',
-            currency: WalletCurrency.USD,
-            description: `Commission for appointment order ${orderId}`,
-            mode: 'Web',
-            referenceId: orderId,
-            status: TxnStatus.COMPLETED,
-            method: PaymentMethod.GIFTCARD,
-            service: 'Booking-Fee',
-            customerName: `${user.firstName} ${user.surname}`,
-          });
-          await manager.save(Transaction, commTx);
+          await this.debitBookingFee(appointments[0].business.id, feePayerId, commissionAmount, orderId, 'Commission');
         }
 
-        // The salon is not credited here: it was paid, less KHS's commission, when the gift card
-        // was bought. Crediting it again would pay for the same money twice.
+        // The salon is not credited here: it was paid when the gift card was bought. Crediting it
+        // again would pay for the same money twice.
 
         if (user.email && (await this.shouldSendBookingConfirmationEmail(user))) {
           const serviceNames = [

@@ -33,7 +33,8 @@ import {
 import { PlatformSettingsService } from '../../admin/platform-settings/platform-settings.service';
 import { EmailService } from '../../email/email.service';
 import { SlackService } from 'src/slack/slack.service';
-import { commissionOn, merchantNetAfterFees } from './booking-fees';
+import { NotificationService } from 'src/notifications/notification.service';
+import { NotificationType } from 'src/notifications/notification.enum';
 
 @Injectable()
 export class GiftCardService {
@@ -54,6 +55,7 @@ export class GiftCardService {
     private readonly platformSettingsService: PlatformSettingsService,
     private readonly emailService: EmailService,
     private readonly slackService: SlackService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   // ------------------------------------------------------
@@ -221,7 +223,7 @@ export class GiftCardService {
             platformFee: feeAmount,
             totalPaid: giftCardAmount + feeAmount,
             alreadyCompleted: true,
-            businessOwnerId: undefined as string | undefined,
+            business: undefined as { ownerId?: string; businessName?: string } | undefined,
           };
         }
 
@@ -297,7 +299,7 @@ export class GiftCardService {
           giftCardAmount: giftCardAmount,
           platformFee: feeAmount,
           totalPaid: giftCardAmount + feeAmount,
-          businessOwnerId: giftCardWithRelations.business.ownerId,
+          business: giftCardWithRelations.business as { ownerId?: string; businessName?: string } | undefined,
         };
       },
     );
@@ -315,10 +317,8 @@ export class GiftCardService {
       };
     }
 
-    // KHS's commission comes out of what the salon is paid for the card. It is taken here, once,
-    // so a booking later paid with the card is not commissioned or credited again.
-    const { commissionRate } = await this.platformSettingsService.getPayments();
-    const commission = commissionOn(result.giftCardAmount, Number(commissionRate));
+    // The salon is credited the card's full value now. KHS's commission and acquisition fee are
+    // taken when the card is spent on a booking, on the whole booking.
 
     // Update business wallet outside the transaction to avoid deadlock
     try {
@@ -326,7 +326,7 @@ export class GiftCardService {
         businessId: result.giftCard.businessId,
         recipientId: result.giftCard.ownerId!,
         senderId: meta.purchaserId,
-        amount: merchantNetAfterFees(result.giftCardAmount, 0, commission),
+        amount: result.giftCardAmount,
         type: TransactionType.EARNING,
         description: `Business Gift card purchase via Stripe`,
         referenceId: reference,
@@ -334,28 +334,6 @@ export class GiftCardService {
     } catch (walletError) {
       // Log the error but don't fail the entire operation since gift card was purchased successfully
       console.error('Failed to add funds to business wallet:', walletError);
-    }
-
-    if (commission > 0) {
-      try {
-        await this.transactionRepo.save(
-          this.transactionRepo.create({
-            senderId: result.businessOwnerId,
-            amount: commission,
-            type: TransactionType.FEE,
-            feeSubtype: 'Commission',
-            currency: (result.giftCard.currency as any) || WalletCurrency.USD,
-            description: `Commission on gift card "${result.giftCard.title}" purchase`,
-            mode: 'Web',
-            referenceId: reference,
-            status: TransactionStatus.COMPLETED,
-            method: PaymentMethod.STRIPE,
-            service: 'GiftCard-Commission',
-          }),
-        );
-      } catch (feeError) {
-        console.error('Failed to record the gift card commission:', feeError);
-      }
     }
 
     // Send confirmation email to purchaser (buyer)
@@ -392,11 +370,32 @@ export class GiftCardService {
       );
     }
 
+    // Tell the salon its gift card was sold and that the money is in its wallet.
+    try {
+      if (result.business?.ownerId) {
+        await this.notificationService.create({
+          userId: result.business.ownerId,
+          type: NotificationType.SYSTEM,
+          title: 'Gift card sold',
+          message: `${result.giftCard.ownerFullName || 'A customer'} bought your gift card "${result.giftCard.title}" for $${result.giftCardAmount.toFixed(2)}. The amount has been added to your wallet.`,
+          link: '/merchant/dashboard/gift-management',
+          metadata: {
+            giftCardId: result.giftCard.id,
+            businessId: result.giftCard.businessId,
+            amount: result.giftCardAmount,
+          },
+        });
+      }
+    } catch (notifyError) {
+      console.error('Failed to notify the salon of a gift card sale:', notifyError);
+    }
+
     // Send Slack notification
     try {
       this.slackService.notify(
         `🎁 *Gift Card Purchased*\n` +
         `• *Card*: "${result.giftCard.title}" (\`${result.giftCard.code}\`)\n` +
+        `• *Salon*: ${result.business?.businessName || 'N/A'}\n` +
         `• *Purchaser*: ${result.giftCard.ownerFullName || 'Customer'} (${result.giftCard.ownerEmail || 'N/A'})\n` +
         `• *Recipient*: ${result.giftCard.recipientName || 'N/A'} (${result.giftCard.recipientEmail || 'N/A'})\n` +
         `• *Amount*: $${result.giftCardAmount.toFixed(2)}`

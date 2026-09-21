@@ -26,8 +26,3 @@ export function merchantPayout(
     Math.round((Number(paidTowardService) - Number(acquisitionFee) - Number(commission)) * 100) / 100;
   return { credit: Math.max(0, net), shortfall: Math.max(0, -net) };
 }
-
-/** KHS's commission on an amount at a percentage rate, rounded to cents. */
-export function commissionOn(amount: number, ratePercent: number): number {
-  return Math.round(Number(amount) * (Number(ratePercent) || 0)) / 100;
-}
