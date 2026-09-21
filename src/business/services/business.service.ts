@@ -66,7 +66,7 @@ import {
 } from 'src/utils/enum';
 import { promises } from 'dns';
 import { Review } from '../entities/review.entity';
-import { merchantNetAfterFees } from 'src/user/services/booking-fees';
+import { merchantPayout } from 'src/user/services/booking-fees';
 
 @Injectable()
 export class BusinessService {
@@ -332,7 +332,9 @@ async getBooking(id: string) {
         // bookingAmount, so subtracting them here gives the same result
         // for those.) Cancellation logic is unaffected — it operates on
         // the gross bookingAmount.
-        const netAmount = merchantNetAfterFees(
+        // When a gift card paid most of the booking the fees can be more than the card payment held
+        // here; whatever the payout can't cover is debited from the salon's wallet.
+        const { credit: netAmount, shortfall } = merchantPayout(
           spi.bookingAmount,
           spi.acquisitionFeeAmount,
           spi.commissionFeeAmount,
@@ -381,18 +383,31 @@ async getBooking(id: string) {
         // chargeback landing in that window is recovered from money never
         // handed out, rather than clawing back an already-released
         // balance (see WalletReleaseCronService).
-        await this.walletService.addFundsPending({
-          businessId,
-          recipientId: ownerId,
-          senderId: spi.userId,
-          amount: netAmount,
-          type: TransactionType.EARNING,
-          description: `Escrow release for completed booking ${appointment.orderId}`,
-          referenceId: spi.stripePaymentIntentId,
-          currency: WalletCurrency.USD,
-          mode: 'Web',
-          method: PaymentMethod.STRIPE,
-        });
+        if (netAmount > 0) {
+          await this.walletService.addFundsPending({
+            businessId,
+            recipientId: ownerId,
+            senderId: spi.userId,
+            amount: netAmount,
+            type: TransactionType.EARNING,
+            description: `Escrow release for completed booking ${appointment.orderId}`,
+            referenceId: spi.stripePaymentIntentId,
+            currency: WalletCurrency.USD,
+            mode: 'Web',
+            method: PaymentMethod.STRIPE,
+          });
+        }
+        if (shortfall > 0) {
+          await this.walletService.debitWithPendingFallback({
+            businessId,
+            amount: shortfall,
+            type: TransactionType.FEE,
+            feeSubtype: 'Acquisition',
+            referenceId: spi.stripePaymentIntentId,
+            description: `Fees on gift card booking ${appointment.orderId}`,
+            senderId: ownerId,
+          });
+        }
 
         spi.status = StripeEscrowStatus.RELEASED;
         spi.releasedAt = new Date();

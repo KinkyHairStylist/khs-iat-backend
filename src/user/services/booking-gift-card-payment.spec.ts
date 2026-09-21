@@ -10,7 +10,7 @@ import {
 const BUSINESS = 'biz-1';
 const COMMISSION_RATE = 12;
 
-function setup(opts: { giftBalance: number; bookingAmount?: number }) {
+function setup(opts: { giftBalance: number; bookingAmount?: number; firstBooking?: boolean }) {
   const bookingAmount = opts.bookingAmount ?? 35;
 
   const giftCardRow: any = {
@@ -44,6 +44,7 @@ function setup(opts: { giftBalance: number; bookingAmount?: number }) {
     getWalletByBusinessId: jest.fn().mockResolvedValue({}),
     createWalletForBusiness: jest.fn(),
     addFunds: jest.fn().mockResolvedValue({}),
+    debitWithPendingFallback: jest.fn().mockResolvedValue({}),
   };
 
   const manager = {
@@ -57,8 +58,8 @@ function setup(opts: { giftBalance: number; bookingAmount?: number }) {
   for (const step of ['insert', 'into', 'values', 'orIgnore', 'returning']) {
     insertChain[step] = jest.fn().mockReturnValue(insertChain);
   }
-  // A first booking with this salon would return one row; this customer has booked before.
-  insertChain.execute = jest.fn().mockResolvedValue({ raw: [] });
+  // A first booking with this salon returns one row; a repeat customer returns none.
+  insertChain.execute = jest.fn().mockResolvedValue({ raw: opts.firstBooking ? [{ id: 1 }] : [] });
 
   const dataSource = {
     manager: { transaction: (callback: any) => callback(manager) },
@@ -68,7 +69,7 @@ function setup(opts: { giftBalance: number; bookingAmount?: number }) {
   const platformSettingsService = {
     getPayments: jest.fn().mockResolvedValue({
       commissionRate: COMMISSION_RATE,
-      acquisitionFeeTiers: {},
+      acquisitionFeeTiers: { starter: 10 },
       stripePassthroughRate: 1.75,
       stripePassthroughFixedFee: 0.3,
     }),
@@ -157,5 +158,41 @@ describe('paying a booking with a gift card', () => {
     // The customer is charged the $15 plus the card fee, never the commission.
     const chargedCents = stripeService.createPaymentIntent.mock.calls[0][0].amount;
     expect(chargedCents).toBe(Math.round((15 + (15 * 1.75) / 100 + 0.3) * 100));
+  });
+
+  it('still charges the acquisition fee on a first booking paid entirely by gift card', async () => {
+    const { confirm, walletService } = setup({ giftBalance: 100, firstBooking: true });
+
+    const result = await confirm();
+
+    // 10% of the $35 booking, debited from the salon's wallet. The salon is not credited again.
+    expect(result.fees.acquisitionFee).toBeCloseTo(3.5, 2);
+    expect(walletService.debitWithPendingFallback).toHaveBeenCalledWith(
+      expect.objectContaining({ businessId: BUSINESS, amount: expect.closeTo(3.5, 2), feeSubtype: 'Acquisition' }),
+    );
+    expect(walletService.addFunds).not.toHaveBeenCalled();
+  });
+
+  it('keeps the acquisition fee on the whole booking when a gift card covers only part of a first booking', async () => {
+    const { confirm, stripePaymentIntentRepository } = setup({ giftBalance: 20, firstBooking: true });
+
+    const result = await confirm();
+
+    expect(result.fees.acquisitionFee).toBeCloseTo(3.5, 2);
+    expect(result.fees.commission).toBeCloseTo(1.8, 2);
+    expect(stripePaymentIntentRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        acquisitionFeeAmount: expect.closeTo(3.5, 2),
+        commissionFeeAmount: expect.closeTo(1.8, 2),
+      }),
+    );
+  });
+
+  it('does not charge the acquisition fee again for a repeat customer', async () => {
+    const { confirm, walletService } = setup({ giftBalance: 100, firstBooking: false });
+
+    await confirm();
+
+    expect(walletService.debitWithPendingFallback).not.toHaveBeenCalled();
   });
 });

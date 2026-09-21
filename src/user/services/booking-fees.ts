@@ -9,8 +9,22 @@ export function merchantNetAfterFees(
   acquisitionFee: number,
   commission: number,
 ): number {
-  const net = Number(paidTowardService) - Number(acquisitionFee) - Number(commission);
-  return Math.max(0, Math.round(net * 100) / 100);
+  return merchantPayout(paidTowardService, acquisitionFee, commission).credit;
+}
+
+/**
+ * The payout for a booking: what to credit the merchant, and what is still owed to KHS when the
+ * fees are larger than the amount paid (possible when a gift card paid most of the booking, since
+ * the acquisition fee is worked out on the whole booking but only the card payment is held here).
+ */
+export function merchantPayout(
+  paidTowardService: number,
+  acquisitionFee: number,
+  commission: number,
+): { credit: number; shortfall: number } {
+  const net =
+    Math.round((Number(paidTowardService) - Number(acquisitionFee) - Number(commission)) * 100) / 100;
+  return { credit: Math.max(0, net), shortfall: Math.max(0, -net) };
 }
 
 /** KHS's commission on an amount at a percentage rate, rounded to cents. */

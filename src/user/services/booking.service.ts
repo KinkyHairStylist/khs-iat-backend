@@ -139,6 +139,50 @@ export class BookingService {
     return settings.emailBookingConfirmations;
   }
 
+  // Takes the acquisition fee from the salon's wallet, for a booking whose money was already credited
+  // to the salon (a gift card bought earlier). Never fails the booking: it alerts instead.
+  private async debitAcquisitionFee(
+    businessId: string,
+    ownerId: string,
+    amount: number,
+    orderId: string,
+  ): Promise<void> {
+    try {
+      try {
+        await this.walletService.getWalletByBusinessId(businessId);
+      } catch {
+        await this.walletService.createWalletForBusiness({
+          businessId,
+          ownerId,
+          currency: WalletCurrency.USD,
+          description: 'Business wallet - auto-created from booking',
+        });
+      }
+      await this.walletService.debitWithPendingFallback({
+        businessId,
+        amount,
+        type: TransactionType.FEE,
+        feeSubtype: 'Acquisition',
+        referenceId: orderId,
+        description: `Acquisition fee for appointment order ${orderId}`,
+        senderId: ownerId,
+      });
+    } catch (error) {
+      this.logger.error(`Acquisition fee debit failed for order ${orderId}: ${error?.message}`);
+      StructuredSlackService.notify({
+        node: SlackNode.PAYMENT,
+        provider: SlackProvider.STRIPE,
+        severity: SlackSeverity.CRITICAL,
+        type: SlackEventType.ERROR_ALERT,
+        trigger: `Acquisition fee not collected for order ${orderId}`,
+        body: `A gift-card-paid booking was confirmed, but debiting the acquisition fee from the salon's wallet failed, so KHS did not collect it.
+• Order: ${orderId}
+• Amount: $${amount.toFixed(2)}
+• Error: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
+  }
+
   // Computes the acquisition fee (tier %, one-time per business+client pair)
   // and the flat commission for a booking. Does NOT compute the Stripe
   // passthrough — that's charge-method-specific and handled separately in
@@ -755,17 +799,19 @@ export class BookingService {
 
     // Acquisition fee (tier %, one-time per business+client) + flat commission — replaces the old
     // single flat platformFee. See calculateBookingFees for the race-safe first-booking detection.
-    // A gift card's commission was already taken when the card was bought, so only the part paid
-    // by card carries fees. A deposit booking keeps them on the full price: they come out of the
-    // deposit at completion.
+    // A deposit booking keeps its fees on the full price: they come out of the deposit at completion.
     const feeBase = depositOnly ? bookingAmount : Math.max(0, bookingAmount - giftCardPayment);
-    const { acquisitionFeeAmount, commissionAmount } =
-      await this.calculateBookingFees(
-        appointments[0].business,
-        user.id,
-        orderId,
-        feeBase,
-      );
+    const fees = await this.calculateBookingFees(
+      appointments[0].business,
+      user.id,
+      orderId,
+      bookingAmount,
+    );
+    // The acquisition fee is for bringing a new customer to the salon, so a gift card doesn't
+    // waive it: it stays on the whole booking. Commission was taken when the card was bought,
+    // so it only applies to the part paid by card.
+    const acquisitionFeeAmount = fees.acquisitionFeeAmount;
+    const commissionAmount = bookingAmount > 0 ? (fees.commissionAmount * feeBase) / bookingAmount : 0;
     const feeAmount = acquisitionFeeAmount + commissionAmount;
     // Who the fee transactions below are recorded against.
     const feePayerId = appointments[0].business?.owner?.id ?? user.id;
@@ -816,23 +862,15 @@ export class BookingService {
         });
         await manager.save(Transaction, bookingTx);
 
-        // Create acquisition + commission fee transactions
+        // The acquisition fee is debited from the salon's wallet, which was credited when the gift
+        // card was sold. That records the fee too.
         if (acquisitionFeeAmount > 0) {
-          const acqTx = manager.create(Transaction, {
-            senderId: feePayerId,
-            amount: acquisitionFeeAmount,
-            type: TransactionType.FEE,
-            feeSubtype: 'Acquisition',
-            currency: WalletCurrency.USD,
-            description: `Acquisition fee for appointment order ${orderId}`,
-            mode: 'Web',
-            referenceId: orderId,
-            status: TxnStatus.COMPLETED,
-            method: PaymentMethod.GIFTCARD,
-            service: 'Booking-Fee',
-            customerName: `${user.firstName} ${user.surname}`,
-          });
-          await manager.save(Transaction, acqTx);
+          await this.debitAcquisitionFee(
+            appointments[0].business.id,
+            feePayerId,
+            acquisitionFeeAmount,
+            orderId,
+          );
         }
         if (commissionAmount > 0) {
           const commTx = manager.create(Transaction, {
