@@ -49,7 +49,7 @@ export class CreateBusinessDto {
   @IsNotEmpty({ message: 'Booking policies are required.' })
   readonly bookingPolicies: CreateBookingPoliciesDto;
 
-  // How the merchant is starting (paid plan / free trial / free window). Required: no
+  // How the merchant is starting (paid plan / Trial / MVP). Required: no
   // business, and so no merchant, is created without one; a paid choice is only accepted
   // once its payment is confirmed.
   @ValidateNested()

@@ -133,7 +133,7 @@ export class BusinessService {
     }
 
     // No payment, no merchant: the chosen start (a paid plan whose payment Stripe confirms, the
-    // free trial, or the free window) is checked BEFORE anything is created.
+    // Trial or MVP) is checked BEFORE anything is created.
     const signup = await this.merchantSignupService.resolveSignup(
       owner,
       createBusinessDto.signup,
@@ -154,7 +154,7 @@ export class BusinessService {
     business.ownerEmail = owner?.email || '';
     business.ownerPhone = owner?.phoneNumber || '';
 
-    // The business and its payment / free-window record are saved together.
+    // The business and its payment / MVP record are saved together.
     await this.businessRepo.manager.transaction(async (manager) => {
       await manager.save(Business, business);
       await this.merchantSignupService.recordSignup(business, signup, manager);

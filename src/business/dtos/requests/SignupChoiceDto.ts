@@ -2,9 +2,9 @@ import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 import { PLAN_TIERS, SIGNUP_OPTIONS } from 'src/helpers/merchant-plans.helper';
 import type { PlanTier, SignupOption } from 'src/helpers/merchant-plans.helper';
 
-// How the merchant is starting: paid plan, free trial, or the free window.
+// How the merchant is starting: a paid plan, Trial or MVP.
 export class SignupChoiceDto {
-  @IsIn(SIGNUP_OPTIONS, { message: 'Choose how you want to start: a paid plan, the free trial or the free window.' })
+  @IsIn(SIGNUP_OPTIONS, { message: 'Choose a plan to start: Trial, MVP or a paid plan.' })
   readonly option: SignupOption;
 
   // Required when option is "paid".

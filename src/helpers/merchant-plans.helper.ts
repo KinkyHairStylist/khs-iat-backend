@@ -1,13 +1,32 @@
-// Pure logic for the merchant sign-up options (paid plan, free trial, free window).
+// Pure logic for the merchant plans: Trial (14 days), MVP (a window with one shared end date)
+// and the paid Starter / Growth / Pro.
 // Nothing here touches the database or Stripe, so it is easy to test.
 
 export type PlanTier = 'Starter' | 'Growth' | 'Pro';
 export const PLAN_TIERS: PlanTier[] = ['Starter', 'Growth', 'Pro'];
 
-// How a merchant chose to start: pay for a plan now, take the free trial (not tied
-// to a plan), or join the free window that ends on one shared date.
+// How a merchant chose to start: pay for a plan now, take the Trial (not tied to a
+// plan), or join MVP, whose window ends on one shared date.
 export type SignupOption = 'paid' | 'trial' | 'reveal';
 export const SIGNUP_OPTIONS: SignupOption[] = ['paid', 'trial', 'reveal'];
+
+// The five plans a merchant can be on. Trial and MVP are free; the rest are paid.
+export type MerchantPlanName = 'Trial' | 'MVP' | PlanTier;
+export const MERCHANT_PLAN_NAMES: MerchantPlanName[] = ['Trial', 'MVP', ...PLAN_TIERS];
+
+export function isMerchantPlanName(value: unknown): value is MerchantPlanName {
+  return typeof value === 'string' && (MERCHANT_PLAN_NAMES as string[]).includes(value);
+}
+
+// The plan a merchant is on, from how they started and (if paying) which tier.
+export function planNameFor(
+  kind: 'trial' | 'reveal' | 'paid' | null | undefined,
+  tier: PlanTier,
+): MerchantPlanName {
+  if (kind === 'reveal') return 'MVP';
+  if (kind === 'trial') return 'Trial';
+  return tier;
+}
 
 export interface RevealPeriodSetting {
   enabled: boolean;

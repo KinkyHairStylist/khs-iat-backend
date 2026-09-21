@@ -247,9 +247,9 @@ export class PlatformSettingsService {
     return this.repo.save(s);
   }
 
-  // Merges plan-related fields (prices, fee rates, trial days, the free window) into
+  // Merges plan-related fields (prices, fee rates, trial days, MVP) into
   // payments. Used by the plan settings service, whose values are validated there; the
-  // generic payments PATCH above deliberately does not accept the free-window fields, so
+  // generic payments PATCH above deliberately does not accept the MVP fields, so
   // saving that tab with a stale copy can never revert an admin's change to the window.
   async updatePlanSettings(patch: Partial<PlatformSettingsEntity['payments']>) {
     const s = await this.getSettings();

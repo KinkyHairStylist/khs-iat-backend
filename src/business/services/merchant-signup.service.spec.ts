@@ -109,7 +109,7 @@ describe('MerchantSignupService', () => {
       await expect(service.resolveSignup(user, undefined)).rejects.toBeInstanceOf(BadRequestException);
     });
 
-    it('lets a merchant take the free trial, on the configured fee tier', async () => {
+    it('lets a merchant take the Trial, on the configured fee tier', async () => {
       await expect(service.resolveSignup(user, { option: 'trial' })).resolves.toEqual({
         option: 'trial',
         planTier: 'Starter',
@@ -174,7 +174,7 @@ describe('MerchantSignupService', () => {
       });
     });
 
-    describe('free window', () => {
+    describe('MVP', () => {
       const open = () =>
         settings.getPayments.mockResolvedValue(
           payments({
@@ -216,7 +216,7 @@ describe('MerchantSignupService', () => {
       expect(subs.recordPaidSignup).toHaveBeenCalledWith({ id: 'biz' }, paid, undefined);
     });
 
-    it('records a free-window signup against the shared end date', async () => {
+    it('records an MVP signup against the shared end date', async () => {
       const end = new Date();
       await service.recordSignup({ id: 'biz' } as any, { option: 'reveal', planTier: 'Starter' as any, windowEndsAt: end });
       expect(subs.recordRevealSignup).toHaveBeenCalledWith({ id: 'biz' }, end, undefined);

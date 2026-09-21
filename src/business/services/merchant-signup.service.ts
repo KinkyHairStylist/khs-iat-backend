@@ -18,7 +18,7 @@ import {
 } from 'src/helpers/merchant-plans.helper';
 
 // What a validated sign-up choice comes to: the fee tier the new business starts on, and,
-// for the paid and free-window options, what to record once the business exists.
+// for the paid and MVP options, what to record once the business exists.
 export interface ResolvedSignup {
   option: SignupOption;
   planTier: BusinessPlanTier;
@@ -94,7 +94,7 @@ export class MerchantSignupService {
   async resolveSignup(user: User, choice: SignupChoiceDto | undefined): Promise<ResolvedSignup> {
     if (!choice?.option) {
       throw new BadRequestException(
-        'Choose how you want to start: a paid plan, the free trial or the free window.',
+        'Choose a plan to start: Trial, MVP or a paid plan.',
       );
     }
     const payments = await this.platformSettings.getPayments();
@@ -106,7 +106,7 @@ export class MerchantSignupService {
     if (choice.option === 'reveal') {
       const window = revealStatus(payments.revealPeriod);
       if (!window.open || !window.endsAt) {
-        throw new BadRequestException('The free window is closed.');
+        throw new BadRequestException('MVP is closed.');
       }
       return {
         option: 'reveal',
@@ -154,8 +154,8 @@ export class MerchantSignupService {
   }
 
   /**
-   * After the business is saved: record the payment or the free window. A merchant who chose
-   * the free trial has nothing to record here; the trial starts when an admin approves them.
+   * After the business is saved: record the payment or MVP. A merchant who chose
+   * the Trial has nothing to record here; the trial starts when an admin approves them.
    */
   async recordSignup(
     business: Business,

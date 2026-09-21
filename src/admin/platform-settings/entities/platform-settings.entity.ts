@@ -54,13 +54,13 @@ export class PlatformSettingsEntity {
     // Cancellation money rules, platform-wide. Merchants only choose the
     // cancellation window (business_owner_settings). Late cancellations and
     // no-shows are the same case today: the amount collected is forfeited.
-    // Merchant plans. Days of free trial offered at sign-up (not tied to a plan).
+    // Merchant plans. Days of Trial offered at sign-up (not tied to a plan).
     trialDays: number;
     // The fee tier (Starter/Growth/Pro acquisition rate) merchants pay while on the
-    // free trial, and while on the fixed-date free window below.
+    // Trial, and while on MVP below.
     trialFeeTier: 'Starter' | 'Growth' | 'Pro';
     revealFeeTier: 'Starter' | 'Growth' | 'Pro';
-    // A free window with ONE shared end date: whoever joins late gets fewer days.
+    // MVP: a window with ONE shared end date: whoever joins late gets fewer days.
     // Admins can add days (extend), which also moves the end for merchants already in it.
     revealPeriod: {
       enabled: boolean;

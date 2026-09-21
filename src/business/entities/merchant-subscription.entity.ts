@@ -19,7 +19,7 @@ export enum MerchantSubscriptionStatus {
   CANCELED = 'canceled',
 }
 
-// How the merchant started: on a free trial (not tied to a plan), inside the free
+// How the merchant started: on the Trial (not tied to a plan), inside the MVP
 // window with a shared end date, or paying for a plan.
 export enum MerchantSubscriptionKind {
   TRIAL = 'trial',
@@ -59,7 +59,7 @@ export class MerchantSubscription {
   @Column({ type: 'varchar', length: 20, default: MerchantSubscriptionKind.TRIAL })
   kind: MerchantSubscriptionKind;
 
-  // For a trial this is the end of the trial; for the free window it is the window's
+  // For a trial this is the end of the trial; for MVP it is the window's
   // shared end date (kept in step when an admin adds days).
   @Column({ type: 'timestamptz', nullable: true })
   trialEndsAt: Date | null;

@@ -9,8 +9,11 @@ import { PlatformSettingsService } from 'src/admin/platform-settings/platform-se
 import { StripeService } from 'src/payment/stripe.service';
 import { MerchantSubscriptionService } from './merchant-subscription.service';
 import {
+  MerchantPlanName,
   PLAN_TIERS,
   PlanTier,
+  isMerchantPlanName,
+  planNameFor,
   extendRevealWindow,
   isPlanTier,
   revealStatus,
@@ -28,7 +31,7 @@ export interface UpdatePlanSettingsInput {
 
 // What merchants are offered and what it costs, all driven by platform settings so an
 // admin can change it without a deploy: plan prices, the fee each plan pays, the length
-// of the free trial and the free window with its shared end date.
+// of the Trial and MVP (the window with its shared end date).
 @Injectable()
 export class MerchantPlansService {
   private readonly logger = new Logger(MerchantPlansService.name);
@@ -134,11 +137,11 @@ export class MerchantPlansService {
       patch.trialDays = input.trialDays;
     }
     if (input.trialFeeTier !== undefined) {
-      if (!isPlanTier(input.trialFeeTier)) throw new BadRequestException('Unknown trial fee plan.');
+      if (!isPlanTier(input.trialFeeTier)) throw new BadRequestException('Unknown Trial fee plan.');
       patch.trialFeeTier = input.trialFeeTier;
     }
     if (input.revealFeeTier !== undefined) {
-      if (!isPlanTier(input.revealFeeTier)) throw new BadRequestException('Unknown free-window fee plan.');
+      if (!isPlanTier(input.revealFeeTier)) throw new BadRequestException('Unknown MVP fee plan.');
       patch.revealFeeTier = input.revealFeeTier;
     }
 
@@ -189,44 +192,96 @@ export class MerchantPlansService {
   }
 
   /**
-   * An admin moves one merchant to another plan. This sets the fee tier the business pays. If
-   * the merchant is already paying by card, their Stripe subscription is switched to the new
-   * plan's price too (the difference is prorated onto their next invoice). A merchant on the
-   * trial or the free window isn't billed yet, so only the fee tier changes.
+   * An admin moves one merchant to another of the five plans.
+   * - Starter / Growth / Pro: a merchant paying by card has their Stripe subscription switched (the
+   *   difference is prorated onto their next invoice). One on Trial or MVP hasn't paid, so an admin
+   *   can't put them on a paid plan; they choose and pay for it themselves on the billing page.
+   * - Trial: a fresh set of trial days from today.
+   * - MVP: until the shared end date, and only while MVP is open.
+   * A merchant paying by card can't be moved onto Trial or MVP; that would leave them billed.
    */
   async changeBusinessPlan(
     businessId: string,
-    tier: string,
-  ): Promise<{ businessId: string; planTier: PlanTier; billingChanged: boolean }> {
-    if (!isPlanTier(tier)) throw new BadRequestException('Unknown plan.');
+    plan: string,
+  ): Promise<{
+    businessId: string;
+    plan: MerchantPlanName;
+    planTier: PlanTier;
+    billingChanged: boolean;
+  }> {
+    if (!isMerchantPlanName(plan)) throw new BadRequestException('Unknown plan.');
 
     const business = await this.businessRepo.findOne({ where: { id: businessId } });
     if (!business) throw new NotFoundException('Business not found.');
     if (![BusinessStatus.APPROVED, BusinessStatus.SUSPENDED].includes(business.status)) {
       throw new BadRequestException('Only approved businesses can change plan.');
     }
-    if ((business.planTier as unknown as PlanTier) === tier) {
-      return { businessId, planTier: tier, billingChanged: false };
-    }
 
     const subscription = await this.merchantSubscriptions.getForBusiness(businessId);
-    let billingChanged = false;
-    if (
+    const paysByCard =
       subscription?.kind === MerchantSubscriptionKind.PAID &&
-      subscription.stripeSubscriptionId &&
-      subscription.status !== MerchantSubscriptionStatus.CANCELED
-    ) {
-      const payments = await this.platformSettings.getPayments();
-      const priceId = payments.subscriptionPrices?.[tier]?.priceId;
-      if (!priceId) {
-        throw new BadRequestException(`The ${tier} plan has no Stripe price yet. Set its price first.`);
-      }
-      await this.stripeService.changeSubscriptionPrice(subscription.stripeSubscriptionId, priceId);
-      billingChanged = true;
+      !!subscription.stripeSubscriptionId &&
+      subscription.status !== MerchantSubscriptionStatus.CANCELED;
+    const currentTier = business.planTier as unknown as PlanTier;
+    const currentPlan = planNameFor(subscription?.kind, currentTier);
+    if (currentPlan === plan) {
+      return { businessId, plan, planTier: currentTier, billingChanged: false };
     }
 
-    const previous = business.planTier;
-    await this.businessRepo.update({ id: businessId }, { planTier: tier as unknown as BusinessPlanTier });
+    const payments = await this.platformSettings.getPayments();
+    let newTier: PlanTier;
+    let billingChanged = false;
+
+    if (plan === 'Trial' || plan === 'MVP') {
+      if (paysByCard) {
+        throw new BadRequestException(
+          `This merchant pays by card. Cancel their subscription in Stripe before moving them to ${plan}.`,
+        );
+      }
+      if (plan === 'Trial') {
+        const days = payments.trialDays ?? 14;
+        await this.merchantSubscriptions.assignFreePlan(
+          business,
+          MerchantSubscriptionKind.TRIAL,
+          new Date(Date.now() + days * 24 * 60 * 60 * 1000),
+        );
+        newTier = tierOrDefault(payments.trialFeeTier);
+      } else {
+        const window = revealStatus(payments.revealPeriod);
+        if (!window.open || !window.endsAt) {
+          throw new BadRequestException('MVP is closed. Open it in the plan settings first.');
+        }
+        await this.merchantSubscriptions.assignFreePlan(
+          business,
+          MerchantSubscriptionKind.REVEAL,
+          window.endsAt,
+        );
+        newTier = tierOrDefault(payments.revealFeeTier);
+      }
+    } else {
+      newTier = plan;
+      if (
+        subscription?.kind === MerchantSubscriptionKind.TRIAL ||
+        subscription?.kind === MerchantSubscriptionKind.REVEAL
+      ) {
+        throw new BadRequestException(
+          `This merchant is on ${currentPlan} and hasn't paid. They choose and pay for ${plan} on their billing page.`,
+        );
+      }
+      if (paysByCard) {
+        const priceId = payments.subscriptionPrices?.[plan]?.priceId;
+        if (!priceId) {
+          throw new BadRequestException(`The ${plan} plan has no Stripe price yet. Set its price first.`);
+        }
+        await this.stripeService.changeSubscriptionPrice(
+          (subscription as { stripeSubscriptionId: string }).stripeSubscriptionId,
+          priceId,
+        );
+        billingChanged = true;
+      }
+    }
+
+    await this.businessRepo.update({ id: businessId }, { planTier: newTier as unknown as BusinessPlanTier });
 
     SlackService.notify({
       node: SlackNode.PAYMENT,
@@ -236,19 +291,19 @@ export class MerchantPlansService {
       trigger: `Merchant plan changed: ${business.businessName}`,
       body: `An admin changed a merchant's plan.
 • Business: ${business.businessName} (${businessId})
-• ${previous} → ${tier}
-• Stripe subscription ${billingChanged ? 'switched to the new price' : 'unchanged (not paying by card yet)'}`,
+• ${currentPlan} → ${plan} (fees: ${newTier})
+• Stripe subscription ${billingChanged ? 'switched to the new price' : 'unchanged'}`,
     });
 
-    return { businessId, planTier: tier, billingChanged };
+    return { businessId, plan, planTier: newTier, billingChanged };
   }
 
-  /** Open the free window for `days` days from now. */
+  /** Open MVP for `days` days from now. */
   async startReveal(days: number) {
     const payments = await this.platformSettings.getPayments();
     if (revealStatus(payments.revealPeriod).open) {
       throw new BadRequestException(
-        'The free window is already open. Add days to it instead of starting a new one.',
+        'MVP is already open. Add days to it instead of starting a new one.',
       );
     }
     let window;
@@ -275,7 +330,7 @@ export class MerchantPlansService {
     }
     await this.platformSettings.updatePlanSettings({ revealPeriod: window });
     const moved = await this.merchantSubscriptions.moveRevealEnd(new Date(window.endsAt as string));
-    this.logger.log(`Free window extended by ${days} days; ${moved} merchant(s) moved to ${window.endsAt}`);
+    this.logger.log(`MVP extended by ${days} days; ${moved} merchant(s) moved to ${window.endsAt}`);
     return this.getAdminPlans();
   }
 

@@ -745,7 +745,7 @@ async getAllBusinesses() {
     const saved = await this.dataSource.transaction(async (manager) => {
       application.status = BusinessStatus.APPROVED;
       const savedBusiness = await manager.save(Business, application);
-      // A merchant who paid, or joined the free window, already has a subscription record
+      // A merchant who paid, or joined MVP, already has a subscription record
       // (startTrialForBusiness leaves it alone); the trial length is set in the plan settings.
       const { trialDays } = await this.platformSettingsService.getPayments();
       await this.merchantSubscriptionService.startTrialForBusiness(

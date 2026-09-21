@@ -59,14 +59,14 @@ describe('MerchantPlansService', () => {
   });
 
   describe('getPublicPlans', () => {
-    it('lists the plans, the trial and a closed free window by default', async () => {
+    it('lists the plans, the trial and a closed MVP by default', async () => {
       const plans = await service.getPublicPlans();
       expect(plans.tiers.Growth).toEqual({ displayAmount: 59.99, acquisitionFeeRate: 5, available: true });
       expect(plans.trial).toEqual({ days: 14, feeTier: 'Starter', acquisitionFeeRate: 10 });
       expect(plans.reveal.available).toBe(false);
     });
 
-    it('counts the free window down from the server clock, so a later joiner sees fewer days', async () => {
+    it('counts MVP down from the server clock, so a later joiner sees fewer days', async () => {
       const ends = new Date('2026-12-01T00:00:00.000Z');
       current.revealPeriod = { enabled: true, startsAt: null, endsAt: ends.toISOString() };
       const day1 = await service.getPublicPlans(new Date(ends.getTime() - 60 * DAY));
@@ -140,7 +140,7 @@ describe('MerchantPlansService', () => {
     });
   });
 
-  describe('free window', () => {
+  describe('MVP', () => {
     it('opens for the given number of days', async () => {
       const result = await service.startReveal(60);
       expect(result.reveal).toMatchObject({ enabled: true, open: true, daysLeft: 60 });
@@ -173,7 +173,8 @@ describe('MerchantPlansService', () => {
       expect(subs.moveRevealEnd).not.toHaveBeenCalled();
     });
   });
-describe('changeBusinessPlan', () => {
+
+  describe('changeBusinessPlan', () => {
     const paidSub = (over: Record<string, any> = {}) => ({
       kind: MerchantSubscriptionKind.PAID,
       status: MerchantSubscriptionStatus.ACTIVE,
@@ -186,17 +187,67 @@ describe('changeBusinessPlan', () => {
       const result = await service.changeBusinessPlan('biz-1', 'Growth');
       expect(stripe.changeSubscriptionPrice).toHaveBeenCalledWith('sub_1', 'price_growth');
       expect(businessRepo.update).toHaveBeenCalledWith({ id: 'biz-1' }, { planTier: 'Growth' });
-      expect(result).toEqual({ businessId: 'biz-1', planTier: 'Growth', billingChanged: true });
+      expect(result).toEqual({ businessId: 'biz-1', plan: 'Growth', planTier: 'Growth', billingChanged: true });
     });
 
-    it('only changes the fee tier for a merchant on the trial or the free window', async () => {
+    it("won't put a merchant on a paid plan for them when they are on Trial or MVP and haven't paid", async () => {
       for (const kind of [MerchantSubscriptionKind.TRIAL, MerchantSubscriptionKind.REVEAL]) {
-        stripe.changeSubscriptionPrice.mockClear();
         subs.getForBusiness.mockResolvedValue(paidSub({ kind, stripeSubscriptionId: null }));
-        const result = await service.changeBusinessPlan('biz-1', 'Pro');
-        expect(stripe.changeSubscriptionPrice).not.toHaveBeenCalled();
-        expect(result.billingChanged).toBe(false);
+        await expect(service.changeBusinessPlan('biz-1', 'Pro')).rejects.toThrow(/hasn't paid/);
       }
+      expect(stripe.changeSubscriptionPrice).not.toHaveBeenCalled();
+      expect(businessRepo.update).not.toHaveBeenCalled();
+    });
+
+    describe('to Trial or MVP', () => {
+      let assignFreePlan: jest.Mock;
+      beforeEach(() => {
+        assignFreePlan = jest.fn().mockResolvedValue({});
+        (subs as any).assignFreePlan = assignFreePlan;
+        businessRepo.findOne.mockResolvedValue({
+          id: 'biz-1',
+          businessName: 'Da Liv',
+          status: BusinessStatus.APPROVED,
+          planTier: 'Growth',
+        });
+      });
+
+      it('starts a fresh Trial from today on the Trial fee tier', async () => {
+        const before = Date.now();
+        const result = await service.changeBusinessPlan('biz-1', 'Trial');
+        const [, kind, endsAt] = assignFreePlan.mock.calls[0];
+        expect(kind).toBe(MerchantSubscriptionKind.TRIAL);
+        expect(endsAt.getTime()).toBeGreaterThanOrEqual(before + 14 * DAY);
+        expect(businessRepo.update).toHaveBeenCalledWith({ id: 'biz-1' }, { planTier: 'Starter' });
+        expect(result).toMatchObject({ plan: 'Trial', planTier: 'Starter', billingChanged: false });
+      });
+
+      it('puts a merchant on MVP until the shared end date while MVP is open', async () => {
+        const endsAt = new Date(Date.now() + 40 * DAY);
+        current.revealPeriod = { enabled: true, startsAt: new Date().toISOString(), endsAt: endsAt.toISOString() };
+        const result = await service.changeBusinessPlan('biz-1', 'MVP');
+        expect(assignFreePlan).toHaveBeenCalledWith(expect.anything(), MerchantSubscriptionKind.REVEAL, endsAt);
+        expect(result.plan).toBe('MVP');
+      });
+
+      it('refuses MVP while it is closed', async () => {
+        await expect(service.changeBusinessPlan('biz-1', 'MVP')).rejects.toThrow(/MVP is closed/);
+        expect(assignFreePlan).not.toHaveBeenCalled();
+        expect(businessRepo.update).not.toHaveBeenCalled();
+      });
+
+      it('refuses to move a card-paying merchant onto Trial or MVP', async () => {
+        subs.getForBusiness.mockResolvedValue(paidSub());
+        await expect(service.changeBusinessPlan('biz-1', 'Trial')).rejects.toThrow(/pays by card/);
+        expect(assignFreePlan).not.toHaveBeenCalled();
+      });
+
+      it('does nothing when the merchant is already on Trial', async () => {
+        subs.getForBusiness.mockResolvedValue(paidSub({ kind: MerchantSubscriptionKind.TRIAL, stripeSubscriptionId: null }));
+        const result = await service.changeBusinessPlan('biz-1', 'Trial');
+        expect(result.billingChanged).toBe(false);
+        expect(assignFreePlan).not.toHaveBeenCalled();
+      });
     });
 
     it('leaves a lapsed paid subscription alone', async () => {

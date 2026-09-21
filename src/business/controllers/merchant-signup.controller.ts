@@ -19,7 +19,7 @@ export class MerchantSignupController {
     private readonly signup: MerchantSignupService,
   ) {}
 
-  /** The options and prices to show, with the free window's countdown from the server clock. */
+  /** The options and prices to show, with MVP's countdown from the server clock. */
   @Get('plans')
   @Public()
   getPlans() {

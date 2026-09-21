@@ -102,7 +102,7 @@ export class MerchantSubscriptionService {
     return repo.save(subscription);
   }
 
-  // Sign-up chose the free window: access runs to the window's shared end date, not a
+  // Sign-up chose MVP: access runs to the window's shared end date, not a
   // fixed number of days from joining.
   async recordRevealSignup(
     business: Business,
@@ -127,7 +127,42 @@ export class MerchantSubscriptionService {
     return repo.save(subscription);
   }
 
-  // An admin added days to the free window: everyone still inside it moves to the new
+  // An admin puts an approved merchant on the Trial (a fresh set of days) or on MVP (until the
+  // shared end date). Works whether or not they already have a subscription record; a merchant
+  // paying by card is refused before this is called.
+  async assignFreePlan(
+    business: Business,
+    kind: MerchantSubscriptionKind.TRIAL | MerchantSubscriptionKind.REVEAL,
+    endsAt: Date,
+  ): Promise<MerchantSubscription> {
+    const existing = await this.merchantSubscriptionRepo.findOne({
+      where: { businessId: business.id },
+    });
+    if (existing) {
+      existing.kind = kind;
+      existing.status = MerchantSubscriptionStatus.TRIALING;
+      existing.trialEndsAt = endsAt;
+      existing.pastDueSince = null;
+      existing.cancelReason = null;
+      return this.merchantSubscriptionRepo.save(existing);
+    }
+    const stripeCustomer = await this.stripeService.createCustomerForBusiness({
+      businessId: business.id,
+      email: business.ownerEmail,
+      name: business.businessName,
+    });
+    return this.merchantSubscriptionRepo.save(
+      this.merchantSubscriptionRepo.create({
+        businessId: business.id,
+        status: MerchantSubscriptionStatus.TRIALING,
+        kind,
+        trialEndsAt: endsAt,
+        stripeCustomerId: stripeCustomer.id,
+      }),
+    );
+  }
+
+  // An admin added days to MVP: everyone still inside it moves to the new
   // end date. Only rows still trialing are touched, so a merchant the sweep already
   // lapsed is not silently revived.
   async moveRevealEnd(newEnd: Date): Promise<number> {
@@ -189,7 +224,7 @@ export class MerchantSubscriptionService {
   }
 
   // The application was rejected after the merchant paid at sign-up: stop billing and
-  // give the money back in full. A merchant who never paid (trial / free window) has
+  // give the money back in full. A merchant who never paid (Trial / MVP) has
   // nothing to refund.
   async cancelAndRefundForRejection(
     businessId: string,

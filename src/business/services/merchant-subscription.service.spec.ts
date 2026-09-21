@@ -43,7 +43,7 @@ describe('MerchantSubscriptionService — sign-up payments', () => {
       expect(sub.cancelReason).toBe('application_rejected');
     });
 
-    it('refunds nothing for a merchant who never paid (trial or free window)', async () => {
+    it('refunds nothing for a merchant who never paid (Trial or MVP)', async () => {
       for (const kind of [MerchantSubscriptionKind.TRIAL, MerchantSubscriptionKind.REVEAL]) {
         repo.findOne.mockResolvedValue(row({ kind, stripeSubscriptionId: null }));
         expect(await service.cancelAndRefundForRejection('biz-1')).toEqual({ refunded: false, refundId: null });
@@ -83,7 +83,7 @@ describe('MerchantSubscriptionService — sign-up payments', () => {
       });
     });
 
-    it("puts a free-window merchant on trial until the window's shared end date", async () => {
+    it("puts an MVP merchant on trial until the window's shared end date", async () => {
       const end = new Date('2026-12-01T00:00:00Z');
       const saved = await service.recordRevealSignup({ id: 'biz-1', businessName: 'X' } as any, end);
       expect(saved).toMatchObject({
@@ -96,7 +96,7 @@ describe('MerchantSubscriptionService — sign-up payments', () => {
   });
 
   describe('moveRevealEnd', () => {
-    it('moves only free-window merchants who are still trialing', async () => {
+    it('moves only MVP merchants who are still trialing', async () => {
       const qb: any = {
         update: jest.fn().mockReturnThis(),
         set: jest.fn().mockReturnThis(),
