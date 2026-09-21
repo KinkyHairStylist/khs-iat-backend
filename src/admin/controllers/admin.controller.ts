@@ -15,7 +15,6 @@ import { Roles } from 'src/middleware/roles.decorator';
 import { Role } from 'src/middleware/role.enum';
 import { RolesGuard } from 'src/middleware/roles.guard';
 import { AdminService } from '../services/admin.service';
-import { CreateMembershipPlanDto } from '../../business/dtos/requests/CreateMembershipDto';
 import { BusinessPlanTier } from '../../business/entities/business.entity';
 
 @ApiTags('Admin User Management')
@@ -47,52 +46,6 @@ export class AdminController {
   @Post('getNearbySalons')
   async getNearbySalons(body: { longitude: number; latitude: number }) {
     return this.adminService.getNearbySalons(body);
-  }
-
-  @Post('cancelSubscription')
-  async cancelSubscription(@Body() body: { id: string }) {
-    return this.adminService.cancelSubscription(body.id);
-  }
-
-  @Get('getAllSubscribers')
-  async getAllSubscribers() {
-    return this.adminService.getAllSubscribers();
-  }
-
-  @Post('createMembershipPlan')
-  async createMembershipPlan(
-    @Body() createMembershipPlanDto: CreateMembershipPlanDto,
-  ) {
-    return this.adminService.createMembershipPlan(createMembershipPlanDto);
-  }
-
-  @Get('getAllMembershipPlans')
-  async getAllMembershipPlans() {
-    return this.adminService.getAllMembershipPlans();
-  }
-
-  @Post('updateMembershipPlan')
-  async updateMembershipPlan(
-    @Body()
-    body: {
-      id: string;
-      createMembershipPlanDto: CreateMembershipPlanDto;
-    },
-  ) {
-    return this.adminService.updateMembershipPlan(
-      body.id,
-      body.createMembershipPlanDto,
-    );
-  }
-
-  @Post('removeMembershipPlan')
-  async removeMembershipPlan(@Body() body: { id: string; reason: string }) {
-    return this.adminService.removeMembershipPlan(body.id, body.reason);
-  }
-
-  @Post('setPopularPlan')
-  async setPopularPlan(@Body() body: { id: string }) {
-    return this.adminService.setPopularPlan(body.id);
   }
 
   @Post('cancelAppointment')
