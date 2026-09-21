@@ -30,10 +30,13 @@ import {
 import { IntegrationSyncService } from 'src/integration/services/integration-sync.service';
 import {
   checkBookingAgainstRules,
+  parseClockToMinutes,
   parseDurationToMinutes,
   resolveBookingRules,
   wallClockNowMs,
 } from 'src/helpers/booking-rules.helper';
+import { BlockedTimeSlot } from 'src/business/entities/blocked-time-slot.entity';
+import { chooseStylist, eligibleStylists } from '../utils/stylist-assignment';
 import { EmailService } from 'src/email/email.service';
 import { TemplateService } from 'src/email/template.service';
 import { NotificationSettingsService } from './notification-settings.service';
@@ -688,6 +691,7 @@ export class BookingService {
     const orderId = `BKID-${Math.floor(1000000 + Math.random() * 9000000)}`;
 
     const appointments: Appointment[] = [];
+    const bookedServices: Service[] = [];
 
     // Create appointments for each service
     for (const serviceId of createBookingDto.serviceIds) {
@@ -725,26 +729,97 @@ export class BookingService {
         amount: bookingAmount,
         status: AppointmentStatus.PENDING,
         paymentStatus: PaymentStatus.UNPAID,
-        staff: service.assignedStaff || [],
+        // Who does it is decided below, once the time and the salon's rules are known.
+        staff: [],
       });
 
       appointments.push(appointment);
+      bookedServices.push(service);
     }
 
     // The salon's scheduling rules (lead time, advance limit, same-day
     // cutoff, buffer, double booking) — checked before anything is saved.
+    const totalDuration = appointments.reduce((sum, a) => sum + parseDurationToMinutes(a.duration), 0) || 30;
     await this.assertBookingAllowedByRules(
       business,
       createBookingDto.date,
       createBookingDto.time,
-      appointments.reduce((sum, a) => sum + parseDurationToMinutes(a.duration), 0) || 30,
+      totalDuration,
       createBookingDto.timezoneOffsetMinutes,
     );
+
+    // The stylist the customer chose, or one who is free and can do these services.
+    await this.assignStylist(business, createBookingDto, bookedServices, appointments, totalDuration);
 
     // Save appointments
     await this.bookingRepository.save(appointments);
 
     return { orderId, appointments };
+  }
+
+  // Decides who does a new booking and puts them on every appointment in it. A stylist the customer asked for
+  // has to be on the team, able to do the services, and free then. With none asked for, one free stylist who can
+  // do them is picked (the one with the fewest appointments that day); a salon with nobody to assign leaves the
+  // booking unassigned, as before. Only ever one stylist per booking: it used to attach everyone assigned to the
+  // service, which blocked all of them for the slot and counted the booking for each.
+  private async assignStylist(
+    business: Business,
+    dto: { date: string; time: string; staffId?: string },
+    services: Service[],
+    appointments: Appointment[],
+    durationMinutes: number,
+  ): Promise<void> {
+    const startMinutes = parseClockToMinutes(dto.time);
+    const day = String(dto.date).slice(0, 10);
+    const rules = resolveBookingRules(business);
+
+    const activeStaff = await this.staffRepository.find({
+      where: { business: { id: business.id }, isActive: true },
+    });
+    const candidates = eligibleStylists(activeStaff, services);
+
+    if (startMinutes === null) {
+      if (dto.staffId) throw new BadRequestException('That time could not be read, so a stylist could not be checked.');
+      return;
+    }
+
+    const rows = await this.bookingRepository
+      .createQueryBuilder('a')
+      .leftJoinAndSelect('a.staff', 's')
+      .where('a.business_id = :businessId', { businessId: business.id })
+      .andWhere('a.date = :day', { day })
+      .andWhere('a.status != :cancelled', { cancelled: AppointmentStatus.CANCELLED })
+      .getMany();
+    // An unpaid PENDING hold only takes the time until it expires (see assertBookingAllowedByRules).
+    const holdCutoff = Date.now() - BookingService.PENDING_EXPIRY_MINUTES * 60 * 1000;
+    const dayAppointments = rows
+      .filter((r) => r.status !== AppointmentStatus.PENDING || new Date(r.createdAt).getTime() >= holdCutoff)
+      .map((r) => ({ time: r.time, duration: r.duration, staffIds: (r.staff ?? []).map((st) => st.id) }));
+
+    const blocks = await this.bookingRepository.manager.getRepository(BlockedTimeSlot).find({
+      where: { business: { id: business.id }, date: day },
+    });
+
+    const result = chooseStylist({
+      requestedId: dto.staffId,
+      candidates,
+      slot: { startMinutes, durationMinutes, bufferMinutes: rules.bufferMinutes },
+      appointments: dayAppointments,
+      blocks,
+      allowDoubleBookings: rules.allowDoubleBookings,
+    });
+
+    if (!result.ok) {
+      throw new BadRequestException(
+        result.reason === 'not-eligible'
+          ? "That stylist can't do the services you picked. Please choose another stylist, or any stylist."
+          : 'That stylist is no longer free at this time. Please choose another time or stylist.',
+      );
+    }
+
+    for (const appointment of appointments) {
+      appointment.staff = result.stylist ? [result.stylist as any] : [];
+    }
   }
 
   // Throws a BadRequestException with a client-readable reason when the

@@ -51,4 +51,13 @@ export class CreateBookingDto {
   @IsNumber()
   @IsOptional()
   timezoneOffsetMinutes?: number;
+
+  @ApiProperty({
+    example: 'bbf9f0a9-b83e-418b-8f8c-bb06f547b1f9',
+    required: false,
+    description: 'The stylist the customer chose. Leave out for any stylist who is free.',
+  })
+  @IsUUID()
+  @IsOptional()
+  staffId?: string;
 }

@@ -133,7 +133,7 @@ export class BusinessServicesService {
       maxPrice: srv.maxPrice,
       duration: srv.duration,
       images: srv.images,
-      assignedStaff: (srv.assignedStaff || []).map((st) => ({
+      assignedStaff: (srv.assignedStaff || []).filter((st) => st.isActive !== false).map((st) => ({
         id: st.id,
         name: `${st.firstName || ''} ${st.lastName || ''}`.trim() || 'Staff Member',
         firstName: st.firstName,
@@ -153,7 +153,7 @@ export class BusinessServicesService {
    */
   async getStaffList(businessId: string) {
     const rawStaff = await this.staffRepo.find({
-      where: { business: { id: businessId } },
+      where: { business: { id: businessId }, isActive: true },
       order: { firstName: 'ASC' },
     });
 

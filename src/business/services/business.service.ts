@@ -69,6 +69,7 @@ import { promises } from 'dns';
 import { Review } from '../entities/review.entity';
 import { merchantPayout } from 'src/user/services/booking-fees';
 import { assertCanManageBusiness } from '../utils/business-access';
+import { summarizeStaffAppointments, weekBounds } from '../utils/staff-stats';
 
 @Injectable()
 export class BusinessService {
@@ -1310,11 +1311,30 @@ export class BusinessService {
       ratingRows.map((r) => [r.staffId, { rating: Number(r.avgRating), reviews: Number(r.reviewCount) }]),
     );
 
+    // Each person's bookings this week, what they earned, and who they see next: from the appointments they
+    // are on. These were never sent before, so every card showed 0 and no next appointment.
+    const week = weekBounds();
+    const appointmentRows = staff.length
+      ? await this.appointmentRepo
+          .createQueryBuilder('a')
+          .innerJoinAndSelect('a.staff', 's')
+          .where('s.id IN (:...staffIds)', { staffIds: staff.map((m) => m.id) })
+          .andWhere('a.date >= :from', { from: week.start })
+          .getMany()
+      : [];
+    const rowsByStaff = new Map<string, typeof appointmentRows>();
+    for (const appointment of appointmentRows) {
+      for (const member of appointment.staff ?? []) {
+        rowsByStaff.set(member.id, [...(rowsByStaff.get(member.id) ?? []), appointment]);
+      }
+    }
+
     return staff.map((s) => ({
       ...s,
       commissionEarnedThisWeek: commissionMap.get(s.id) ?? 0,
       rating: ratingMap.get(s.id)?.rating ?? 0,
       reviews: ratingMap.get(s.id)?.reviews ?? 0,
+      ...summarizeStaffAppointments(rowsByStaff.get(s.id) ?? [], week),
     }));
   }
 

@@ -466,22 +466,4 @@ export class BusinessController {
   ping() {
     return 'server is live';
   }
-
-  @Get('/sendMail')
-  async sendMail() {
-    const staffEmail = 'oiv7etf53n@yzcalo.com';
-    const firstName = 'jesse';
-    const business = { businessName: 'Natures Gentle touch' };
-    const tempPassword = 'secure';
-    try {
-      await this.emailService.sendStaffWelcomeEmail(
-        staffEmail,
-        firstName,
-        business.businessName,
-        tempPassword,
-      );
-    } catch (emailError) {
-      console.error('Failed to send welcome email:', emailError);
-    }
-  }
 }

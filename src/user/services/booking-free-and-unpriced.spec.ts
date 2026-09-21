@@ -72,6 +72,7 @@ function build(opts: { service?: any; appointmentAmount?: number } = {}) {
   );
   jest.spyOn(service as any, 'notifyMerchantOfNewBooking').mockResolvedValue(undefined);
   jest.spyOn(service as any, 'assertBookingAllowedByRules').mockResolvedValue(undefined);
+  jest.spyOn(service as any, 'assignStylist').mockResolvedValue(undefined);
 
   const user: any = { id: 'cust-1', email: 'c@example.com', firstName: 'Cee', surname: 'Customer' };
   return { service, user, appointment, stripeService, createQueryBuilder, emailService };
