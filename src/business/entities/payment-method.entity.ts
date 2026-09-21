@@ -8,6 +8,7 @@ import {
   JoinColumn,
   OneToMany,
 } from 'typeorm';
+import { Exclude } from 'class-transformer';
 import { Wallet } from './wallet.entity';
 import { PaymentMethodType } from 'src/admin/payment/enums/wallet.enum';
 import { Withdrawal } from 'src/admin/withdrawal/entities/withdrawal.entity';
@@ -50,6 +51,8 @@ export class WalletPaymentMethod {
   @Column({ type: 'varchar', length: 100, nullable: true })
   sortCode: string;
 
+  // A card security code is never needed after it was entered and is never sent in a response.
+  @Exclude({ toPlainOnly: true })
   @Column({ type: 'varchar', length: 100, nullable: true })
   cvv: string;
 

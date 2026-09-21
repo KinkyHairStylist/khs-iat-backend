@@ -245,23 +245,24 @@ export class BusinessWalletController {
 
     await this.assertOwnsBusinessWallet(body.transaction.businessId, req.user);
 
-    try {
-      const result = await this.walletService.deductFunds(body);
+    // Errors (not enough money, no such payout account) are thrown as they are, so the caller
+    // gets a real error status and message instead of a "200 OK" that looks like it worked.
+    const result = await this.walletService.deductFunds(body);
 
-      return {
-        success: true,
-        data: {
-          transaction: result.transaction,
-          withdrawal: result.withdrawal,
-        },
-        message: 'Business Wallet debited successfully',
-      };
-    } catch (error) {
-            return {
-        success: false,
-        error: error.message,
-        message: `Failed to debit business wallet: ${error.message}`,
-      };
-    }
+    return {
+      success: true,
+      data: {
+        transaction: result.transaction,
+        withdrawal: result.withdrawal,
+      },
+      message: 'Withdrawal requested',
+    };
+  }
+
+  // A salon takes back a withdrawal request that KHS hasn't started on. The amount goes back to the wallet.
+  @Patch('/withdrawals/:withdrawalId/cancel')
+  async cancelWithdrawal(@Request() req, @Param('withdrawalId') withdrawalId: string) {
+    const withdrawal = await this.walletService.cancelWithdrawal(withdrawalId, req.user);
+    return { success: true, data: withdrawal, message: 'Withdrawal request cancelled' };
   }
 }
