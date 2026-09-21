@@ -62,6 +62,7 @@ import { Card } from 'src/all_user_entities/card.entity';
 import { BusinessGiftCard } from 'src/business/entities/business-giftcard.entity';
 import { BusinessGiftCardStatus } from 'src/business/enum/gift-card.enum';
 import { assertGiftCardUsable } from './gift-card-usability';
+import { merchantNetAfterFees } from './booking-fees';
 import { User } from 'src/all_user_entities/user.entity';
 import { ReviewService } from 'src/business/services/review.service';
 import { BusinessWalletService } from 'src/business/services/wallet.service';
@@ -734,7 +735,12 @@ export class BookingService {
         bookingAmount,
       );
     const feeAmount = acquisitionFeeAmount + commissionAmount;
-    const totalAmount = bookingAmount + feeAmount;
+    // KHS's commission and acquisition fee come out of what the merchant is paid, not out of the
+    // customer's pocket: the customer pays the service price (plus the card processing fee on
+    // the Stripe path). It is only recorded here so it can be deducted from the merchant.
+    const totalAmount = bookingAmount;
+    // Who the fee transactions below are recorded against.
+    const feePayerId = appointments[0].business?.owner?.id ?? user.id;
 
     // Round to 2 decimal places
     const roundedTotalAmount = Math.round(totalAmount * 100) / 100;
@@ -809,7 +815,7 @@ export class BookingService {
         // Create acquisition + commission fee transactions
         if (acquisitionFeeAmount > 0) {
           const acqTx = manager.create(Transaction, {
-            senderId: user.id,
+            senderId: feePayerId,
             amount: acquisitionFeeAmount,
             type: TransactionType.FEE,
             feeSubtype: 'Acquisition',
@@ -826,7 +832,7 @@ export class BookingService {
         }
         if (commissionAmount > 0) {
           const commTx = manager.create(Transaction, {
-            senderId: user.id,
+            senderId: feePayerId,
             amount: commissionAmount,
             type: TransactionType.FEE,
             feeSubtype: 'Commission',
@@ -865,7 +871,8 @@ export class BookingService {
               businessId,
               recipientId: ownerId,
               senderId: user.id,
-              amount: bookingAmount, // Amount credited to business (excluding platform fee)
+              // Net of KHS's commission and acquisition fee, which the merchant bears.
+              amount: merchantNetAfterFees(bookingAmount, acquisitionFeeAmount, commissionAmount),
               type: TransactionType.EARNING,
               description: `Gift card booking payment for order ${orderId}`,
               referenceId: orderId,
@@ -1015,7 +1022,7 @@ export class BookingService {
         // Create acquisition + commission fee transactions
         if (acquisitionFeeAmount > 0) {
           const acqTx = manager.create(Transaction, {
-            senderId: user.id,
+            senderId: feePayerId,
             amount: acquisitionFeeAmount,
             type: TransactionType.FEE,
             feeSubtype: 'Acquisition',
@@ -1032,7 +1039,7 @@ export class BookingService {
         }
         if (commissionAmount > 0) {
           const commTx = manager.create(Transaction, {
-            senderId: user.id,
+            senderId: feePayerId,
             amount: commissionAmount,
             type: TransactionType.FEE,
             feeSubtype: 'Commission',
@@ -1264,7 +1271,7 @@ export class BookingService {
       if (acquisitionFeeAmount > 0) {
         stripeTransactions.push(
           this.transactionRepository.create({
-            senderId: user.id,
+            senderId: feePayerId,
             amount: acquisitionFeeAmount,
             type: TransactionType.FEE,
             feeSubtype: 'Acquisition',
@@ -1283,7 +1290,7 @@ export class BookingService {
       if (commissionAmount > 0) {
         stripeTransactions.push(
           this.transactionRepository.create({
-            senderId: user.id,
+            senderId: feePayerId,
             amount: commissionAmount,
             type: TransactionType.FEE,
             feeSubtype: 'Commission',
@@ -1413,7 +1420,7 @@ export class BookingService {
     // structure not addressed by this ticket)
     if (acquisitionFeeAmount > 0) {
       const acqTx = this.transactionRepository.create({
-        senderId: user.id,
+        senderId: feePayerId,
         amount: acquisitionFeeAmount,
         type: TransactionType.FEE,
         feeSubtype: 'Acquisition',
@@ -1430,7 +1437,7 @@ export class BookingService {
     }
     if (commissionAmount > 0) {
       const commTx = this.transactionRepository.create({
-        senderId: user.id,
+        senderId: feePayerId,
         amount: commissionAmount,
         type: TransactionType.FEE,
         feeSubtype: 'Commission',

@@ -66,6 +66,7 @@ import {
 } from 'src/utils/enum';
 import { promises } from 'dns';
 import { Review } from '../entities/review.entity';
+import { merchantNetAfterFees } from 'src/user/services/booking-fees';
 
 @Injectable()
 export class BusinessService {
@@ -325,16 +326,17 @@ async getBooking(id: string) {
           });
         }
 
-        // KHS's commission + acquisition fee are charged to the client at
-        // checkout, so they must come back out of the merchant's payout
-        // here — for both booking types. (Previously only the deposit
-        // path subtracted them; a full/non-deposit booking credited the
-        // merchant the entire client charge, fees included, so KHS's cut
-        // never actually landed anywhere.) Cancellation logic is
-        // unaffected — it already operates on the gross bookingAmount for
-        // both booking types.
-        const netAmount =
-          spi.bookingAmount - Number(spi.acquisitionFeeAmount) - Number(spi.commissionFeeAmount);
+        // KHS's commission + acquisition fee come out of the merchant's
+        // payout, for every booking type; the customer is never charged
+        // them. (Bookings paid before that change carried the fees inside
+        // bookingAmount, so subtracting them here gives the same result
+        // for those.) Cancellation logic is unaffected — it operates on
+        // the gross bookingAmount.
+        const netAmount = merchantNetAfterFees(
+          spi.bookingAmount,
+          spi.acquisitionFeeAmount,
+          spi.commissionFeeAmount,
+        );
 
         // Informational staff commission — no staff wallet exists (staff
         // have no working login yet), so this only ever records a number
