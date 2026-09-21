@@ -560,51 +560,77 @@ export class AdminService {
     return 'done!';
   }
 
-  async updateUserRole(id: string, role?: 'ADMIN' | 'CLIENT' | 'CUSTOMER') {
-  const user = await this.userRepo.findOne({ where: { id } });
-  if (!user) {
-    throw new BadRequestException('User not found');
-  }
+  // Switch a user between Customer and Admin. Becoming a merchant needs a business and a start
+  // (Trial or MVP), so it goes through AdminUserCreationService.makeMerchant instead. A merchant
+  // who still owns a business can't be switched: that would leave the business without an owner
+  // who is a merchant.
+  async updateUserRole(
+    id: string,
+    role?: 'ADMIN' | 'CLIENT' | 'CUSTOMER',
+    actingUserId?: string,
+  ) {
+    const user = await this.userRepo.findOne({ where: { id } });
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
 
-  if (user.isMerchant && !user.isStaff) {
-    throw new BadRequestException('Role update is not supported for merchant/business accounts.');
-  }
+    if (actingUserId && actingUserId === user.id) {
+      throw new BadRequestException("You can't change your own persona.");
+    }
+    if (user.adminRole === AdminRole.SUPER_ADMIN) {
+      throw new BadRequestException("A super admin's persona can't be changed here.");
+    }
 
-  if (role === 'ADMIN' || (role === undefined && !user.isStaff)) {
-    user.isStaff = true;
-    user.adminRole = AdminRole.ADMIN;
-    user.isCustomer = false;
-  } else {
-    user.isStaff = false;
-    user.adminRole = null;
-    user.isCustomer = true;
-  }
+    if (user.isMerchant && !user.isStaff) {
+      const owned = await this.businessRepo.find({
+        where: { owner: { id: user.id } },
+        select: { id: true, businessName: true, status: true },
+      });
+      const live = owned.filter((b) => b.status !== BusinessStatus.REJECTED);
+      if (live.length > 0) {
+        throw new BadRequestException(
+          `This merchant owns ${live[0].businessName}${live.length > 1 ? ` and ${live.length - 1} more` : ''}. Switching their persona would leave the business without a merchant owner, so it isn't allowed.`,
+        );
+      }
+    }
 
-  await this.userRepo.save(user);
+    if (role === 'ADMIN' || (role === undefined && !user.isStaff)) {
+      user.isStaff = true;
+      user.adminRole = AdminRole.ADMIN;
+      user.isMerchant = false;
+      user.isCustomer = false;
+    } else {
+      user.isStaff = false;
+      user.adminRole = null;
+      user.isMerchant = false;
+      user.isCustomer = true;
+    }
 
-  SlackService.notify({
-    node: SlackNode.HUMAN_RESOURCE,
-    provider: SlackProvider.SYSTEM,
-    severity: SlackSeverity.INFO,
-    type: SlackEventType.ADMIN_ACTION,
-    trigger: `Admin role ${user.isStaff ? 'granted to' : 'revoked from'} ${user.email}`,
-    body: `A user's Admin role was ${user.isStaff ? 'granted' : 'revoked'} — a privilege change.
+    await this.userRepo.save(user);
+
+    SlackService.notify({
+      node: SlackNode.HUMAN_RESOURCE,
+      provider: SlackProvider.SYSTEM,
+      severity: SlackSeverity.INFO,
+      type: SlackEventType.ADMIN_ACTION,
+      trigger: `Persona changed to ${user.isStaff ? 'Admin' : 'Customer'} for ${user.email}`,
+      body: `A user's persona was changed — ${user.isStaff ? 'this grants admin privileges' : 'admin access, if any, was removed'}.
 • User: ${user.firstName ?? ''} ${user.surname ?? ''} (${user.email})`,
-  });
+    });
 
-  return {
-    message: user.isStaff
-      ? `User ${user.firstName ?? user.email} updated to Admin role.`
-      : `Admin role removed for ${user.firstName ?? user.email}.`,
-    user: {
-      id: user.id,
-      isStaff: Boolean(user.isStaff),
-      isMerchant: Boolean(user.isMerchant),
-      isCustomer: Boolean(user.isCustomer),
-      persona: user.isStaff ? 'Admin' : user.isMerchant ? 'Merchant' : 'Customer',
-    },
-  };
-}
+    return {
+      message: user.isStaff
+        ? `${user.firstName ?? user.email} is now an Admin.`
+        : `${user.firstName ?? user.email} is now a Customer.`,
+      user: {
+        id: user.id,
+        isStaff: Boolean(user.isStaff),
+        isMerchant: Boolean(user.isMerchant),
+        isCustomer: Boolean(user.isCustomer),
+        persona: user.isStaff ? 'Admin' : user.isMerchant ? 'Merchant' : 'Customer',
+      },
+    };
+  }
 
 async getAllBusinesses() {
     const businesses = await this.businessRepo

@@ -127,6 +127,7 @@ export class BusinessService {
   async create(
     createBusinessDto: CreateBusinessDto,
     owner: User,
+    options: { sendUnderReviewEmail?: boolean } = {},
   ): Promise<Business> {
     if (!owner) {
       throw new BadRequestException('Owner is required to create a business');
@@ -183,11 +184,14 @@ export class BusinessService {
     }
 
     try {
-      this.emailService.sendMerchantUnderReviewEmail(
-        business.ownerEmail || owner.email,
-        business.businessName,
-        business.id,
-      );
+      // An admin adding a merchant approves them straight away, so "under review" would be wrong.
+      if (options.sendUnderReviewEmail !== false) {
+        this.emailService.sendMerchantUnderReviewEmail(
+          business.ownerEmail || owner.email,
+          business.businessName,
+          business.id,
+        );
+      }
     } catch (error) {
       Logger.error(
         `Failed to send merchant under-review email: ${error.message}`,

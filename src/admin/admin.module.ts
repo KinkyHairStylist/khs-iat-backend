@@ -31,6 +31,10 @@ import { MerchantSubscriptionService } from '../business/services/merchant-subsc
 import { MerchantSubscriptionCronService } from '../business/services/merchant-subscription-cron.service';
 import { MerchantPlansService } from '../business/services/merchant-plans.service';
 import { AdminPlansController } from './controllers/admin-plans.controller';
+import { AdminUsersController } from './controllers/admin-users.controller';
+import { AdminUserCreationService } from './services/admin-user-creation.service';
+import { BusinessModule } from '../business/business.module';
+import { ReferralModule } from '../user/modules/referral.module';
 import { PlatformSettingsEntity } from './platform-settings/entities/platform-settings.entity';
 import { PlatformSettingsService } from './platform-settings/platform-settings.service';
 
@@ -53,10 +57,19 @@ import { PlatformSettingsService } from './platform-settings/platform-settings.s
     CloudinaryModule,
     BusinessWalletModule,
     EmailModule,
+    BusinessModule,
+    ReferralModule,
   ],
-  controllers: [AdminController, ArticleController, AdminAuthController, AdminPlansController],
+  controllers: [
+    AdminController,
+    ArticleController,
+    AdminAuthController,
+    AdminPlansController,
+    AdminUsersController,
+  ],
   providers: [
     AdminService,
+    AdminUserCreationService,
     PaymentService,
     StripeService,
     MerchantSubscriptionService,

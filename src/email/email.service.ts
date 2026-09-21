@@ -100,6 +100,31 @@ export class EmailService {
     return this.sendEmail(to, subject, text, html, this.deliveryTeamEmail);
   }
 
+  // Sent when an admin adds a user (or turns an existing user into a merchant). `path` is where the
+  // button goes, relative to the site.
+  sendAccountCreatedByAdminEmail(
+    to: string,
+    details: {
+      name: string;
+      intro: string;
+      notes: string[];
+      actionLabel: string;
+      path: string;
+      footnote?: string;
+    },
+  ) {
+    const actionUrl = `${this.frontendUrl}${details.path}`;
+    const html = this.templateService.render('account-created', {
+      ...details,
+      footnote: details.footnote ?? '',
+      actionUrl,
+      frontendUrl: this.frontendUrl,
+      year: new Date().getFullYear(),
+    });
+    const text = `Hi ${details.name},\n\n${details.intro}\n\n${details.notes.join('\n')}\n\n${details.actionLabel}: ${actionUrl}\n\n${details.footnote ?? ''}`;
+    return this.sendEmail(to, 'Your Kinky Hairstylist account is ready', text, html, this.deliveryTeamEmail);
+  }
+
   sendWelcomeEmail(to: string, name: string) {
     const html = this.templateService.render('welcome', {
       name,

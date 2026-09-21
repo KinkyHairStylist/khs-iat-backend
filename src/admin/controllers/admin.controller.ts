@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   Post,
+  Req,
   UseGuards,
   Res,
 } from '@nestjs/common';
@@ -38,8 +39,9 @@ export class AdminController {
   @Post('updateUserRole')
   async updateUserRole(
     @Body() body: { id: string; role?: 'ADMIN' | 'CLIENT' | 'CUSTOMER' },
+    @Req() req: { user?: { id?: string } },
   ) {
-    return this.adminService.updateUserRole(body.id, body.role);
+    return this.adminService.updateUserRole(body.id, body.role, req.user?.id);
   }
 
   @Post('getNearbySalons')
