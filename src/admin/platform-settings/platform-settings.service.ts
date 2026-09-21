@@ -69,6 +69,10 @@ export class PlatformSettingsService {
       stripePassthroughFixedFee: 0.30,
       earlyCancellationFee: 10,
       lateCancellationStylistShare: 70,
+      trialDays: 14,
+      trialFeeTier: 'Starter',
+      revealFeeTier: 'Starter',
+      revealPeriod: { enabled: false, startsAt: null, endsAt: null },
       // priceId is blank until scripts/create-subscription-stripe-prices.ts
       // is run and an admin pastes the real Stripe Price IDs in.
       subscriptionPrices: {
@@ -154,6 +158,22 @@ export class PlatformSettingsService {
       settings.payments.stripePassthroughFixedFee = defaults.payments.stripePassthroughFixedFee;
       dirty = true;
     }
+    if (settings.payments?.trialDays == null) {
+      settings.payments.trialDays = defaults.payments.trialDays;
+      dirty = true;
+    }
+    if (!settings.payments?.trialFeeTier) {
+      settings.payments.trialFeeTier = defaults.payments.trialFeeTier;
+      dirty = true;
+    }
+    if (!settings.payments?.revealFeeTier) {
+      settings.payments.revealFeeTier = defaults.payments.revealFeeTier;
+      dirty = true;
+    }
+    if (!settings.payments?.revealPeriod) {
+      settings.payments.revealPeriod = defaults.payments.revealPeriod;
+      dirty = true;
+    }
     if (settings.payments?.earlyCancellationFee == null) {
       settings.payments.earlyCancellationFee = defaults.payments.earlyCancellationFee;
       dirty = true;
@@ -224,6 +244,16 @@ export class PlatformSettingsService {
         Pro: { ...s.payments.subscriptionPrices.Pro, ...(dto.subscriptionPrices?.Pro || {}) },
       },
     };
+    return this.repo.save(s);
+  }
+
+  // Merges plan-related fields (prices, fee rates, trial days, the free window) into
+  // payments. Used by the plan settings service, whose values are validated there; the
+  // generic payments PATCH above deliberately does not accept the free-window fields, so
+  // saving that tab with a stale copy can never revert an admin's change to the window.
+  async updatePlanSettings(patch: Partial<PlatformSettingsEntity['payments']>) {
+    const s = await this.getSettings();
+    s.payments = { ...s.payments, ...patch };
     return this.repo.save(s);
   }
 

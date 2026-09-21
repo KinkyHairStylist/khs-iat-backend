@@ -55,6 +55,7 @@ import { BusinessOwnerSettingsService } from './business-owner-settings.service'
 import { ZohoBooksService } from 'src/integration/services/zohobooks.service';
 import { PasswordUtil } from '../utils/password.util';
 import { NotificationService } from 'src/notifications/notification.service';
+import { MerchantSignupService } from './merchant-signup.service';
 import { NotificationType } from 'src/notifications/notification.enum';
 import { SlackService } from 'src/services/slack.service';
 import {
@@ -114,6 +115,7 @@ export class BusinessService {
     private readonly businessOwnerSettingsService: BusinessOwnerSettingsService,
     private readonly zohoBooksService: ZohoBooksService,
     private readonly notificationService: NotificationService,
+    private readonly merchantSignupService: MerchantSignupService,
   ) {}
 
   /**
@@ -130,9 +132,17 @@ export class BusinessService {
       throw new BadRequestException('Owner is required to create a business');
     }
 
+    // No payment, no merchant: the chosen start (a paid plan whose payment Stripe confirms, the
+    // free trial, or the free window) is checked BEFORE anything is created.
+    const signup = await this.merchantSignupService.resolveSignup(
+      owner,
+      createBusinessDto.signup,
+    );
+
     const business = this.businessRepo.create({
       ...createBusinessDto,
       owner,
+      planTier: signup.planTier,
     });
 
     owner.isMerchant = true;
@@ -144,7 +154,11 @@ export class BusinessService {
     business.ownerEmail = owner?.email || '';
     business.ownerPhone = owner?.phoneNumber || '';
 
-    await this.businessRepo.save(business);
+    // The business and its payment / free-window record are saved together.
+    await this.businessRepo.manager.transaction(async (manager) => {
+      await manager.save(Business, business);
+      await this.merchantSignupService.recordSignup(business, signup, manager);
+    });
 
     // Sign-up asks two questions that belong to the salon's owner settings.
     // A failure here must not fail the registration; the owner can still set

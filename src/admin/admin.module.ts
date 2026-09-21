@@ -29,6 +29,10 @@ import { StripeService } from 'src/payment/stripe.service';
 import { MerchantSubscription } from '../business/entities/merchant-subscription.entity';
 import { MerchantSubscriptionService } from '../business/services/merchant-subscription.service';
 import { MerchantSubscriptionCronService } from '../business/services/merchant-subscription-cron.service';
+import { MerchantPlansService } from '../business/services/merchant-plans.service';
+import { AdminPlansController } from './controllers/admin-plans.controller';
+import { PlatformSettingsEntity } from './platform-settings/entities/platform-settings.entity';
+import { PlatformSettingsService } from './platform-settings/platform-settings.service';
 
 @Module({
   imports: [
@@ -45,17 +49,20 @@ import { MerchantSubscriptionCronService } from '../business/services/merchant-s
     TypeOrmModule.forFeature([StripePaymentIntent]),
     TypeOrmModule.forFeature([Refund]),
     TypeOrmModule.forFeature([MerchantSubscription]),
+    TypeOrmModule.forFeature([PlatformSettingsEntity]),
     CloudinaryModule,
     BusinessWalletModule,
     EmailModule,
   ],
-  controllers: [AdminController, ArticleController, AdminAuthController],
+  controllers: [AdminController, ArticleController, AdminAuthController, AdminPlansController],
   providers: [
     AdminService,
     PaymentService,
     StripeService,
     MerchantSubscriptionService,
     MerchantSubscriptionCronService,
+    PlatformSettingsService,
+    MerchantPlansService,
     ArticleService,
     AdminAuthService,
     AdminAuthStrategy,

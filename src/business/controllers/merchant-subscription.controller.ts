@@ -14,7 +14,8 @@ import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
 import { RolesGuard } from 'src/middleware/roles.guard';
 import { Role } from 'src/middleware/role.enum';
 import { Roles } from 'src/middleware/roles.decorator';
-import { Business } from '../entities/business.entity';
+import { Business, BusinessPlanTier } from '../entities/business.entity';
+import { isPlanTier } from 'src/helpers/merchant-plans.helper';
 import { MerchantSubscriptionService } from '../services/merchant-subscription.service';
 import { PlatformSettingsService } from 'src/admin/platform-settings/platform-settings.service';
 
@@ -58,13 +59,21 @@ export class MerchantSubscriptionController {
   }
 
   @Post('subscribe')
-  async subscribe(@Request() req, @Body() body: { paymentMethodId: string }) {
+  async subscribe(
+    @Request() req,
+    @Body() body: { paymentMethodId: string; tier?: string },
+  ) {
     const business = await this.getOwnedBusiness(req);
+    if (body.tier !== undefined && !isPlanTier(body.tier)) {
+      throw new BadRequestException('Choose a valid plan.');
+    }
+    // The plan they pick now; otherwise the tier the business is already on.
+    const tier = (body.tier ?? business.planTier) as BusinessPlanTier;
     const payments = await this.platformSettingsService.getPayments();
-    const priceId = payments.subscriptionPrices?.[business.planTier]?.priceId;
+    const priceId = payments.subscriptionPrices?.[tier]?.priceId;
     if (!priceId) {
       throw new BadRequestException(
-        `No Stripe price configured for tier ${business.planTier} — an admin must run the subscription-prices bootstrap script first.`,
+        `The ${tier} plan isn't available to buy yet — an admin needs to set its price in the plan settings.`,
       );
     }
 
@@ -72,6 +81,7 @@ export class MerchantSubscriptionController {
       business.id,
       body.paymentMethodId,
       priceId,
+      body.tier ? tier : undefined,
     );
   }
 }

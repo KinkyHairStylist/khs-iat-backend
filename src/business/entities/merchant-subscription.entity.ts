@@ -19,6 +19,14 @@ export enum MerchantSubscriptionStatus {
   CANCELED = 'canceled',
 }
 
+// How the merchant started: on a free trial (not tied to a plan), inside the free
+// window with a shared end date, or paying for a plan.
+export enum MerchantSubscriptionKind {
+  TRIAL = 'trial',
+  REVEAL = 'reveal',
+  PAID = 'paid',
+}
+
 // One row per business — KHS's own billing relationship with the merchant
 // (Starter/Growth/Pro trial + paid subscription), separate from the
 // unrelated client-facing "membership" feature. Stripe itself is the
@@ -46,6 +54,13 @@ export class MerchantSubscription {
   })
   status: MerchantSubscriptionStatus;
 
+  // Added by scripts/add-merchant-subscription-kind-column.ts. Rows that already exist
+  // are 'trial', or 'paid' if they already have a Stripe subscription.
+  @Column({ type: 'varchar', length: 20, default: MerchantSubscriptionKind.TRIAL })
+  kind: MerchantSubscriptionKind;
+
+  // For a trial this is the end of the trial; for the free window it is the window's
+  // shared end date (kept in step when an admin adds days).
   @Column({ type: 'timestamptz', nullable: true })
   trialEndsAt: Date | null;
 

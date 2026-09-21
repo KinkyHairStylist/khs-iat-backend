@@ -1,11 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, Repository } from 'typeorm';
+import { EntityManager, In, Repository } from 'typeorm';
 import {
   MerchantSubscription,
+  MerchantSubscriptionKind,
   MerchantSubscriptionStatus,
 } from '../entities/merchant-subscription.entity';
-import { Business, BusinessStatus } from '../entities/business.entity';
+import { Business, BusinessPlanTier, BusinessStatus } from '../entities/business.entity';
 import { StripeService } from '../../payment/stripe.service';
 import { EmailService } from '../../email/email.service';
 import { TemplateService } from '../../email/template.service';
@@ -46,6 +47,7 @@ export class MerchantSubscriptionService {
   async startTrialForBusiness(
     business: Business,
     manager?: EntityManager,
+    trialDays: number = TRIAL_DAYS,
   ): Promise<MerchantSubscription> {
     const repo = manager
       ? manager.getRepository(MerchantSubscription)
@@ -66,15 +68,157 @@ export class MerchantSubscriptionService {
     });
 
     const trialEndsAt = new Date();
-    trialEndsAt.setDate(trialEndsAt.getDate() + TRIAL_DAYS);
+    trialEndsAt.setDate(trialEndsAt.getDate() + trialDays);
 
     const subscription = repo.create({
       businessId: business.id,
       status: MerchantSubscriptionStatus.TRIALING,
+      kind: MerchantSubscriptionKind.TRIAL,
       trialEndsAt,
       stripeCustomerId: stripeCustomer.id,
     });
     return repo.save(subscription);
+  }
+
+  // Sign-up chose to pay now: the merchant's Stripe customer and subscription were
+  // created (and charged) before the business existed; this records them.
+  async recordPaidSignup(
+    business: Business,
+    stripe: { customerId: string; subscriptionId: string; currentPeriodEnd: Date | null },
+    manager?: EntityManager,
+  ): Promise<MerchantSubscription> {
+    const repo = manager
+      ? manager.getRepository(MerchantSubscription)
+      : this.merchantSubscriptionRepo;
+    const subscription = repo.create({
+      businessId: business.id,
+      status: MerchantSubscriptionStatus.ACTIVE,
+      kind: MerchantSubscriptionKind.PAID,
+      trialEndsAt: null,
+      currentPeriodEnd: stripe.currentPeriodEnd,
+      stripeCustomerId: stripe.customerId,
+      stripeSubscriptionId: stripe.subscriptionId,
+    });
+    return repo.save(subscription);
+  }
+
+  // Sign-up chose the free window: access runs to the window's shared end date, not a
+  // fixed number of days from joining.
+  async recordRevealSignup(
+    business: Business,
+    windowEndsAt: Date,
+    manager?: EntityManager,
+  ): Promise<MerchantSubscription> {
+    const repo = manager
+      ? manager.getRepository(MerchantSubscription)
+      : this.merchantSubscriptionRepo;
+    const stripeCustomer = await this.stripeService.createCustomerForBusiness({
+      businessId: business.id,
+      email: business.ownerEmail,
+      name: business.businessName,
+    });
+    const subscription = repo.create({
+      businessId: business.id,
+      status: MerchantSubscriptionStatus.TRIALING,
+      kind: MerchantSubscriptionKind.REVEAL,
+      trialEndsAt: windowEndsAt,
+      stripeCustomerId: stripeCustomer.id,
+    });
+    return repo.save(subscription);
+  }
+
+  // An admin added days to the free window: everyone still inside it moves to the new
+  // end date. Only rows still trialing are touched, so a merchant the sweep already
+  // lapsed is not silently revived.
+  async moveRevealEnd(newEnd: Date): Promise<number> {
+    const result = await this.merchantSubscriptionRepo
+      .createQueryBuilder()
+      .update(MerchantSubscription)
+      .set({ trialEndsAt: newEnd })
+      .where('kind = :kind', { kind: MerchantSubscriptionKind.REVEAL })
+      .andWhere('status = :status', { status: MerchantSubscriptionStatus.TRIALING })
+      .execute();
+    return result.affected ?? 0;
+  }
+
+  async getForBusiness(businessId: string): Promise<MerchantSubscription | null> {
+    return this.merchantSubscriptionRepo.findOne({ where: { businessId } });
+  }
+
+  // How each business started and where its billing stands, for the admin business list.
+  async summariesFor(businessIds: string[]): Promise<
+    Map<
+      string,
+      {
+        kind: MerchantSubscriptionKind;
+        status: MerchantSubscriptionStatus;
+        trialEndsAt: Date | null;
+        currentPeriodEnd: Date | null;
+      }
+    >
+  > {
+    const summaries = new Map();
+    if (businessIds.length === 0) return summaries;
+    const rows = await this.merchantSubscriptionRepo.find({ where: { businessId: In(businessIds) } });
+    for (const row of rows) {
+      summaries.set(row.businessId, {
+        kind: row.kind,
+        status: row.status,
+        trialEndsAt: row.trialEndsAt,
+        currentPeriodEnd: row.currentPeriodEnd,
+      });
+    }
+    return summaries;
+  }
+
+  // Number of merchants per starting option, for the admin plan settings.
+  async countByKind(): Promise<Record<MerchantSubscriptionKind, number>> {
+    const rows = await this.merchantSubscriptionRepo
+      .createQueryBuilder('s')
+      .select('s.kind', 'kind')
+      .addSelect('COUNT(*)', 'n')
+      .groupBy('s.kind')
+      .getRawMany<{ kind: MerchantSubscriptionKind; n: string }>();
+    const counts = {
+      [MerchantSubscriptionKind.TRIAL]: 0,
+      [MerchantSubscriptionKind.REVEAL]: 0,
+      [MerchantSubscriptionKind.PAID]: 0,
+    };
+    for (const r of rows) counts[r.kind] = Number(r.n);
+    return counts;
+  }
+
+  // The application was rejected after the merchant paid at sign-up: stop billing and
+  // give the money back in full. A merchant who never paid (trial / free window) has
+  // nothing to refund.
+  async cancelAndRefundForRejection(
+    businessId: string,
+  ): Promise<{ refunded: boolean; refundId: string | null }> {
+    const sub = await this.merchantSubscriptionRepo.findOne({ where: { businessId } });
+    if (!sub || sub.kind !== MerchantSubscriptionKind.PAID || !sub.stripeSubscriptionId) {
+      return { refunded: false, refundId: null };
+    }
+    if (!sub.stripeCustomerId) return { refunded: false, refundId: null };
+
+    const { refundId } = await this.stripeService.cancelAndRefundSubscription(
+      sub.stripeSubscriptionId,
+      sub.stripeCustomerId,
+    );
+    sub.status = MerchantSubscriptionStatus.CANCELED;
+    sub.cancelReason = 'application_rejected';
+    await this.merchantSubscriptionRepo.save(sub);
+
+    SlackService.notify({
+      node: SlackNode.PAYMENT,
+      provider: SlackProvider.STRIPE,
+      severity: SlackSeverity.INFO,
+      type: SlackEventType.SUBSCRIPTION_CANCEL,
+      trigger: `Sign-up payment refunded (application rejected): ${businessId}`,
+      body: `A merchant paid at sign-up and was then rejected; their subscription was cancelled and the payment refunded.
+• Business: ${businessId}
+• Refund: ${refundId ?? 'no charge found to refund'}`,
+    });
+    return { refunded: !!refundId, refundId };
   }
 
   // Used by unsuspendBusiness — the uniform gate: approved must always
@@ -93,6 +237,7 @@ export class MerchantSubscriptionService {
   // Read-only status for the merchant's own billing/trial-banner UI.
   async getStatusForBusiness(business: Business): Promise<{
     status: MerchantSubscriptionStatus | null;
+    kind: MerchantSubscriptionKind | null;
     trialEndsAt: Date | null;
     currentPeriodEnd: Date | null;
     planTier: string;
@@ -106,6 +251,7 @@ export class MerchantSubscriptionService {
     });
     return {
       status: sub?.status ?? null,
+      kind: sub?.kind ?? null,
       trialEndsAt: sub?.trialEndsAt ?? null,
       currentPeriodEnd: sub?.currentPeriodEnd ?? null,
       hasPaymentMethod: !!sub?.stripeSubscriptionId,
@@ -130,6 +276,7 @@ export class MerchantSubscriptionService {
     businessId: string,
     paymentMethodId: string,
     stripePriceId: string,
+    tier?: BusinessPlanTier,
   ): Promise<MerchantSubscription> {
     const sub = await this.merchantSubscriptionRepo.findOne({ where: { businessId } });
     if (!sub?.stripeCustomerId) {
@@ -150,7 +297,12 @@ export class MerchantSubscriptionService {
     );
 
     sub.stripeSubscriptionId = stripeSubscription.id;
+    // They chose a plan: from here on they are a paying merchant, whichever way they started.
+    sub.kind = MerchantSubscriptionKind.PAID;
     const saved = await this.merchantSubscriptionRepo.save(sub);
+    if (tier) {
+      await this.businessRepo.update({ id: businessId }, { planTier: tier });
+    }
 
     const business = await this.businessRepo.findOne({ where: { id: businessId } });
     SlackService.notify({

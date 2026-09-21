@@ -198,6 +198,168 @@ export class StripeService {
     }
   }
 
+  // ---- Merchant sign-up billing (the merchant has no business yet) ----
+
+  /** A Customer for a merchant who is signing up, tagged with their user id. */
+  async createCustomerForUser(payload: {
+    userId: string;
+    email?: string;
+    name?: string;
+  }): Promise<Stripe.Customer> {
+    try {
+      return await this.stripe.customers.create({
+        email: payload.email,
+        name: payload.name,
+        metadata: { userId: payload.userId, purpose: 'merchant-signup' },
+      });
+    } catch (error) {
+      throw new BadRequestException(`Unable to create Stripe customer: ${error.message}`);
+    }
+  }
+
+  async retrieveCustomer(customerId: string): Promise<Stripe.Customer | Stripe.DeletedCustomer> {
+    try {
+      return await this.stripe.customers.retrieve(customerId);
+    } catch (error) {
+      throw new BadRequestException(`Unable to read Stripe customer: ${error.message}`);
+    }
+  }
+
+  async retrieveSubscription(subscriptionId: string): Promise<Stripe.Subscription> {
+    try {
+      return await this.stripe.subscriptions.retrieve(subscriptionId);
+    } catch (error) {
+      throw new BadRequestException(`Unable to read Stripe subscription: ${error.message}`);
+    }
+  }
+
+  /** Subscriptions already on a customer (used to make a retried sign-up idempotent). */
+  async listCustomerSubscriptions(customerId: string): Promise<Stripe.Subscription[]> {
+    try {
+      const result = await this.stripe.subscriptions.list({
+        customer: customerId,
+        status: 'all',
+        limit: 10,
+      });
+      return result.data;
+    } catch (error) {
+      throw new BadRequestException(`Unable to list Stripe subscriptions: ${error.message}`);
+    }
+  }
+
+  /**
+   * Starts billing immediately and only succeeds if the first payment does: with
+   * error_if_incomplete a declined or unauthenticated card raises an error instead of
+   * leaving a half-created subscription behind.
+   */
+  async createSubscriptionNow(
+    customerId: string,
+    priceId: string,
+    metadata: Record<string, string>,
+  ): Promise<Stripe.Subscription> {
+    try {
+      return await this.stripe.subscriptions.create({
+        customer: customerId,
+        items: [{ price: priceId }],
+        payment_behavior: 'error_if_incomplete',
+        metadata,
+      });
+    } catch (error) {
+      throw new BadRequestException(
+        `Your card could not be charged: ${error.message}`,
+      );
+    }
+  }
+
+  /**
+   * Moves a live subscription to another price (a plan change). The difference is
+   * prorated onto the next invoice rather than charged on the spot.
+   */
+  async changeSubscriptionPrice(
+    subscriptionId: string,
+    priceId: string,
+  ): Promise<Stripe.Subscription> {
+    try {
+      const subscription = await this.stripe.subscriptions.retrieve(subscriptionId);
+      const item = subscription.items.data[0];
+      if (!item) throw new Error('subscription has no items');
+      if (item.price.id === priceId) return subscription;
+      return await this.stripe.subscriptions.update(subscriptionId, {
+        items: [{ id: item.id, price: priceId }],
+        proration_behavior: 'create_prorations',
+      });
+    } catch (error) {
+      throw new BadRequestException(`Unable to change the Stripe subscription: ${error.message}`);
+    }
+  }
+
+  /**
+   * Cancels a subscription now and refunds the customer's most recent successful payment
+   * in full (used when a merchant's application is rejected after they paid). Charges
+   * are looked up by customer, which does not depend on the invoice's payment fields.
+   */
+  async cancelAndRefundSubscription(
+    subscriptionId: string,
+    customerId: string,
+  ): Promise<{ refundId: string | null }> {
+    try {
+      await this.stripe.subscriptions.cancel(subscriptionId);
+    } catch (error) {
+      // Already cancelled is fine; anything else must surface.
+      if (error?.code !== 'resource_missing') {
+        throw new BadRequestException(`Unable to cancel Stripe subscription: ${error.message}`);
+      }
+    }
+
+    try {
+      const charges = await this.stripe.charges.list({ customer: customerId, limit: 5 });
+      const charge = charges.data.find((c) => c.status === 'succeeded' && !c.refunded);
+      if (!charge) return { refundId: null };
+      const refund = await this.stripe.refunds.create({ charge: charge.id });
+      return { refundId: refund.id };
+    } catch (error) {
+      throw new BadRequestException(`Unable to refund the payment: ${error.message}`);
+    }
+  }
+
+  /**
+   * A new recurring monthly price for a merchant plan. When the plan's old price is
+   * known its Stripe product is reused; otherwise a product is created. Existing
+   * subscribers stay on their old price; only new sign-ups get the new one.
+   */
+  async createTierPrice(payload: {
+    tier: string;
+    amountCents: number;
+    currency?: string;
+    existingPriceId?: string;
+  }): Promise<Stripe.Price> {
+    if (!Number.isInteger(payload.amountCents) || payload.amountCents < 50) {
+      throw new BadRequestException('Price must be at least 0.50');
+    }
+    try {
+      let productId: string | undefined;
+      if (payload.existingPriceId) {
+        const existing = await this.stripe.prices.retrieve(payload.existingPriceId);
+        productId = typeof existing.product === 'string' ? existing.product : existing.product.id;
+      }
+      if (!productId) {
+        const product = await this.stripe.products.create({
+          name: `KHS Merchant Subscription — ${payload.tier}`,
+        });
+        productId = product.id;
+      }
+      return await this.stripe.prices.create({
+        product: productId,
+        unit_amount: payload.amountCents,
+        currency: payload.currency ?? 'usd',
+        recurring: { interval: 'month' },
+      });
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      throw new BadRequestException(`Unable to create Stripe price: ${error.message}`);
+    }
+  }
+
   /** Verifies and parses a webhook payload — requires the raw request body, not parsed JSON */
   constructWebhookEvent(rawBody: Buffer, signature: string): Stripe.Event {
     if (!this.webhookSecret) {

@@ -10,6 +10,7 @@ import { MerchantSubscriptionService } from '../../business/services/merchant-su
 import { EmailService } from '../../email/email.service';
 import { TemplateService } from '../../email/template.service';
 import { SlackService } from '../../services/slack.service';
+import { PlatformSettingsService } from '../platform-settings/platform-settings.service';
 import {
   SlackEventType,
   SlackNode,
@@ -70,6 +71,7 @@ export class AdminService {
     private templateService: TemplateService,
     private paymentService: PaymentService,
     private readonly merchantSubscriptionService: MerchantSubscriptionService,
+    private readonly platformSettingsService: PlatformSettingsService,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -634,8 +636,13 @@ async getAllBusinesses() {
       });
     }
 
+    const subscriptions = await this.merchantSubscriptionService.summariesFor(
+      businesses.map((business) => business.id),
+    );
+
     return businesses.map((business) => ({
       ...business,
+      subscription: subscriptions.get(business.id) ?? null,
       staff: staffCounts.get(business.id) ?? 0,
       revenue: statsByBusinessId.get(business.id)?.revenue ?? business.revenue ?? 0,
       bookings: statsByBusinessId.get(business.id)?.bookings ?? business.bookings ?? 0,
@@ -673,6 +680,26 @@ async getAllBusinesses() {
     application.status = BusinessStatus.REJECTED;
     const saved = await this.businessRepo.save(application);
 
+    // A merchant who paid at sign-up is refunded in full. A failed refund must not undo the
+    // rejection, but someone has to see it and refund by hand, so it raises a Slack alert.
+    let refunded = false;
+    try {
+      ({ refunded } = await this.merchantSubscriptionService.cancelAndRefundForRejection(saved.id));
+    } catch (error) {
+      this.logger.error(`Refund failed for rejected business ${saved.id}: ${error.message}`);
+      SlackService.notify({
+        node: SlackNode.PAYMENT,
+        provider: SlackProvider.STRIPE,
+        severity: SlackSeverity.ERROR,
+        type: SlackEventType.ERROR_ALERT,
+        trigger: `Refund FAILED for rejected merchant application: ${saved.businessName}`,
+        body: `An application was rejected but the sign-up payment could not be refunded automatically. Refund it in Stripe.
+• Business: ${saved.businessName} (${saved.id})
+• Owner: ${saved.ownerEmail || 'unknown'}
+• Error: ${error.message}`,
+      });
+    }
+
     SlackService.notify({
       node: SlackNode.FINANCE,
       provider: SlackProvider.SYSTEM,
@@ -687,7 +714,7 @@ async getAllBusinesses() {
     if (saved.ownerEmail) {
       const frontendUrl = process.env.FRONTEND_URL || 'https://kinkyhairstylists.com';
       const subject = 'Your KHS merchant application';
-      const message = `Thanks for applying to join KHS as a merchant. After review, we're unable to approve your application for ${saved.businessName} at this time.`;
+      const message = `Thanks for applying to join KHS as a merchant. After review, we're unable to approve your application for ${saved.businessName} at this time.${refunded ? ' The payment you made when you applied has been refunded in full; it can take a few days to appear on your statement.' : ''}`;
       const html = this.templateService.render('communication-bulk', {
         businessName: saved.businessName,
         subject,
@@ -718,7 +745,14 @@ async getAllBusinesses() {
     const saved = await this.dataSource.transaction(async (manager) => {
       application.status = BusinessStatus.APPROVED;
       const savedBusiness = await manager.save(Business, application);
-      await this.merchantSubscriptionService.startTrialForBusiness(savedBusiness);
+      // A merchant who paid, or joined the free window, already has a subscription record
+      // (startTrialForBusiness leaves it alone); the trial length is set in the plan settings.
+      const { trialDays } = await this.platformSettingsService.getPayments();
+      await this.merchantSubscriptionService.startTrialForBusiness(
+        savedBusiness,
+        undefined,
+        trialDays ?? 14,
+      );
       return savedBusiness;
     });
 

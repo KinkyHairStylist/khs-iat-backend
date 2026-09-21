@@ -16,6 +16,9 @@ import { StripeService } from 'src/payment/stripe.service';
 import { PlatformSettingsEntity } from 'src/admin/platform-settings/entities/platform-settings.entity';
 import { PlatformSettingsService } from 'src/admin/platform-settings/platform-settings.service';
 import { EmailModule } from 'src/email/email.module';
+import { MerchantPlansService } from './services/merchant-plans.service';
+import { MerchantSignupService } from './services/merchant-signup.service';
+import { MerchantSignupController } from './controllers/merchant-signup.controller';
 
 @Module({
   imports: [
@@ -31,14 +34,20 @@ import { EmailModule } from 'src/email/email.module';
     BusinessFirebaseModule,
     EmailModule,
   ],
-  controllers: [BusinessOwnerSettingsController, MerchantSubscriptionController],
+  controllers: [
+    BusinessOwnerSettingsController,
+    MerchantSubscriptionController,
+    MerchantSignupController,
+  ],
   providers: [
     BusinessOwnerSettingsService,
     MerchantSubscriptionService,
     StripeService,
     PlatformSettingsService,
+    MerchantPlansService,
+    MerchantSignupService,
   ],
-  exports: [BusinessOwnerSettingsService],
+  exports: [BusinessOwnerSettingsService, MerchantSignupService],
 })
 export class BusinessOwnerSettingsModule {
   configure(consumer: MiddlewareConsumer) {
