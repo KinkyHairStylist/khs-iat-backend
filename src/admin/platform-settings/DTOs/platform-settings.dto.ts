@@ -25,7 +25,7 @@ export class UpdateNotificationSettingsDto {
 }
 
 export class UpdatePaymentSettingsDto {
-  @IsOptional() @IsNumber() platformFee?: number;
+  @IsOptional() @IsNumber() @Min(0) @Max(100) platformFee?: number;
   @IsOptional() @IsNumber() minWithdrawal?: number;
   @IsOptional() methods?: {
     creditCard?: boolean;
@@ -38,9 +38,9 @@ export class UpdatePaymentSettingsDto {
     Growth?: number;
     Pro?: number;
   };
-  @IsOptional() @IsNumber() commissionRate?: number;
-  @IsOptional() @IsNumber() stripePassthroughRate?: number;
-  @IsOptional() @IsNumber() stripePassthroughFixedFee?: number;
+  @IsOptional() @IsNumber() @Min(0) @Max(100) commissionRate?: number;
+  @IsOptional() @IsNumber() @Min(0) @Max(100) stripePassthroughRate?: number;
+  @IsOptional() @IsNumber() @Min(0) stripePassthroughFixedFee?: number;
   @IsOptional() @IsNumber() @Min(0) earlyCancellationFee?: number;
   @IsOptional() @IsNumber() @Min(0) @Max(100) lateCancellationStylistShare?: number;
   @IsOptional() subscriptionPrices?: {

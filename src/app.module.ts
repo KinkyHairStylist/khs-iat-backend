@@ -8,7 +8,6 @@ import { BusinessModule } from './business/business.module';
 import { AdminModule } from './admin/admin.module';
 import { GiftcardModule } from './admin/giftcard/admin_giftcard.module';
 import { PaymentModule } from './admin/payment/payment.module';
-import { TransactionFeeModule } from './admin/transaction-fee/transaction-fee.module';
 import { WithdrawalModule } from './admin/withdrawal/withdrawal.module';
 import { AlertsModule } from './admin/alerts/alerts.module';
 import { WalletModule } from './admin/wallet/wallet.module';
@@ -95,7 +94,6 @@ import { LandingModule } from './landing/landing.module';
     AdminModule,
     GiftcardModule,
     PaymentModule,
-    TransactionFeeModule,
     WithdrawalModule,
     AlertsModule,
     WalletModule,
