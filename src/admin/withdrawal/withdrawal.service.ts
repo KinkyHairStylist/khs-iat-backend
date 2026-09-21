@@ -65,6 +65,13 @@ export class WithdrawalService {
     this.emailService.sendEmail(business.ownerEmail, subject, message, html);
   }
 
+  // Only a request nobody has decided yet can be approved or rejected.
+  private assertPending(withdrawal: Withdrawal): void {
+    if (withdrawal.status !== 'Pending') {
+      throw new BadRequestException(`This withdrawal request is already ${withdrawal.status.toLowerCase()}`);
+    }
+  }
+
   // ✅ Get all withdrawals
   async findAll(): Promise<Withdrawal[]> {
     return this.withdrawalRepo.find({ order: { createdAt: 'DESC' } });
@@ -112,6 +119,7 @@ export class WithdrawalService {
   // ✅ Approve and process payout
   async approve(id: string): Promise<Withdrawal> {
     const withdrawal = await this.findOne(id);
+    this.assertPending(withdrawal);
     withdrawal.status = 'Processing';
     await this.withdrawalRepo.save(withdrawal);
 
@@ -148,12 +156,15 @@ export class WithdrawalService {
   if (!withdrawal) {
     throw new NotFoundException('Withdrawal not found');
   }
+  // Rejecting twice would credit the wallet twice.
+  this.assertPending(withdrawal);
 
-  // Get the wallet ID from the withdrawal's bankDetails
-  const walletId = withdrawal.bankDetails.walletId;
+  // The wallet the money came out of: the one behind the payout account, or failing that the
+  // business's own wallet (the payout account can be removed after the request is made).
+  const walletId = withdrawal.bankDetails?.walletId;
 
   const wallet = await this.walletRepo.findOne({
-    where: { id: walletId },
+    where: walletId ? { id: walletId } : { businessId: withdrawal.businessId },
   });
 
   if (!wallet) {
