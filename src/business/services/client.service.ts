@@ -75,25 +75,6 @@ export class ClientService {
     this.frontendUrl = frontendUrl;
   }
 
-  async clearAllClients() {
-    try {
-      const count = await this.clientRepo.count(); // total reviews before deletion
-      if (count === 0) {
-        return { message: 'No clients to delete', deleted: 0 };
-      }
-
-      // await this.clientRepo.delete({}); // delete all rows
-      await this.clientRepo.query(`TRUNCATE TABLE "clients" CASCADE`);
-      return { message: '✅ All clients deleted successfully', deleted: count };
-    } catch (err) {
-      console.error('Failed to delete clients:', err);
-      throw new HttpException(
-        'Failed to delete clients',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
   // async createClient(
   //   clientData: ClientFormData,
   //   ownerId: string,
