@@ -549,11 +549,12 @@ export class GiftCardService {
   }
 
   /** Get all AVAILABLE gift cards */
-  async getAllAvailableBusinessGiftCards() {
+  async getAllAvailableBusinessGiftCards(businessId?: string) {
     return this.giftCardRepo.find({
       where: {
         soldStatus: BusinessGiftCardSoldStatus.AVAILABLE,
         status: BusinessGiftCardStatus.ACTIVE,
+        ...(businessId ? { businessId } : {}),
       },
       relations: ['business'],
       order: { createdAt: 'DESC' },
