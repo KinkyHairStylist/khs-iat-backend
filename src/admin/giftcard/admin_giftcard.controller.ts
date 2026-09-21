@@ -15,6 +15,7 @@ import { RefundGiftCardDto } from './dto/create-giftcard.dto';
 import { Roles } from 'src/middleware/roles.decorator';
 import { Role } from 'src/middleware/role.enum';
 import { RolesGuard } from 'src/middleware/roles.guard';
+import { describeActor } from 'src/business/utils/gift-card-deactivation';
 
 @ApiTags('Admin Gift Card')
 @ApiBearerAuth('access-token')
@@ -40,8 +41,13 @@ export class GiftcardController {
   }
 
   @Patch(':id/deactivate')
-  async deactivate(@Param('id') id: string, @Body() body: RefundGiftCardDto) {
-    return await this.giftcardService.deactivateGiftCard(id, body.reason);
+  async deactivate(@Param('id') id: string, @Body() body: RefundGiftCardDto, @Req() req: { user?: any }) {
+    return await this.giftcardService.deactivateGiftCard(id, body.reason, describeActor(req.user));
+  }
+
+  @Patch(':id/reactivate')
+  async reactivate(@Param('id') id: string, @Req() req: { user?: any }) {
+    return await this.giftcardService.reactivateGiftCard(id, describeActor(req.user));
   }
 
   // Restores a sold card's balance to its full value. There is no amount to send: the server never

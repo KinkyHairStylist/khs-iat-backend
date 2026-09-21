@@ -3,6 +3,7 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { Payload } from '../../types/constants';
 import { AuthService } from '../../services/auth.service';
+import { assertNotSuspended } from 'src/user/utils/account-suspension';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -28,6 +29,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if (!user) {
       throw new UnauthorizedException('User not found or token invalid.');
     }
+    assertNotSuspended(user);
     return user;
   }
 }

@@ -10,6 +10,8 @@ function setup(card: any) {
     findByCode: jest.fn().mockResolvedValue(card),
     remove: jest.fn().mockResolvedValue(undefined),
     cancel: jest.fn().mockResolvedValue({}),
+    markAsExpired: jest.fn().mockResolvedValue({}),
+    reactivate: jest.fn().mockResolvedValue({}),
     update: jest.fn().mockResolvedValue({}),
   };
   const businessRepository = {
@@ -48,7 +50,23 @@ describe('gift card routes that take an id', () => {
   it('lets a platform admin act on any card', async () => {
     const { controller, giftCardsService } = setup(card());
     await controller.cancel({ user: { id: 'admin-1', isStaff: true } }, 'gc-1');
-    expect(giftCardsService.cancel).toHaveBeenCalledWith('gc-1');
+    expect(giftCardsService.cancel).toHaveBeenCalledWith('gc-1', { name: 'Unknown', role: 'admin' });
+  });
+
+  it('records the salon owner, by name, as the one who deactivated a card', async () => {
+    const { controller, giftCardsService } = setup(card());
+    await controller.cancel({ user: { id: 'owner-1', firstName: 'Ada', surname: 'Obi' } }, 'gc-1');
+    expect(giftCardsService.cancel).toHaveBeenCalledWith('gc-1', { name: 'Ada Obi', role: 'merchant' });
+  });
+
+  it('lets a salon reactivate its own card and refuses another salon', async () => {
+    const { controller, giftCardsService } = setup(card());
+    await controller.reactivate({ user: { id: 'owner-1', firstName: 'Ada', surname: 'Obi' } }, 'gc-1');
+    expect(giftCardsService.reactivate).toHaveBeenCalledWith('gc-1', { name: 'Ada Obi', role: 'merchant' });
+
+    giftCardsService.reactivate.mockClear();
+    await expect(controller.reactivate(other, 'gc-1')).rejects.toBeInstanceOf(ForbiddenException);
+    expect(giftCardsService.reactivate).not.toHaveBeenCalled();
   });
 
   it('deletes an unsold card for its salon', async () => {

@@ -862,7 +862,6 @@ async getAllBusinesses() {
     }
 
     user.isSuspended = true;
-    user.isVerified = false;
     user.suspensionHistory += Date.now() + ': reason ' + reason;
     await this.userRepo.save(user);
 
@@ -960,7 +959,6 @@ async getAllBusinesses() {
     }
 
     user.isSuspended = false;
-    user.isVerified = true;
     await this.userRepo.save(user);
 
     SlackService.notify({

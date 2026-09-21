@@ -19,6 +19,12 @@ import {
 } from 'src/utils/enum';
 import { GiftCardSummaryDto } from './dto/giftcard-summary.dto';
 import { User } from 'src/all_user_entities/user.entity';
+import {
+  Actor,
+  assertCanReactivate,
+  markDeactivated,
+  markReactivated,
+} from 'src/business/utils/gift-card-deactivation';
 
 @Injectable()
 export class GiftcardService {
@@ -129,7 +135,7 @@ export class GiftcardService {
   // -------------------------------------------------------------
   // DEACTIVATE
   // -------------------------------------------------------------
-  async deactivateGiftCard(id: string, reason: string) {
+  async deactivateGiftCard(id: string, reason: string, actor?: Actor) {
     const card = await this.giftCardRepo.findOne({ where: { id } });
     if (!card) throw new NotFoundException('Gift card not found.');
 
@@ -139,13 +145,30 @@ export class GiftcardService {
       );
     }
 
-    card.status = BusinessGiftCardStatus.INACTIVE;
+    markDeactivated(card, actor);
     card.comment = reason;
 
     await this.giftCardRepo.save(card);
 
     return {
       message: `Gift card (${card.code}) has been deactivated.`,
+      data: card,
+    };
+  }
+
+  // -------------------------------------------------------------
+  // REACTIVATE
+  // -------------------------------------------------------------
+  async reactivateGiftCard(id: string, actor: Actor) {
+    const card = await this.giftCardRepo.findOne({ where: { id } });
+    if (!card) throw new NotFoundException('Gift card not found.');
+
+    assertCanReactivate(card, actor.role);
+    markReactivated(card);
+    await this.giftCardRepo.save(card);
+
+    return {
+      message: `Gift card (${card.code}) has been reactivated.`,
       data: card,
     };
   }

@@ -6,6 +6,7 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { assertNotSuspended } from '../utils/account-suspension';
 import { SlackService } from '../../services/slack.service';
 import {
   SlackChannel,
@@ -395,6 +396,7 @@ export class UserService {
     }
 
     // Only after the password is right, so this never reveals which emails are registered.
+    assertNotSuspended(user);
     this.assertCustomerAccount(user);
 
     user.activity = new Date().toISOString();

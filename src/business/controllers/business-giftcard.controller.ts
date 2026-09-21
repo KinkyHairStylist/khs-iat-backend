@@ -14,6 +14,7 @@ import {
   BadRequestException,
   UseGuards,
 } from '@nestjs/common';
+import { describeActor } from '../utils/gift-card-deactivation';
 import {
   ApiTags,
   ApiOperation,
@@ -209,7 +210,7 @@ export class BusinessGiftCardsController {
         );
       }
 
-      const result = await this.giftCardsService.markAsExpired(id);
+      const result = await this.giftCardsService.markAsExpired(id, describeActor(req.user));
 
       return {
         success: true,
@@ -329,7 +330,16 @@ export class BusinessGiftCardsController {
   @ApiResponse({ status: 400, description: 'Cannot cancel redeemed gift card' })
   async cancel(@Request() req, @Param('id') id: string) {
     await this.assertCanManageCard(id, req.user);
-    return this.giftCardsService.cancel(id);
+    return this.giftCardsService.cancel(id, describeActor(req.user));
+  }
+
+  @Patch(':id/reactivate')
+  @ApiOperation({ summary: 'Bring back a gift card this salon deactivated' })
+  @ApiResponse({ status: 200, description: 'Gift card reactivated' })
+  @ApiResponse({ status: 403, description: 'KHS deactivated this card, so only KHS can reactivate it' })
+  async reactivate(@Request() req, @Param('id') id: string) {
+    await this.assertCanManageCard(id, req.user);
+    return this.giftCardsService.reactivate(id, describeActor(req.user));
   }
 
   @Delete(':id')

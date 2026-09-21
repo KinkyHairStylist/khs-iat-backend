@@ -99,7 +99,6 @@ export class BusinessServicesService {
       bookings: business.bookings,
       plan: business.plan,
       performance: business.performance,
-      revenueGoal: business.revenueGoal,
       createdAt: business.createdAt,
       updatedAt: business.updatedAt,
       serviceList: services,

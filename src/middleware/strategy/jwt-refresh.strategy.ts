@@ -3,6 +3,7 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { Payload } from '../../types/constants';
 import { UserService } from '../../user/services/user.service';
+import { assertNotSuspended } from '../../user/utils/account-suspension';
 import { Request } from 'express';
 import dotenv from 'dotenv';
 
@@ -40,6 +41,7 @@ export class JwtRefreshStrategy extends PassportStrategy(
     if (!user) {
       throw new UnauthorizedException('User not found or token invalid.');
     }
+    assertNotSuspended(user);
     return { ...user, refreshToken };
   }
 }
