@@ -33,6 +33,7 @@ import {
 import { PlatformSettingsService } from '../../admin/platform-settings/platform-settings.service';
 import { EmailService } from '../../email/email.service';
 import { SlackService } from 'src/slack/slack.service';
+import { commissionOn, merchantNetAfterFees } from './booking-fees';
 
 @Injectable()
 export class GiftCardService {
@@ -220,6 +221,7 @@ export class GiftCardService {
             platformFee: feeAmount,
             totalPaid: giftCardAmount + feeAmount,
             alreadyCompleted: true,
+            businessOwnerId: undefined as string | undefined,
           };
         }
 
@@ -295,6 +297,7 @@ export class GiftCardService {
           giftCardAmount: giftCardAmount,
           platformFee: feeAmount,
           totalPaid: giftCardAmount + feeAmount,
+          businessOwnerId: giftCardWithRelations.business.ownerId,
         };
       },
     );
@@ -312,13 +315,18 @@ export class GiftCardService {
       };
     }
 
+    // KHS's commission comes out of what the salon is paid for the card. It is taken here, once,
+    // so a booking later paid with the card is not commissioned or credited again.
+    const { commissionRate } = await this.platformSettingsService.getPayments();
+    const commission = commissionOn(result.giftCardAmount, Number(commissionRate));
+
     // Update business wallet outside the transaction to avoid deadlock
     try {
       await this.walletService.addFunds({
         businessId: result.giftCard.businessId,
         recipientId: result.giftCard.ownerId!,
         senderId: meta.purchaserId,
-        amount: result.giftCardAmount, // Convert to minor units
+        amount: merchantNetAfterFees(result.giftCardAmount, 0, commission),
         type: TransactionType.EARNING,
         description: `Business Gift card purchase via Stripe`,
         referenceId: reference,
@@ -326,6 +334,28 @@ export class GiftCardService {
     } catch (walletError) {
       // Log the error but don't fail the entire operation since gift card was purchased successfully
       console.error('Failed to add funds to business wallet:', walletError);
+    }
+
+    if (commission > 0) {
+      try {
+        await this.transactionRepo.save(
+          this.transactionRepo.create({
+            senderId: result.businessOwnerId,
+            amount: commission,
+            type: TransactionType.FEE,
+            feeSubtype: 'Commission',
+            currency: (result.giftCard.currency as any) || WalletCurrency.USD,
+            description: `Commission on gift card "${result.giftCard.title}" purchase`,
+            mode: 'Web',
+            referenceId: reference,
+            status: TransactionStatus.COMPLETED,
+            method: PaymentMethod.STRIPE,
+            service: 'GiftCard-Commission',
+          }),
+        );
+      } catch (feeError) {
+        console.error('Failed to record the gift card commission:', feeError);
+      }
     }
 
     // Send confirmation email to purchaser (buyer)

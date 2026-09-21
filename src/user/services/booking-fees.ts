@@ -12,3 +12,8 @@ export function merchantNetAfterFees(
   const net = Number(paidTowardService) - Number(acquisitionFee) - Number(commission);
   return Math.max(0, Math.round(net * 100) / 100);
 }
+
+/** KHS's commission on an amount at a percentage rate, rounded to cents. */
+export function commissionOn(amount: number, ratePercent: number): number {
+  return Math.round(Number(amount) * (Number(ratePercent) || 0)) / 100;
+}

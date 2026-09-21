@@ -62,7 +62,6 @@ import { Card } from 'src/all_user_entities/card.entity';
 import { BusinessGiftCard } from 'src/business/entities/business-giftcard.entity';
 import { BusinessGiftCardStatus } from 'src/business/enum/gift-card.enum';
 import { assertGiftCardUsable } from './gift-card-usability';
-import { merchantNetAfterFees } from './booking-fees';
 import { User } from 'src/all_user_entities/user.entity';
 import { ReviewService } from 'src/business/services/review.service';
 import { BusinessWalletService } from 'src/business/services/wallet.service';
@@ -724,23 +723,11 @@ export class BookingService {
       0,
     );
 
-    // Acquisition fee (tier %, one-time per business+client) + flat
-    // commission — replaces the old single flat platformFee. See
-    // calculateBookingFees for the race-safe first-booking detection.
-    const { acquisitionFeeAmount, commissionAmount } =
-      await this.calculateBookingFees(
-        appointments[0].business,
-        user.id,
-        orderId,
-        bookingAmount,
-      );
-    const feeAmount = acquisitionFeeAmount + commissionAmount;
     // KHS's commission and acquisition fee come out of what the merchant is paid, not out of the
     // customer's pocket: the customer pays the service price (plus the card processing fee on
-    // the Stripe path). It is only recorded here so it can be deducted from the merchant.
+    // the Stripe path). The fees are worked out below and only recorded so they can be deducted
+    // from the merchant.
     const totalAmount = bookingAmount;
-    // Who the fee transactions below are recorded against.
-    const feePayerId = appointments[0].business?.owner?.id ?? user.id;
 
     // Round to 2 decimal places
     const roundedTotalAmount = Math.round(totalAmount * 100) / 100;
@@ -765,6 +752,23 @@ export class BookingService {
       // Round to avoid floating point precision issues
       remainingToPay = Math.round(remainingToPay * 100) / 100;
     }
+
+    // Acquisition fee (tier %, one-time per business+client) + flat commission — replaces the old
+    // single flat platformFee. See calculateBookingFees for the race-safe first-booking detection.
+    // A gift card's commission was already taken when the card was bought, so only the part paid
+    // by card carries fees. A deposit booking keeps them on the full price: they come out of the
+    // deposit at completion.
+    const feeBase = depositOnly ? bookingAmount : Math.max(0, bookingAmount - giftCardPayment);
+    const { acquisitionFeeAmount, commissionAmount } =
+      await this.calculateBookingFees(
+        appointments[0].business,
+        user.id,
+        orderId,
+        feeBase,
+      );
+    const feeAmount = acquisitionFeeAmount + commissionAmount;
+    // Who the fee transactions below are recorded against.
+    const feePayerId = appointments[0].business?.owner?.id ?? user.id;
 
     // Handle full gift card payment (no card needed) - check this FIRST
     if (remainingToPay <= 0) {
@@ -848,55 +852,8 @@ export class BookingService {
           await manager.save(Transaction, commTx);
         }
 
-        // Add funds to business wallet for gift card payment
-        try {
-          const businessId = appointments[0].business.id;
-          const ownerId = appointments[0].business.owner?.id;
-
-          if (businessId && ownerId) {
-            // Try to get wallet, create if doesn't exist
-            try {
-              await this.walletService.getWalletByBusinessId(businessId);
-            } catch (walletNotFoundError) {
-              // Wallet doesn't exist, create it
-              await this.walletService.createWalletForBusiness({
-                businessId,
-                ownerId,
-                currency: WalletCurrency.USD,
-                description: 'Business wallet - auto-created from booking',
-              });
-            }
-
-            await this.walletService.addFunds({
-              businessId,
-              recipientId: ownerId,
-              senderId: user.id,
-              // Net of KHS's commission and acquisition fee, which the merchant bears.
-              amount: merchantNetAfterFees(bookingAmount, acquisitionFeeAmount, commissionAmount),
-              type: TransactionType.EARNING,
-              description: `Gift card booking payment for order ${orderId}`,
-              referenceId: orderId,
-              currency: WalletCurrency.USD,
-              mode: 'Web',
-              method: PaymentMethod.GIFTCARD,
-            });
-          }
-        } catch (walletError) {
-          console.error('Failed to add funds to business wallet:', walletError);
-          // Customer is already charged (via gift card) and the booking is
-          // confirmed below — if crediting the merchant fails here, the
-          // merchant is never paid, with nothing else set up to retry it.
-          StructuredSlackService.notify({
-            node: SlackNode.PAYMENT,
-            provider: SlackProvider.STRIPE,
-            severity: SlackSeverity.CRITICAL,
-            type: SlackEventType.ERROR_ALERT,
-            trigger: `Gift-card booking wallet credit failed for order ${orderId}`,
-            body: `A gift-card-paid booking was confirmed, but crediting the merchant's wallet for it failed — the merchant is not paid.
-• Order: ${orderId}
-• Error: ${walletError instanceof Error ? walletError.message : String(walletError)}`,
-          });
-        }
+        // The salon is not credited here: it was paid, less KHS's commission, when the gift card
+        // was bought. Crediting it again would pay for the same money twice.
 
         if (user.email && (await this.shouldSendBookingConfirmationEmail(user))) {
           const serviceNames = [
