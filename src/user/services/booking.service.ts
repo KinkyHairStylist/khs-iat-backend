@@ -322,7 +322,7 @@ export class BookingService {
         await manager.save(
           Transaction,
           manager.create(Transaction, {
-            senderId: user.id,
+            senderId: ownerId,
             amount: totalCommission,
             type: TransactionType.FEE,
             feeSubtype: 'Commission',
@@ -426,6 +426,63 @@ export class BookingService {
       message: 'Booking confirmed successfully using membership',
       sessionsUsed: sessionsNeeded,
       remainingSessions: purchase.remainingSessions,
+      success: true,
+    };
+  }
+
+  // Confirms a booking that costs nothing: no payment, no fees, no wallet movement.
+  private async confirmFreeBooking(
+    appointments: Appointment[],
+    orderId: string,
+    user: User,
+  ): Promise<any> {
+    await this.dataSource.manager.transaction(async (manager) => {
+      for (const appointment of appointments) {
+        appointment.status = AppointmentStatus.CONFIRMED;
+        appointment.paymentStatus = PaymentStatus.PAID;
+        this.applyPendingRebookDate(appointment);
+      }
+      await manager.save(Appointment, appointments);
+    });
+
+    const business = appointments[0].business;
+    const serviceNames = [...new Set(appointments.map((a) => a.serviceName))].join(', ');
+    await this.notifyMerchantOfNewBooking({
+      businessId: business?.id,
+      orderId,
+      customerId: user.id,
+      customerName: `${user.firstName} ${user.surname}`,
+      serviceNames,
+      date: appointments[0].date,
+      time: appointments[0].time,
+      amountPaid: 0,
+      paymentNote: 'Free booking, nothing to pay',
+    });
+    this.syncIntegrations(() => this.integrationSync.onBookingConfirmed(orderId));
+    this.slackService.notify(
+      `🆓 *Free Booking Confirmed*\n` +
+      `• *Order ID*: \`${orderId}\`\n` +
+      `• *Customer*: ${user.firstName || 'Customer'} ${user.surname || ''} (${user.email})\n` +
+      `• *Salon*: ${business?.businessName || 'the salon'}\n` +
+      `• *Services*: ${serviceNames}`,
+    );
+    if (user.email) {
+      this.emailService.sendBookingConfirmationEmail(
+        user.email,
+        user.firstName || 'Customer',
+        business?.businessName || 'the salon',
+        serviceNames,
+        appointments[0].date,
+        appointments[0].time,
+        orderId,
+        undefined,
+        'Free booking',
+      );
+    }
+
+    return {
+      message: 'Booking confirmed successfully. There was nothing to pay.',
+      totalAmount: 0,
       success: true,
     };
   }
@@ -616,10 +673,16 @@ export class BookingService {
 
       // Variable-priced services store price as null and hold the actual
       // range on minPrice/maxPrice — appointments.amount is NOT NULL, so
-      // fall back to minPrice (then maxPrice, then 0). Final amount for
+      // fall back to minPrice (then maxPrice). Final amount for
       // variable services is settled during confirmBooking / at venue.
-      const bookingAmount =
-        service.price ?? service.minPrice ?? service.maxPrice ?? 0;
+      const bookingAmount = service.price ?? service.minPrice ?? service.maxPrice;
+      // A service with no price at all used to be booked at $0. A price of 0 is a free service and
+      // is fine; no price means the salon hasn't set one.
+      if (bookingAmount === null || bookingAmount === undefined) {
+        throw new BadRequestException(
+          `"${service.name}" doesn't have a price yet, so it can't be booked online. Please contact the salon.`,
+        );
+      }
 
       const appointment = this.bookingRepository.create({
         client: user,
@@ -767,6 +830,12 @@ export class BookingService {
       (sum, appt) => sum + Number(appt.amount),
       0,
     );
+
+    // Nothing to pay: confirm it straight away. This comes before the fees are worked out so a
+    // free booking doesn't use up the customer's "first booking with this salon".
+    if (bookingAmount <= 0) {
+      return this.confirmFreeBooking(appointments, orderId, user);
+    }
 
     // KHS's commission and acquisition fee come out of what the merchant is paid, not out of the
     // customer's pocket: the customer pays the service price (plus the card processing fee on
@@ -1164,6 +1233,13 @@ export class BookingService {
             100,
         ) / 100;
       const stripeChargeAmount = depositChargeBase + stripePassthroughAmount;
+      // Stripe refuses a charge under $0.50, which would only show up as a payment form that
+      // never loads.
+      if (Math.round(stripeChargeAmount * 100) < 50) {
+        throw new BadRequestException(
+          'Card payments have a minimum of $0.50. This booking is too small to pay by card.',
+        );
+      }
       // Informational only — the other 50% of the full price, due
       // directly to the merchant at the venue. Not persisted anywhere;
       // KHS has no further involvement with it.
