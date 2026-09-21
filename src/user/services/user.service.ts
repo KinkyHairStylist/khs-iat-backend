@@ -2,6 +2,7 @@ import {
   Injectable,
   Logger,
   BadRequestException,
+  ForbiddenException,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -393,6 +394,9 @@ export class UserService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
+    // Only after the password is right, so this never reveals which emails are registered.
+    this.assertCustomerAccount(user);
+
     user.activity = new Date().toISOString();
     await this.userRepository.save(user);
 
@@ -414,6 +418,19 @@ export class UserService {
       user: this.sanitizeUser(user),
       success: true,
     };
+  }
+
+  // The customer site is for customer accounts. A merchant or admin account signing in here would
+  // get a session it can't use (every customer action is refused), so it is turned away at the
+  // door with the way to the right place. An account that is a customer as well is let in.
+  private assertCustomerAccount(user: User): void {
+    if (user.isCustomer) return;
+    if (user.isStaff) {
+      throw new ForbiddenException('This is an admin account. Please sign in from the admin site.');
+    }
+    if (user.isMerchant || user.isBusinessStaff) {
+      throw new ForbiddenException('This is a merchant account. Please sign in as a merchant instead.');
+    }
   }
 
   async startResetPassword(
@@ -524,6 +541,9 @@ export class UserService {
       if (!user) {
         throw new UnauthorizedException('User not found');
       }
+      // A session that was opened before this rule (or by an account that has since changed type)
+      // ends here instead of being renewed.
+      this.assertCustomerAccount(user);
 
       const { accessToken, refreshToken: newRefreshToken } = await getTokens(
         this.jwtService,
