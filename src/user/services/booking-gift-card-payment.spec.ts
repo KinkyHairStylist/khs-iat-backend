@@ -76,6 +76,7 @@ function setup(opts: { giftBalance: number; bookingAmount?: number; firstBooking
   };
 
   const stripePaymentIntentRepository = {
+    find: jest.fn().mockResolvedValue([]),
     create: jest.fn((value: any) => value),
     save: jest.fn(async (value: any) => value),
   };

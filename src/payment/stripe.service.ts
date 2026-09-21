@@ -55,6 +55,17 @@ export class StripeService {
     }
   }
 
+  /** Cancels a PaymentIntent that has not been paid, so it can no longer be paid. */
+  async cancelPaymentIntent(paymentIntentId: string): Promise<Stripe.PaymentIntent> {
+    try {
+      return await this.stripe.paymentIntents.cancel(paymentIntentId);
+    } catch (error) {
+      throw new BadRequestException(
+        `Unable to cancel Stripe payment intent: ${error.message}`,
+      );
+    }
+  }
+
   async createRefund(payload: {
     paymentIntentId: string;
     amount?: number; // omit to refund in full

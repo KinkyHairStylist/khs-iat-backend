@@ -430,6 +430,35 @@ export class BookingService {
     };
   }
 
+  // Cancels earlier card payments for an order that were never paid, in Stripe and in the ledger. One
+  // that has been paid (or is being paid) is left alone. Never throws: a failure only leaves the old
+  // attempt as it was. At most 10 per call, so a long-standing pile clears over the next attempts.
+  private async cancelStaleAttempts(attempts: StripePaymentIntent[]): Promise<void> {
+    await Promise.allSettled(
+      attempts.slice(0, 10).map(async (attempt) => {
+        try {
+          const intent = await this.stripeService.retrievePaymentIntent(attempt.stripePaymentIntentId);
+          if (intent.status === 'succeeded' || intent.status === 'processing') return;
+          if (intent.status !== 'canceled') {
+            await this.stripeService.cancelPaymentIntent(attempt.stripePaymentIntentId);
+          }
+          await this.stripePaymentIntentRepository.update(
+            { stripePaymentIntentId: attempt.stripePaymentIntentId },
+            { status: StripeEscrowStatus.CANCELLED },
+          );
+          await this.transactionRepository.update(
+            { referenceId: attempt.stripePaymentIntentId, status: TxnStatus.PENDING },
+            { status: TxnStatus.CANCELLED },
+          );
+        } catch (error) {
+          this.logger.warn(
+            `Could not cancel the earlier payment attempt ${attempt.stripePaymentIntentId}: ${error?.message}`,
+          );
+        }
+      }),
+    );
+  }
+
   // Confirms a booking that costs nothing: no payment, no fees, no wallet movement.
   private async confirmFreeBooking(
     appointments: Appointment[],
@@ -1246,6 +1275,13 @@ export class BookingService {
       const remainingAtVenue = depositOnly
         ? Math.round((bookingAmount - depositChargeBase) * 100) / 100
         : 0;
+
+      // A new attempt replaces this order's earlier unpaid ones (the customer reloaded the page or
+      // changed the deposit or gift card), so an order has one live attempt instead of a pile.
+      const staleAttempts = await this.stripePaymentIntentRepository.find({
+        where: { orderId, status: StripeEscrowStatus.PENDING },
+      });
+      void this.cancelStaleAttempts(staleAttempts);
 
       const paymentIntent = await this.stripeService.createPaymentIntent({
         amount: Math.round(stripeChargeAmount * 100), // Convert to cents
