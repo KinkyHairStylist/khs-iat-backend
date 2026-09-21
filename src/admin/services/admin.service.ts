@@ -28,7 +28,19 @@ import { ApplicationStatus } from '../../business/types/constants';
 import {
   Appointment,
   AppointmentStatus,
+  PaymentStatus,
 } from '../../business/entities/appointment.entity';
+import { BUSINESS_CATEGORIES } from '../../business/types/category.enum';
+import {
+  ChangeType,
+  formatMoney,
+  formatMoneyExact,
+  percentChange,
+  shareOfLeader,
+  shareSlices,
+  statusColor,
+  statusLabel,
+} from '../../helpers/dashboard-stats.helper';
 import { AdminRole } from '../../middleware/admin-role.enum';
 import { Dispute, DisputeStatus } from '../../business/entities/dispute.entity';
 import { CreateMembershipPlanDto } from '../../business/dtos/requests/CreateMembershipDto';
@@ -46,6 +58,7 @@ import { GetUserDto } from '../dtos/GetUserDto';
 import {
   Transaction,
   TransactionStatus,
+  TransactionType,
 } from '../../business/entities/transaction.entity';
 
 @Injectable()
@@ -986,220 +999,214 @@ async getAllBusinesses() {
     return { message: `Business plan tier set to ${planTier}.` };
   }
 
+  // The numbers on the admin dashboard. Everything here comes from real records; when there is
+  // nothing to show a list comes back empty (the page shows an empty state) instead of sample data.
+  //   - Platform Revenue: the fees KHS keeps (type FEE, completed), the same definition the admin
+  //     wallet uses, so Stripe pass-through fees are left out. Merchant subscription payments are
+  //     billed in Stripe and aren't recorded as transactions, so they aren't in this figure.
+  //   - Active Users: distinct customers who booked in the last 30 days.
+  //   - Businesses: approved businesses only.
+  //   - Top salons: booking revenue (paid, not cancelled) made this month, per approved business.
   async getDashboardStats() {
     const now = new Date();
+    const DAY = 24 * 60 * 60 * 1000;
     const startOfCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
-    const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+    const oneWeekAgo = new Date(now.getTime() - 7 * DAY);
+    const twoWeeksAgo = new Date(now.getTime() - 14 * DAY);
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * DAY);
+    const sixtyDaysAgo = new Date(now.getTime() - 60 * DAY);
 
-    // 1. Total Revenue
-    const totalRevenueRaw = await this.transactionRepo
-      .createQueryBuilder('t')
-      .select('SUM(CAST(t.amount AS DECIMAL))', 'total')
-      .where('t.status = :status', { status: TransactionStatus.COMPLETED })
-      .getRawOne();
-    const totalRevenue = parseFloat(totalRevenueRaw?.total || '0') || 0;
+    // Platform revenue between two dates (or all time when no dates are given).
+    const platformRevenue = async (start?: Date, end?: Date): Promise<number> => {
+      const query = this.transactionRepo
+        .createQueryBuilder('t')
+        .select('COALESCE(SUM(t.amount), 0)', 'total')
+        .where('t.type = :fee', { fee: TransactionType.FEE })
+        .andWhere('t.status = :status', { status: TransactionStatus.COMPLETED })
+        .andWhere("(t.feeSubtype IS NULL OR t.feeSubtype != :passthrough)", {
+          passthrough: 'StripePassthrough',
+        });
+      if (start) query.andWhere('t.createdAt >= :start', { start });
+      if (end) query.andWhere('t.createdAt <= :end', { end });
+      const raw = await query.getRawOne();
+      return Number(raw?.total ?? 0) || 0;
+    };
 
-    const currentMonthRevenueRaw = await this.transactionRepo
-      .createQueryBuilder('t')
-      .select('SUM(CAST(t.amount AS DECIMAL))', 'total')
-      .where('t.status = :status AND t.createdAt >= :start', {
-        status: TransactionStatus.COMPLETED,
-        start: startOfCurrentMonth,
-      })
-      .getRawOne();
-    const currentMonthRev = parseFloat(currentMonthRevenueRaw?.total || '0') || 0;
+    const activeCustomers = async (start: Date, end: Date): Promise<number> => {
+      const raw = await this.appointmentRepo
+        .createQueryBuilder('a')
+        .select('COUNT(DISTINCT a.client_id)', 'total')
+        .where('a.createdAt >= :start AND a.createdAt < :end', { start, end })
+        .andWhere('a.status != :cancelled', { cancelled: AppointmentStatus.CANCELLED })
+        .andWhere('a.client_id IS NOT NULL')
+        .getRawOne();
+      return Number(raw?.total ?? 0) || 0;
+    };
 
-    const lastMonthRevenueRaw = await this.transactionRepo
-      .createQueryBuilder('t')
-      .select('SUM(CAST(t.amount AS DECIMAL))', 'total')
-      .where('t.status = :status AND t.createdAt >= :start AND t.createdAt <= :end', {
-        status: TransactionStatus.COMPLETED,
-        start: startOfLastMonth,
-        end: endOfLastMonth,
-      })
-      .getRawOne();
-    const lastMonthRev = parseFloat(lastMonthRevenueRaw?.total || '0') || 0;
+    const bookedBetween = (start: Date, end: Date) =>
+      this.appointmentRepo
+        .createQueryBuilder('a')
+        .where('a.createdAt >= :start AND a.createdAt < :end', { start, end })
+        .andWhere('a.status != :cancelled', { cancelled: AppointmentStatus.CANCELLED })
+        .getCount();
 
-    const revDiff = lastMonthRev > 0 ? ((currentMonthRev - lastMonthRev) / lastMonthRev) * 100 : (currentMonthRev > 0 ? 100 : 0);
-    const revenueChange = (revDiff >= 0 ? '+' : '') + revDiff.toFixed(1) + '%';
-    const revenueChangeType: 'increase' | 'decrease' = revDiff >= 0 ? 'increase' : 'decrease';
+    // 1. Platform revenue
+    const totalRevenue = await platformRevenue();
+    const currentMonthRev = await platformRevenue(startOfCurrentMonth);
+    const lastMonthRev = await platformRevenue(startOfLastMonth, endOfLastMonth);
+    const revenueChange = percentChange(currentMonthRev, lastMonthRev);
 
-    // 2. Active Users
-    const totalUsers = await this.userRepo.count();
-    const usersThisWeek = await this.userRepo
-      .createQueryBuilder('u')
-      .where('u.createdAt >= :oneWeekAgo', { oneWeekAgo })
-      .getCount();
-    const usersLastWeek = await this.userRepo
-      .createQueryBuilder('u')
-      .where('u.createdAt >= :twoWeeksAgo AND u.createdAt < :oneWeekAgo', {
-        twoWeeksAgo,
-        oneWeekAgo,
-      })
-      .getCount();
-    const userDiff = usersLastWeek > 0 ? ((usersThisWeek - usersLastWeek) / usersLastWeek) * 100 : (usersThisWeek > 0 ? 100 : 0);
-    const userChange = (userDiff >= 0 ? '+' : '') + userDiff.toFixed(1) + '%';
-    const userChangeType: 'increase' | 'decrease' = userDiff >= 0 ? 'increase' : 'decrease';
+    // 2. Active users (customers who booked)
+    const activeNow = await activeCustomers(thirtyDaysAgo, now);
+    const activeBefore = await activeCustomers(sixtyDaysAgo, thirtyDaysAgo);
+    const userChange = percentChange(activeNow, activeBefore);
 
-    // 3. Businesses
-    const totalBusinesses = await this.businessRepo.count();
+    // 3. Businesses (approved only)
+    const totalBusinesses = await this.businessRepo.count({
+      where: { status: BusinessStatus.APPROVED },
+    });
     const newBusinessesThisMonth = await this.businessRepo
       .createQueryBuilder('b')
-      .where('b.createdAt >= :startOfCurrentMonth', { startOfCurrentMonth })
+      .where('b.status = :approved', { approved: BusinessStatus.APPROVED })
+      .andWhere('b.createdAt >= :startOfCurrentMonth', { startOfCurrentMonth })
       .getCount();
 
-    // 4. Appointments
-    const totalAppointments = await this.appointmentRepo.count();
-    const appointmentsThisWeek = await this.appointmentRepo
+    // 4. Appointments (not cancelled)
+    const totalAppointments = await this.appointmentRepo
       .createQueryBuilder('a')
-      .where('a.createdAt >= :oneWeekAgo', { oneWeekAgo })
+      .where('a.status != :cancelled', { cancelled: AppointmentStatus.CANCELLED })
       .getCount();
-    const appointmentsLastWeek = await this.appointmentRepo
-      .createQueryBuilder('a')
-      .where('a.createdAt >= :twoWeeksAgo AND a.createdAt < :oneWeekAgo', {
-        twoWeeksAgo,
-        oneWeekAgo,
-      })
-      .getCount();
-    const apptDiff = appointmentsLastWeek > 0 ? ((appointmentsThisWeek - appointmentsLastWeek) / appointmentsLastWeek) * 100 : (appointmentsThisWeek > 0 ? 100 : 0);
-    const appointmentChange = (apptDiff >= 0 ? '+' : '') + apptDiff.toFixed(1) + '%';
-    const appointmentChangeType: 'increase' | 'decrease' = apptDiff >= 0 ? 'increase' : 'decrease';
+    const appointmentsThisWeek = await bookedBetween(oneWeekAgo, now);
+    const appointmentsLastWeek = await bookedBetween(twoWeeksAgo, oneWeekAgo);
+    const appointmentChange = percentChange(appointmentsThisWeek, appointmentsLastWeek);
 
-    // Format stat cards
     const statCards = [
       {
-        title: 'Total Revenue',
-        value: totalRevenue >= 1000 ? `$${(totalRevenue / 1000).toFixed(1)}K` : `$${totalRevenue.toFixed(2)}`,
+        title: 'Platform Revenue',
+        value: formatMoney(totalRevenue),
         rawValue: totalRevenue,
-        change: revenueChange,
-        changeType: revenueChangeType,
-        duration: 'from last month',
+        change: revenueChange.text,
+        changeType: revenueChange.type,
+        duration: 'vs last month',
       },
       {
         title: 'Active Users',
-        value: totalUsers.toLocaleString(),
-        rawValue: totalUsers,
-        change: userChange,
-        changeType: userChangeType,
-        duration: 'this week',
+        value: activeNow.toLocaleString(),
+        rawValue: activeNow,
+        change: userChange.text,
+        changeType: userChange.type,
+        duration: 'vs previous 30 days',
       },
       {
         title: 'Businesses',
         value: totalBusinesses.toLocaleString(),
         rawValue: totalBusinesses,
         change: `+${newBusinessesThisMonth} new`,
-        changeType: 'increase' as const,
+        changeType: (newBusinessesThisMonth > 0 ? 'increase' : 'neutral') as ChangeType,
         duration: 'this month',
       },
       {
         title: 'Appointments',
         value: totalAppointments.toLocaleString(),
         rawValue: totalAppointments,
-        change: appointmentChange,
-        changeType: appointmentChangeType,
-        duration: 'this week',
+        change: appointmentChange.text,
+        changeType: appointmentChange.type,
+        duration: 'vs last week',
       },
     ];
 
-    // 5. Monthly Revenue Overview (Last 6 Months)
+    // 5. Monthly platform revenue (last 6 months)
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const revenueOverview: Array<{ month: string; revenue: number }> = [];
     for (let i = 5; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const start = new Date(d.getFullYear(), d.getMonth(), 1);
       const end = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
-      const monthRevRaw = await this.transactionRepo
-        .createQueryBuilder('t')
-        .select('SUM(CAST(t.amount AS DECIMAL))', 'total')
-        .where('t.status = :status AND t.createdAt >= :start AND t.createdAt <= :end', {
-          status: TransactionStatus.COMPLETED,
-          start,
-          end,
-        })
-        .getRawOne();
       revenueOverview.push({
         month: monthNames[d.getMonth()],
-        revenue: parseFloat(monthRevRaw?.total || '0') || 0,
+        revenue: Math.round((await platformRevenue(d, end)) * 100) / 100,
       });
     }
 
-    // 6. Service Distribution
-    const serviceDistributionRaw = await this.appointmentRepo
+    // 6. Service distribution: bookings by service category, all non-cancelled bookings
+    const serviceRows = await this.appointmentRepo
       .createQueryBuilder('a')
-      .select('a.serviceName', 'name')
+      .leftJoin('a.service', 's')
+      .select('s.category', 'category')
       .addSelect('COUNT(a.id)', 'count')
-      .groupBy('a.serviceName')
-      .orderBy('count', 'DESC')
-      .limit(4)
+      .where('a.status != :cancelled', { cancelled: AppointmentStatus.CANCELLED })
+      .groupBy('s.category')
       .getRawMany();
 
+    const categoryLabels = new Map(BUSINESS_CATEGORIES.map((c) => [String(c.value), c.label]));
     const colors = ['#ef4444', '#f87171', '#fca5a5', '#fecaca'];
-    const totalServCount = serviceDistributionRaw.reduce((sum, r) => sum + parseInt(r.count || '0', 10), 0);
-    const serviceDistribution = serviceDistributionRaw.length > 0
-      ? serviceDistributionRaw.map((r, index) => {
-          const count = parseInt(r.count || '0', 10);
-          const percent = totalServCount > 0 ? Math.round((count / totalServCount) * 100) : 0;
-          return {
-            name: r.name || 'General Service',
-            value: percent,
-            color: colors[index % colors.length],
-          };
-        })
-      : [
-          { name: 'Hair Services', value: 45, color: '#ef4444' },
-          { name: 'Nail Services', value: 25, color: '#f87171' },
-          { name: 'Spa Services', value: 20, color: '#fca5a5' },
-          { name: 'Beauty Services', value: 10, color: '#fecaca' },
-        ];
+    const serviceDistribution = shareSlices(
+      serviceRows.map((r) => ({
+        name: r.category ? categoryLabels.get(String(r.category)) ?? 'Other' : 'Other',
+        count: parseInt(r.count || '0', 10),
+      })),
+      4,
+    ).map((slice, index) => ({ ...slice, color: colors[index % colors.length] }));
 
-    // 7. Top Businesses Performance
-    const topBusinessesRaw = await this.businessRepo
-      .createQueryBuilder('b')
+    // 7. Top salons this month, by paid booking revenue
+    const topRows = await this.appointmentRepo
+      .createQueryBuilder('a')
+      .innerJoin('a.business', 'b')
       .select('b.id', 'id')
       .addSelect('b.businessName', 'name')
-      .addSelect('b.performance', 'performance')
+      .addSelect('SUM(a.amount)', 'revenue')
+      .where('b.status = :approved', { approved: BusinessStatus.APPROVED })
+      .andWhere('a.paymentStatus = :paid', { paid: PaymentStatus.PAID })
+      .andWhere('a.status != :cancelled', { cancelled: AppointmentStatus.CANCELLED })
+      .andWhere('a.createdAt >= :startOfCurrentMonth', { startOfCurrentMonth })
+      .groupBy('b.id')
+      .addGroupBy('b.businessName')
+      .orderBy('SUM(a.amount)', 'DESC')
       .limit(5)
       .getRawMany();
 
-    const topBusinesses = topBusinessesRaw.map((b, index) => ({
-      id: b.name || `Business ${index + 1}`,
-      revenue: `$${Math.round((5 - index) * 1250)}`,
-      percentage: Math.max(20, 85 - index * 15),
+    const topAmounts = topRows.map((r) => Number(r.revenue) || 0);
+    const topShares = shareOfLeader(topAmounts);
+    const topBusinesses = topRows.map((r, index) => ({
+      id: r.id,
+      name: r.name || 'Unnamed business',
+      revenue: formatMoneyExact(topAmounts[index]),
+      percentage: topShares[index],
     }));
 
-    // 8. Recent Activities
-    const recentAppts = await this.appointmentRepo.find({
-      order: { createdAt: 'DESC' },
-      take: 3,
-    });
+    // 8. Recent activity: newest businesses and bookings together, newest first
+    const recentBusinesses = await this.businessRepo.find({ order: { createdAt: 'DESC' }, take: 5 });
+    const recentAppts = await this.appointmentRepo.find({ order: { createdAt: 'DESC' }, take: 5 });
 
-    const recentBusinesses = await this.businessRepo.find({
-      order: { createdAt: 'DESC' },
-      take: 2,
-    });
+    const recentActivities = [
+      ...recentBusinesses.map((b) => ({
+        kind: 'business' as const,
+        title: 'New business registered',
+        description: b.businessName,
+        status: statusLabel(b.status),
+        statusColor: statusColor(b.status),
+        at: new Date(b.createdAt),
+      })),
+      ...recentAppts.map((a) => ({
+        kind: 'appointment' as const,
+        title: `Appointment ${String(a.status ?? 'booked').toLowerCase()}`,
+        description: [a.serviceName, a.business?.businessName].filter(Boolean).join(' · '),
+        status: statusLabel(a.status),
+        statusColor: statusColor(a.status),
+        at: new Date(a.createdAt),
+      })),
+    ]
+      .sort((x, y) => y.at.getTime() - x.at.getTime())
+      .slice(0, 6)
+      .map((item) => ({ ...item, at: item.at.toISOString() }));
 
     return {
       statCards,
       revenueOverview,
       serviceDistribution,
       topBusinesses,
-      recentActivities: [
-        ...recentBusinesses.map((b) => ({
-          title: `New business ${b.status === BusinessStatus.APPROVED ? 'approved' : 'registered'}`,
-          description: `${b.businessName} - ${new Date(b.createdAt).toLocaleDateString()}`,
-          status: b.status || 'Active',
-          statusColor: 'bg-green-100 text-green-800',
-        })),
-        ...recentAppts.map((a) => ({
-          title: `Appointment ${a.status || 'scheduled'}`,
-          description: `${a.serviceName || 'Service'} - ${new Date(a.createdAt).toLocaleDateString()}`,
-          status: a.status || 'Confirmed',
-          statusColor: 'bg-blue-100 text-blue-800',
-        })),
-      ],
+      recentActivities,
     };
   }
 }
