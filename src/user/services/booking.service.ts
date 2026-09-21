@@ -2106,6 +2106,34 @@ export class BookingService {
       .execute();
   }
 
+  // Fields of a user that must never be sent to anyone else (or back to the user in a booking).
+  private static readonly USER_SECRET_FIELDS = [
+    'password',
+    'verificationCode',
+    'verificationExpires',
+    'resetCode',
+    'resetCodeExpires',
+    'refreshTokens',
+  ] as const;
+
+  private withoutSecrets<T>(user: T): T {
+    if (!user || typeof user !== 'object') return user;
+    const copy: any = { ...(user as any) };
+    for (const field of BookingService.USER_SECRET_FIELDS) delete copy[field];
+    return copy;
+  }
+
+  // A booking can only be read or changed by the customer who made it. A booking that isn't theirs
+  // is reported as not found, so its existence isn't given away. If there is no such booking at all
+  // the caller's own "not found" handling applies.
+  private async assertOwnsOrder(orderId: string, user: User): Promise<void> {
+    const where = this.isUuid(orderId) ? { id: orderId } : { orderId };
+    const appointments = await this.bookingRepository.find({ where, relations: ['client'] });
+    if (appointments.length > 0 && !appointments.some((a) => a.client?.id === user?.id)) {
+      throw new NotFoundException('No appointments found for this order ID');
+    }
+  }
+
   async getUserBookings(userId: string): Promise<Appointment[]> {
     await this.expireStalePendingBookings(userId);
 
@@ -2124,7 +2152,8 @@ export class BookingService {
   }
 
   // Get Booking by ID
-  async getBookingById(orderId: string): Promise<Appointment[]> {
+  async getBookingById(orderId: string, user: User): Promise<Appointment[]> {
+    await this.assertOwnsOrder(orderId, user);
     const whereCondition = this.isUuid(orderId) ? { id: orderId } : { orderId };
 
     const appointments = await this.bookingRepository.find({
@@ -2147,6 +2176,8 @@ export class BookingService {
 
     return appointments.map((a) => ({
       ...a,
+      client: this.withoutSecrets(a.client),
+      business: a.business ? { ...a.business, owner: this.withoutSecrets(a.business.owner) } : a.business,
       hasReview: reviewedOrderIds.has(a.orderId),
     })) as Appointment[];
   }
@@ -2154,6 +2185,7 @@ export class BookingService {
   // Cancel Booking
   async cancelBooking(
     orderId: string,
+    user: User,
     cancellationsNote?: string,
     acceptedTerms?: boolean,
     serviceIds?: string[],
@@ -2175,6 +2207,9 @@ export class BookingService {
       khsShare: number;
     };
   }> {
+    // Only the customer who made the booking can cancel it: cancelling can forfeit what they paid.
+    await this.assertOwnsOrder(orderId, user);
+
     if (!acceptedTerms) {
       throw new BadRequestException(
         'You must accept the cancellation terms to proceed',
@@ -2622,7 +2657,9 @@ export class BookingService {
 
   async restoreBooking(
     orderId: string,
+    user: User,
   ): Promise<{ message: string; requiresPayment: boolean }> {
+    await this.assertOwnsOrder(orderId, user);
     const appointment = await this.bookingRepository.findOne({
       where: { orderId },
       relations: ['client'],
@@ -2745,10 +2782,12 @@ export class BookingService {
   // Reschedule Booking
   async rescheduleBooking(
     orderId: string,
+    user: User,
     newDate: Date,
     newTime: string,
     timezoneOffsetMinutes?: number,
   ): Promise<{ message: string; requiresPayment: boolean }> {
+    await this.assertOwnsOrder(orderId, user);
     const appointment = await this.bookingRepository.findOne({
       where: { orderId },
       relations: ['client'],

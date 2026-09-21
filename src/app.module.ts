@@ -32,7 +32,8 @@ import { NotificationSettingsModule } from './user/modules/notification-settings
 import { NotificationModule } from './notifications/notification.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { ClassSerializerInterceptor } from '@nestjs/common';
 
 import { ClientModule } from './business/client.module';
 import { UserModule } from './user/modules/user.module';
@@ -140,6 +141,11 @@ import { LandingModule } from './landing/landing.module';
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
+    },
+    // Applies the @Exclude markers on entities (a user's password and reset codes) to every response.
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: ClassSerializerInterceptor,
     },
   ],
 })

@@ -84,8 +84,8 @@ export class BusinessController {
   @Roles(Role.Merchant, Role.Staff, Role.BusinessStaff)
   @RequirePermission(Permission.MANAGE_BOOKINGS)
   @Post('completeBooking/:id')
-  async completeBooking(@Param('id') id: string) {
-    return this.businessService.completeBooking(id);
+  async completeBooking(@Req() req: RequestWithUser, @Param('id') id: string) {
+    return this.businessService.completeBooking(id, req.user);
   }
 
   @ApiBearerAuth('access-token')
@@ -93,8 +93,8 @@ export class BusinessController {
   @Roles(Role.Merchant, Role.Staff, Role.BusinessStaff)
   @RequirePermission(Permission.MANAGE_BOOKINGS)
   @Post('assign-staff-to-booking')
-  async assignStaffToBooking(@Body() body: AssignStaffToBookingDto) {
-    return this.businessService.assignStaffToAppointment(body);
+  async assignStaffToBooking(@Req() req: RequestWithUser, @Body() body: AssignStaffToBookingDto) {
+    return this.businessService.assignStaffToAppointment(body, req.user);
   }
 
   @ApiBearerAuth('access-token')
@@ -126,9 +126,10 @@ export class BusinessController {
   @RequirePermission(Permission.MANAGE_BOOKINGS)
   @Post('rescheduleBooking')
   async rescheduleBooking(
+    @Req() req: RequestWithUser,
     @Body() body: { id: string; reason: string; date: string; time: string },
   ) {
-    return this.businessService.rescheduleBooking(body);
+    return this.businessService.rescheduleBooking(body, req.user);
   }
 
   @ApiBearerAuth('access-token')
@@ -136,8 +137,8 @@ export class BusinessController {
   @Roles(Role.Merchant, Role.Staff, Role.BusinessStaff)
   @RequirePermission(Permission.MANAGE_BOOKINGS)
   @Post('acceptBooking/:id')
-  async acceptBooking(@Param('id') id: string) {
-    return this.businessService.acceptBooking(id);
+  async acceptBooking(@Req() req: RequestWithUser, @Param('id') id: string) {
+    return this.businessService.acceptBooking(id, req.user);
   }
 
   @ApiBearerAuth('access-token')
@@ -145,8 +146,8 @@ export class BusinessController {
   @Roles(Role.Merchant, Role.Staff, Role.BusinessStaff)
   @RequirePermission(Permission.MANAGE_BOOKINGS)
   @Post('rejectBooking/:id')
-  async rejectBooking(@Param('id') id: string) {
-    return this.businessService.rejectBooking(id);
+  async rejectBooking(@Req() req: RequestWithUser, @Param('id') id: string) {
+    return this.businessService.rejectBooking(id, req.user);
   }
 
   @ApiBearerAuth('access-token')
@@ -154,8 +155,8 @@ export class BusinessController {
   @Roles(Role.Merchant, Role.Staff, Role.BusinessStaff)
   @RequirePermission(Permission.VIEW_BOOKINGS)
   @Get('getBooking/:id')
-  async getBooking(@Param('id') id: string) {
-    return this.businessService.getBooking(id);
+  async getBooking(@Req() req: RequestWithUser, @Param('id') id: string) {
+    return this.businessService.getBooking(id, req.user);
   }
 
   // ── BLOCKED TIME / SCHEDULE ───────────────────────────────────────────────
@@ -183,7 +184,7 @@ export class BusinessController {
     @Req() req: RequestWithUser,
   ) {
     body.ownerMail = req.user.email;
-    return this.businessService.editBlockedTime(id, body);
+    return this.businessService.editBlockedTime(id, body, req.user);
   }
 
   @ApiBearerAuth('access-token')
@@ -191,8 +192,8 @@ export class BusinessController {
   @Roles(Role.Merchant, Role.Staff, Role.BusinessStaff)
   @RequirePermission(Permission.MANAGE_OWN_SCHEDULE)
   @Post('deleteBlockedSlot/:id')
-  async deleteBlockedSlot(@Param('id') id: string) {
-    return this.businessService.deleteBlockedSlot(id);
+  async deleteBlockedSlot(@Req() req: RequestWithUser, @Param('id') id: string) {
+    return this.businessService.deleteBlockedSlot(id, req.user);
   }
 
   @ApiBearerAuth('access-token')
@@ -221,10 +222,11 @@ export class BusinessController {
   @RequirePermission(Permission.MANAGE_STAFF)
   @Post('editStaff/:staffId')
   async editStaff(
+    @Req() req: RequestWithUser,
     @Param('staffId') staffId: string,
     @Body() body: EditStaffDto,
   ) {
-    return this.businessService.editStaff(staffId, body);
+    return this.businessService.editStaff(staffId, body, req.user);
   }
 
   @ApiBearerAuth('access-token')
@@ -232,8 +234,8 @@ export class BusinessController {
   @Roles(Role.Merchant, Role.Staff, Role.BusinessStaff)
   @RequirePermission(Permission.MANAGE_STAFF)
   @Post('deactivateStaff/:id')
-  async deactivateStaff(@Param('id') id: string) {
-    return this.businessService.deactivateStaff(id);
+  async deactivateStaff(@Req() req: RequestWithUser, @Param('id') id: string) {
+    return this.businessService.deactivateStaff(id, req.user);
   }
 
   @ApiBearerAuth('access-token')
@@ -254,7 +256,7 @@ export class BusinessController {
     @Req() req: RequestWithUser,
     @Body() body: AssignStaffToServiceDto,
   ) {
-    return this.businessService.assignStaffToService(body);
+    return this.businessService.assignStaffToService(body, req.user);
   }
 
   // Sets ONE staff member's own list of assigned services — unlike
@@ -320,7 +322,7 @@ export class BusinessController {
     @Req() req: RequestWithUser,
     @Body() body: UpdateServiceDto,
   ) {
-    return this.businessService.updateService(serviceId, body);
+    return this.businessService.updateService(serviceId, body, req.user);
   }
 
   @ApiBearerAuth('access-token')

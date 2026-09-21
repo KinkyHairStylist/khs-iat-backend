@@ -563,42 +563,4 @@ export class UserService {
     }
   }
 
-  async updateUser(userId: string, dto: any): Promise<any> {
-    try {
-      const user = await this.userRepository.findOne({ where: { id: userId } });
-
-      if (!user) {
-        return {
-          success: false,
-          message: 'User not found',
-        };
-      }
-
-      // ✅ Convert dateOfBirth string → Date
-      if (dto.dateOfBirth) {
-        dto.dateOfBirth = new Date(dto.dateOfBirth) as any;
-      }
-
-      // ✅ Hash password ONLY if provided
-      if (dto.password) {
-        dto.password = await this.passwordUtil.hashPassword(dto.password);
-      }
-
-      Object.assign(user, dto);
-
-      await this.userRepository.save(user);
-
-      return {
-        success: true,
-        data: user,
-        message: 'User updated successfully',
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: 'Failed to update user',
-        error: error.message,
-      };
-    }
-  }
 }

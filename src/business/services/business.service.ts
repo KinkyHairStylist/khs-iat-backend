@@ -3,6 +3,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Admin, In, Not, Repository } from 'typeorm';
@@ -229,7 +230,46 @@ export class BusinessService {
     return business;
   }
 
-async getBooking(id: string) {
+  // May the signed-in user act on this business? A platform admin can; so can its owner, and a
+  // staff member of it. Anyone else gets a 403, so a salon can't read or change another salon's
+  // bookings, staff, services or schedule by guessing an id.
+  private async assertCanActOnBusiness(user: User, businessId: string | undefined): Promise<void> {
+    if (user?.isStaff) return;
+    const userId = user?.id;
+    if (!userId || !businessId) {
+      throw new ForbiddenException('You can only manage your own business');
+    }
+    const owned = await this.businessRepo.findOne({ where: { id: businessId, owner: { id: userId } } });
+    if (owned) return;
+    const ownBusiness = await this.getBusinessFromStaff(userId);
+    if (ownBusiness?.id === businessId) return;
+    throw new ForbiddenException('You can only manage your own business');
+  }
+
+  // The checks below do nothing when the record doesn't exist, so each method's own "not found"
+  // handling still applies.
+  private async assertCanActOnAppointment(id: string, user: User): Promise<void> {
+    const appointment = await this.appointmentRepo.findOne({ where: { id }, relations: ['business'] });
+    if (appointment) await this.assertCanActOnBusiness(user, appointment.business?.id);
+  }
+
+  private async assertCanActOnStaffMember(id: string, user: User): Promise<void> {
+    const staff = await this.staffRepo.findOne({ where: { id }, relations: ['business'] });
+    if (staff) await this.assertCanActOnBusiness(user, staff.business?.id);
+  }
+
+  private async assertCanActOnService(id: string, user: User): Promise<void> {
+    const service = await this.serviceRepo.findOne({ where: { id }, relations: ['business'] });
+    if (service) await this.assertCanActOnBusiness(user, service.business?.id);
+  }
+
+  private async assertCanActOnBlockedSlot(id: string, user: User): Promise<void> {
+    const slot = await this.blockedSlotRepo.findOne({ where: { id }, relations: ['business'] });
+    if (slot) await this.assertCanActOnBusiness(user, slot.business?.id);
+  }
+
+  async getBooking(id: string, user: User) {
+    await this.assertCanActOnAppointment(id, user);
   const appointment = await this.appointmentRepo.findOne({
     where: { id },
     relations: ['client', 'businessClient', 'staff', 'service', 'service.assignedStaff'],
@@ -246,7 +286,8 @@ async getBooking(id: string) {
   return { ...appointment, review };
 }
 
-  async completeBooking(id: string) {
+  async completeBooking(id: string, user: User) {
+    await this.assertCanActOnAppointment(id, user);
     const appointment = await this.appointmentRepo.findOne({
       where: { id },
       relations: ['business', 'client', 'businessClient'],
@@ -680,7 +721,8 @@ async getBooking(id: string) {
     return slots;
   }
 
-  async editBlockedTime(id: string, dto: CreateBlockedTimeDto) {
+  async editBlockedTime(id: string, dto: CreateBlockedTimeDto, user: User) {
+    await this.assertCanActOnBlockedSlot(id, user);
     const slot = await this.blockedSlotRepo.findOne({ where: { id } });
     if (!slot) {
       throw new NotFoundException('Blocked slot not found');
@@ -842,7 +884,8 @@ async getBooking(id: string) {
     return staff;
   }
 
-  async editStaff(staffId: string, editStaffDto: EditStaffDto): Promise<Staff> {
+  async editStaff(staffId: string, editStaffDto: EditStaffDto, user: User): Promise<Staff> {
+    await this.assertCanActOnStaffMember(staffId, user);
     const staff = await this.staffRepo.findOne({
       where: { id: staffId },
       relations: ['addresses', 'emergencyContacts'],
@@ -946,7 +989,8 @@ async getBooking(id: string) {
     return await this.blockedSlotRepo.save(blockedSlot);
   }
 
-  async deleteBlockedSlot(slotId: string) {
+  async deleteBlockedSlot(slotId: string, user: User) {
+    await this.assertCanActOnBlockedSlot(slotId, user);
     await this.blockedSlotRepo.delete({ id: slotId });
     return { message: 'Blocked time deleted successfully' };
   }
@@ -973,13 +1017,17 @@ async getBooking(id: string) {
     return date.toLocaleDateString('en-US', { weekday: 'long' });
   }
 
-  async rescheduleBooking(body: {
-    id: string;
-    reason: string;
-    date: string;
-    time: string;
-  }) {
+  async rescheduleBooking(
+    body: {
+      id: string;
+      reason: string;
+      date: string;
+      time: string;
+    },
+    user: User,
+  ) {
     const { id, date, time } = body;
+    await this.assertCanActOnAppointment(id, user);
 
     const appointment = await this.appointmentRepo.findOne({
       where: { id },
@@ -1055,7 +1103,8 @@ async getBooking(id: string) {
     );
   }
 
-  async rejectBooking(id: string) {
+  async rejectBooking(id: string, user: User) {
+    await this.assertCanActOnAppointment(id, user);
     const appointment = await this.appointmentRepo.findOne({
       where: { id },
       relations: ['client', 'business'],
@@ -1118,7 +1167,8 @@ async getBooking(id: string) {
     return appointment;
   }
 
-  async acceptBooking(id: string) {
+  async acceptBooking(id: string, user: User) {
+    await this.assertCanActOnAppointment(id, user);
     const appointment = await this.appointmentRepo.findOne({
       where: { id },
       relations: ['client', 'business'],
@@ -1385,7 +1435,8 @@ async getBooking(id: string) {
     return this.serviceRepo.save(service);
   }
 
-  async updateService(serviceId: string, updateServiceDto: UpdateServiceDto) {
+  async updateService(serviceId: string, updateServiceDto: UpdateServiceDto, user: User) {
+    await this.assertCanActOnService(serviceId, user);
     const service = await this.serviceRepo.findOne({
       where: { id: serviceId },
       relations: ['business'],
@@ -1461,8 +1512,9 @@ async getBooking(id: string) {
     return { message: 'Service deleted successfully' };
   }
 
-  async assignStaffToService(assignStaffDto: AssignStaffToServiceDto) {
+  async assignStaffToService(assignStaffDto: AssignStaffToServiceDto, user: User) {
     const { serviceId, staffIds } = assignStaffDto;
+    await this.assertCanActOnService(serviceId, user);
 
     // Find the service
     const service = await this.serviceRepo.findOne({
@@ -1559,8 +1611,9 @@ async getBooking(id: string) {
     };
   }
 
-  async assignStaffToAppointment(dto: AssignStaffToBookingDto) {
+  async assignStaffToAppointment(dto: AssignStaffToBookingDto, user: User) {
     const { appointmentId, staffIds } = dto;
+    await this.assertCanActOnAppointment(appointmentId, user);
 
     // Find the appointment (booking)
     const appointment = await this.appointmentRepo.findOne({
@@ -1595,7 +1648,8 @@ async getBooking(id: string) {
     };
   }
 
-  async deactivateStaff(id: string) {
+  async deactivateStaff(id: string, user: User) {
+    await this.assertCanActOnStaffMember(id, user);
     const staff = await this.staffRepo.findOne({
       where: { id: id },
       relations: ['business'],
