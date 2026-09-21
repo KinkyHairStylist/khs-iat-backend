@@ -23,6 +23,8 @@ export class TopEarningsResponseDto {
 
 export class TotalWalletBalanceDto {
   amount: string;
+  available: string;
+  held: string;
   growthPercent: string | null;
 }
 
@@ -33,7 +35,7 @@ export class PendingWithdrawalsDto {
 
 export class TodaysEarningsDto {
   amount: string;
-  growthPercent: string;
+  growthPercent: string | null;
 }
 
 export class PlatformFeesDto {

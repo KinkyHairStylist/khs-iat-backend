@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Transaction } from 'src/business/entities/transaction.entity';
+import { Wallet } from 'src/business/entities/wallet.entity';
 import { TopEarningsQueryDto, TopEarningsResponseDto  } from './dto/top-earnings-query.dto';
 import { TransactionType, TransactionStatus } from 'src/business/entities/transaction.entity'
 @Injectable()
@@ -123,28 +124,18 @@ export class WalletService {
     const now = new Date();
 
     // ----------------------------
-    // Total Wallet Balance
+    // Total Wallet Balance: what the business wallets hold right now. "Available" can be
+    // withdrawn; "held" is still in the payout hold after a completed booking.
     // ----------------------------
-    const totalIncomeRaw = await this.transactionRepo
-      .createQueryBuilder('txn')
-      .select('SUM(txn.amount)', 'totalIncome')
-      .where('txn.type = :earning', { earning: TransactionType.EARNING })
-      .andWhere('txn.status = :completed', { completed: TransactionStatus.COMPLETED })
+    const walletTotalsRaw = await this.transactionRepo.manager
+      .createQueryBuilder()
+      .select('COALESCE(SUM(w.balance), 0)', 'available')
+      .addSelect('COALESCE(SUM(w.pendingBalance), 0)', 'held')
+      .from(Wallet, 'w')
       .getRawOne();
-
-    // Stripe passthrough fee rows are excluded here: that money goes to
-    // Stripe, it was never platform revenue, so it shouldn't inflate
-    // "total expenses" any more than it should inflate "platform fees"
-    // below.
-    const totalExpensesRaw = await this.transactionRepo
-      .createQueryBuilder('txn')
-      .select('SUM(txn.amount)', 'totalExpenses')
-      .where('txn.type IN (:...types)', { types: [TransactionType.WITHDRAWAL, TransactionType.DEBIT, TransactionType.FEE] })
-      .andWhere('txn.status = :completed', { completed: TransactionStatus.COMPLETED })
-      .andWhere("(txn.feeSubtype IS NULL OR txn.feeSubtype != :passthrough)", { passthrough: 'StripePassthrough' })
-      .getRawOne();
-
-    const totalBalance = Number(totalIncomeRaw.totalIncome ?? 0) - Number(totalExpensesRaw.totalExpenses ?? 0);
+    const available = Number(walletTotalsRaw?.available ?? 0);
+    const held = Number(walletTotalsRaw?.held ?? 0);
+    const totalBalance = available + held;
 
     // ----------------------------
     // Pending Withdrawals
@@ -183,9 +174,10 @@ export class WalletService {
 
     const todayEarnings = Number(earningsTodayRaw.todayTotal ?? 0);
     const yesterdayEarnings = Number(earningsYesterdayRaw.yesterdayTotal ?? 0);
-    const todayPercentage = yesterdayEarnings > 0
-      ? ((todayEarnings - yesterdayEarnings) / yesterdayEarnings) * 100
-      : 100;
+    const todayPercentage =
+      yesterdayEarnings > 0
+        ? ((todayEarnings - yesterdayEarnings) / yesterdayEarnings) * 100
+        : null;
 
     // ----------------------------
     // Platform Fees
@@ -199,11 +191,21 @@ export class WalletService {
       .getRawOne();
 
     const totalFees = Number(feesRaw.totalFees ?? 0);
-    const avgFeeRate = totalBalance > 0 ? (totalFees / totalBalance) * 100 : 0;
+
+    const paymentsRaw = await this.transactionRepo
+      .createQueryBuilder('txn')
+      .select('SUM(txn.amount)', 'volume')
+      .where('txn.type = :debit', { debit: TransactionType.DEBIT })
+      .andWhere('txn.status = :completed', { completed: TransactionStatus.COMPLETED })
+      .getRawOne();
+    const paymentsVolume = Number(paymentsRaw?.volume ?? 0);
+    const avgFeeRate = paymentsVolume > 0 ? (totalFees / paymentsVolume) * 100 : 0;
 
     return {
       totalWalletBalance: {
         amount: totalBalance.toFixed(2),
+        available: available.toFixed(2),
+        held: held.toFixed(2),
         growthPercent: null, // Optionally calculate vs last month if you want
       },
       pendingWithdrawals: {
@@ -212,7 +214,7 @@ export class WalletService {
       },
       todaysEarnings: {
         amount: todayEarnings.toFixed(2),
-        growthPercent: todayPercentage.toFixed(1),
+        growthPercent: todayPercentage === null ? null : todayPercentage.toFixed(1),
       },
       platformFees: {
         amount: totalFees.toFixed(2),

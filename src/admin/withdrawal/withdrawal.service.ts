@@ -204,12 +204,4 @@ export class WithdrawalService {
   async getPending(): Promise<Withdrawal[]> {
     return this.withdrawalRepo.find({ where: { status: 'Pending' } });
   }
-
-  // Delete all withdrawal requests
-  async deleteAll(): Promise<{ message: string }> {
-    await this.withdrawalRepo.clear();
-    return {
-      message: 'All withdrawal requests have been deleted successfully',
-    };
-  }
 }

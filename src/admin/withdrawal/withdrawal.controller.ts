@@ -57,9 +57,4 @@ export class WithdrawalController {
   async reject(@Param('id') id: string) {
     return this.withdrawalService.reject(id);
   }
-  
-  @Delete('delete/all')
-  async deleteAll() {
-    return this.withdrawalService.deleteAll();
   }
-}
