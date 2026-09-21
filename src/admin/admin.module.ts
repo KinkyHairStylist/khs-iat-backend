@@ -32,6 +32,12 @@ import { MerchantSubscriptionCronService } from '../business/services/merchant-s
 import { MerchantPlansService } from '../business/services/merchant-plans.service';
 import { AdminPlansController } from './controllers/admin-plans.controller';
 import { AdminUsersController } from './controllers/admin-users.controller';
+import { AdminMerchantMembershipsController } from './controllers/admin-merchant-memberships.controller';
+import { AdminMerchantMembershipsService } from './services/admin-merchant-memberships.service';
+import { MerchantMembershipModule } from '../business/merchant-membership.module';
+import { MerchantMembershipPackage } from '../business/entities/merchant-membership-package.entity';
+import { MerchantMembershipPurchase } from '../business/entities/merchant-membership-purchase.entity';
+import { Service } from '../business/entities/service.entity';
 import { AdminUserCreationService } from './services/admin-user-creation.service';
 import { BusinessModule } from '../business/business.module';
 import { ReferralModule } from '../user/modules/referral.module';
@@ -54,6 +60,8 @@ import { PlatformSettingsService } from './platform-settings/platform-settings.s
     TypeOrmModule.forFeature([Refund]),
     TypeOrmModule.forFeature([MerchantSubscription]),
     TypeOrmModule.forFeature([PlatformSettingsEntity]),
+    TypeOrmModule.forFeature([MerchantMembershipPackage, MerchantMembershipPurchase, Service]),
+    MerchantMembershipModule,
     CloudinaryModule,
     BusinessWalletModule,
     EmailModule,
@@ -66,10 +74,12 @@ import { PlatformSettingsService } from './platform-settings/platform-settings.s
     AdminAuthController,
     AdminPlansController,
     AdminUsersController,
+    AdminMerchantMembershipsController,
   ],
   providers: [
     AdminService,
     AdminUserCreationService,
+    AdminMerchantMembershipsService,
     PaymentService,
     StripeService,
     MerchantSubscriptionService,
