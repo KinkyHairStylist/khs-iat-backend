@@ -23,6 +23,7 @@ export class NotificationController {
       user.id,
       query.page || 1,
       query.limit || 20,
+      query.unreadOnly === true,
     );
   }
 

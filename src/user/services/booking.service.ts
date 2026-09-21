@@ -575,7 +575,7 @@ export class BookingService {
           message: isCardPayment
             ? `Payment of $${p.amountPaid.toFixed(2)} received for booking by ${p.customerName} (${p.serviceNames}).`
             : `A new booking has been placed by ${p.customerName} for ${p.serviceNames}.`,
-          link: '/merchant/dashboard/appointments',
+          link: '/merchant/dashboard/bookings',
           metadata: {
             orderId: p.orderId,
             salonId: business.id,
@@ -641,7 +641,7 @@ export class BookingService {
           type: NotificationType.BOOKING_CANCELLED,
           title: 'Booking Cancelled',
           message: `${p.customerName} cancelled ${p.serviceNames} (${p.date} at ${p.time}).`,
-          link: '/merchant/dashboard/appointments',
+          link: '/merchant/dashboard/bookings',
           metadata: {
             orderId: p.orderId,
             salonId: business.id,
@@ -1150,7 +1150,7 @@ export class BookingService {
             type: NotificationType.BOOKING_CONFIRMED,
             title: 'Booking Confirmed',
             message: `Your booking at ${appointments[0].business?.businessName || 'the salon'} for ${serviceNames} has been confirmed.`,
-            link: '/customer/bookings',
+            link: '/customer/appointment/booking-management',
             metadata: {
               orderId,
               salonId: appointments[0].business?.id,
@@ -1721,7 +1721,7 @@ export class BookingService {
         type: NotificationType.BOOKING_CONFIRMED,
         title: 'Booking Confirmed',
         message: `Your booking at ${firstAppointment.business?.businessName || 'the salon'} for ${serviceNames} has been confirmed.`,
-        link: '/customer/bookings',
+        link: '/customer/appointment/booking-management',
         metadata: {
           orderId,
           salonId: firstAppointment.business?.id,
@@ -2581,7 +2581,7 @@ export class BookingService {
           type: NotificationType.BOOKING_CANCELLED,
           title: 'Booking Cancelled',
           message: `Your booking for ${serviceNames} has been cancelled.`,
-          link: '/customer/bookings',
+          link: '/customer/appointment/booking-management',
           metadata: {
             orderId,
             cancelledCount: appointmentsToCancel.length,
@@ -2746,7 +2746,7 @@ export class BookingService {
           type: NotificationType.SYSTEM,
           title: 'Client Confirmed Availability',
           message: `${clientName} has confirmed their availability for appointment ${firstAppointment.orderId || orderId} (${serviceNames}) on ${firstAppointment.date} at ${firstAppointment.time}.`,
-          link: '/merchant/dashboard/appointments',
+          link: '/merchant/dashboard/bookings',
           metadata: {
             orderId: firstAppointment.orderId || orderId,
             salonId: firstAppointment.business?.id,
