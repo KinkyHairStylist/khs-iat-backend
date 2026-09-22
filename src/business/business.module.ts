@@ -1,6 +1,5 @@
 import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { JwtModule } from '@nestjs/jwt';
 import { Review } from './entities/review.entity';
 import { AuthService } from './services/auth.service';
 import { AuthController } from './controllers/auth.controller';
@@ -55,7 +54,13 @@ import { StaffCommissionEarning } from './entities/staff-commission-earning.enti
       StripePaymentIntent,
       StaffCommissionEarning,
     ]),
-    JwtModule.register({}),
+    // JwtModule is already registered globally (with the real secret) in app.module.ts —
+    // a local JwtModule.register({}) used to sit here with no secret at all, which shadowed
+    // the global one for every guard/service resolved through this module. That's what was
+    // breaking JwtAuthGuard on BusinessController's routes (business-details, owner-details,
+    // getServices, getBookings, getTeamMembers — all "secret or public key must be provided"
+    // for a real, valid, correctly-signed token that worked fine on every other module's
+    // routes). Found and fixed 2026-09-22.
     EmailModule,
     GoogleCalendarModule,
     MailchimpModule,
