@@ -23,6 +23,20 @@ import {
 } from 'src/business/entities/transaction.entity';
 import { WalletCurrency } from 'src/admin/payment/enums/wallet.enum';
 import { PlatformSettingsService } from 'src/admin/platform-settings/platform-settings.service';
+import {
+  DEFAULT_CANCELLATION_WINDOW_HOURS,
+  resolveCancellationWindowHours,
+} from 'src/helpers/cancellation-window.helper';
+import { IntegrationSyncService } from 'src/integration/services/integration-sync.service';
+import {
+  checkBookingAgainstRules,
+  parseClockToMinutes,
+  parseDurationToMinutes,
+  resolveBookingRules,
+  wallClockNowMs,
+} from 'src/helpers/booking-rules.helper';
+import { BlockedTimeSlot } from 'src/business/entities/blocked-time-slot.entity';
+import { chooseStylist, eligibleStylists } from '../utils/stylist-assignment';
 import { EmailService } from 'src/email/email.service';
 import { TemplateService } from 'src/email/template.service';
 import { NotificationSettingsService } from './notification-settings.service';
@@ -50,6 +64,7 @@ import {
 import { Card } from 'src/all_user_entities/card.entity';
 import { BusinessGiftCard } from 'src/business/entities/business-giftcard.entity';
 import { BusinessGiftCardStatus } from 'src/business/enum/gift-card.enum';
+import { assertGiftCardUsable } from './gift-card-usability';
 import { User } from 'src/all_user_entities/user.entity';
 import { ReviewService } from 'src/business/services/review.service';
 import { BusinessWalletService } from 'src/business/services/wallet.service';
@@ -107,7 +122,17 @@ export class BookingService {
     private readonly notificationSettingsService: NotificationSettingsService,
     private readonly notificationService: NotificationService,
     private readonly slackService: SlackService,
+    private readonly integrationSync: IntegrationSyncService,
   ) {}
+
+  // Keeps the salon's connected apps (Google Calendar, Mailchimp, ZohoBooks) in
+  // step with a booking. Fire and forget: a slow or failing integration never
+  // delays or fails the booking itself.
+  private syncIntegrations(run: () => Promise<void>): void {
+    void run().catch((err) =>
+      this.logger.error(`Integration sync failed: ${err?.message}`),
+    );
+  }
 
   // Booking confirmation emails should only be sent if the customer hasn't
   // turned them off in Settings — defaults to true (matches the entity's
@@ -115,6 +140,51 @@ export class BookingService {
   private async shouldSendBookingConfirmationEmail(user: User): Promise<boolean> {
     const settings = await this.notificationSettingsService.getSettings(user);
     return settings.emailBookingConfirmations;
+  }
+
+  // Takes a fee from the salon's wallet, for a booking whose money was already credited to the salon
+  // (a gift card bought earlier). Never fails the booking: it alerts instead.
+  private async debitBookingFee(
+    businessId: string,
+    ownerId: string,
+    amount: number,
+    orderId: string,
+    kind: 'Acquisition' | 'Commission',
+  ): Promise<void> {
+    try {
+      try {
+        await this.walletService.getWalletByBusinessId(businessId);
+      } catch {
+        await this.walletService.createWalletForBusiness({
+          businessId,
+          ownerId,
+          currency: WalletCurrency.USD,
+          description: 'Business wallet - auto-created from booking',
+        });
+      }
+      await this.walletService.debitWithPendingFallback({
+        businessId,
+        amount,
+        type: TransactionType.FEE,
+        feeSubtype: kind,
+        referenceId: orderId,
+        description: `${kind === 'Acquisition' ? 'Acquisition fee' : 'Commission'} for appointment order ${orderId}`,
+        senderId: ownerId,
+      });
+    } catch (error) {
+      this.logger.error(`${kind} debit failed for order ${orderId}: ${error?.message}`);
+      StructuredSlackService.notify({
+        node: SlackNode.PAYMENT,
+        provider: SlackProvider.STRIPE,
+        severity: SlackSeverity.CRITICAL,
+        type: SlackEventType.ERROR_ALERT,
+        trigger: `${kind} not collected for order ${orderId}`,
+        body: `A gift-card-paid booking was confirmed, but debiting the ${kind.toLowerCase()} from the salon's wallet failed, so KHS did not collect it.
+• Order: ${orderId}
+• Amount: $${amount.toFixed(2)}
+• Error: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
   }
 
   // Computes the acquisition fee (tier %, one-time per business+client pair)
@@ -255,7 +325,7 @@ export class BookingService {
         await manager.save(
           Transaction,
           manager.create(Transaction, {
-            senderId: user.id,
+            senderId: ownerId,
             amount: totalCommission,
             type: TransactionType.FEE,
             feeSubtype: 'Commission',
@@ -321,6 +391,18 @@ export class BookingService {
     // The only confirmBooking branch that previously sent neither a
     // confirmation email nor a Slack notification.
     const serviceNames = [...new Set(appointments.map((a) => a.serviceName))].join(', ');
+    await this.notifyMerchantOfNewBooking({
+      businessId: business.id,
+      orderId,
+      customerId: user.id,
+      customerName: `${user.firstName} ${user.surname}`,
+      serviceNames,
+      date: appointments[0].date,
+      time: appointments[0].time,
+      amountPaid: totalDebit,
+      paymentNote: `Paid with membership (${sessionsNeeded} ${sessionsNeeded === 1 ? 'session' : 'sessions'} used)`,
+    });
+    this.syncIntegrations(() => this.integrationSync.onBookingConfirmed(orderId));
     this.slackService.notify(
       `⭐ *Booking Confirmed via Membership Redemption*\n` +
       `• *Order ID*: \`${orderId}\`\n` +
@@ -351,10 +433,243 @@ export class BookingService {
     };
   }
 
+  // Cancels earlier card payments for an order that were never paid, in Stripe and in the ledger. One
+  // that has been paid (or is being paid) is left alone. Never throws: a failure only leaves the old
+  // attempt as it was. At most 10 per call, so a long-standing pile clears over the next attempts.
+  private async cancelStaleAttempts(attempts: StripePaymentIntent[]): Promise<void> {
+    await Promise.allSettled(
+      attempts.slice(0, 10).map(async (attempt) => {
+        try {
+          const intent = await this.stripeService.retrievePaymentIntent(attempt.stripePaymentIntentId);
+          if (intent.status === 'succeeded' || intent.status === 'processing') return;
+          if (intent.status !== 'canceled') {
+            await this.stripeService.cancelPaymentIntent(attempt.stripePaymentIntentId);
+          }
+          await this.stripePaymentIntentRepository.update(
+            { stripePaymentIntentId: attempt.stripePaymentIntentId },
+            { status: StripeEscrowStatus.CANCELLED },
+          );
+          await this.transactionRepository.update(
+            { referenceId: attempt.stripePaymentIntentId, status: TxnStatus.PENDING },
+            { status: TxnStatus.CANCELLED },
+          );
+        } catch (error) {
+          this.logger.warn(
+            `Could not cancel the earlier payment attempt ${attempt.stripePaymentIntentId}: ${error?.message}`,
+          );
+        }
+      }),
+    );
+  }
+
+  // Confirms a booking that costs nothing: no payment, no fees, no wallet movement.
+  private async confirmFreeBooking(
+    appointments: Appointment[],
+    orderId: string,
+    user: User,
+  ): Promise<any> {
+    await this.dataSource.manager.transaction(async (manager) => {
+      for (const appointment of appointments) {
+        appointment.status = AppointmentStatus.CONFIRMED;
+        appointment.paymentStatus = PaymentStatus.PAID;
+        this.applyPendingRebookDate(appointment);
+      }
+      await manager.save(Appointment, appointments);
+    });
+
+    const business = appointments[0].business;
+    const serviceNames = [...new Set(appointments.map((a) => a.serviceName))].join(', ');
+    await this.notifyMerchantOfNewBooking({
+      businessId: business?.id,
+      orderId,
+      customerId: user.id,
+      customerName: `${user.firstName} ${user.surname}`,
+      serviceNames,
+      date: appointments[0].date,
+      time: appointments[0].time,
+      amountPaid: 0,
+      paymentNote: 'Free booking, nothing to pay',
+    });
+    this.syncIntegrations(() => this.integrationSync.onBookingConfirmed(orderId));
+    this.slackService.notify(
+      `🆓 *Free Booking Confirmed*\n` +
+      `• *Order ID*: \`${orderId}\`\n` +
+      `• *Customer*: ${user.firstName || 'Customer'} ${user.surname || ''} (${user.email})\n` +
+      `• *Salon*: ${business?.businessName || 'the salon'}\n` +
+      `• *Services*: ${serviceNames}`,
+    );
+    if (user.email) {
+      this.emailService.sendBookingConfirmationEmail(
+        user.email,
+        user.firstName || 'Customer',
+        business?.businessName || 'the salon',
+        serviceNames,
+        appointments[0].date,
+        appointments[0].time,
+        orderId,
+        undefined,
+        'Free booking',
+      );
+    }
+
+    return {
+      message: 'Booking confirmed successfully. There was nothing to pay.',
+      totalAmount: 0,
+      success: true,
+    };
+  }
+
   private isUuid(value: string): boolean {
     return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(
       value,
     );
+  }
+
+  // The business's own alerts (in-app + email) default to on: only an explicit
+  // false in Settings > Notifications turns one off. KHS is always told (email
+  // + Slack) whatever the business chose.
+  private businessAlertEnabled(
+    business: Business | null | undefined,
+    alert: 'newBookingAlerts' | 'cancellationAlerts',
+  ): boolean {
+    return (
+      business?.ownerSettings?.notifications?.businessNotifications?.[alert] !==
+      false
+    );
+  }
+
+  // Tells the salon (in-app + email) and KHS (email; Slack is sent by the
+  // caller) that a booking was confirmed. amountPaid + no paymentNote means a
+  // card payment; otherwise paymentNote says how it was paid, e.g. "Paid with
+  // a gift card".
+  private async notifyMerchantOfNewBooking(p: {
+    businessId?: string;
+    orderId: string;
+    customerId: string;
+    customerName: string;
+    serviceNames: string;
+    date: string;
+    time: string;
+    amountPaid: number;
+    paymentNote?: string;
+  }): Promise<void> {
+    try {
+      if (!p.businessId) return;
+      const business = await this.businessRepository.findOne({
+        where: { id: p.businessId },
+        relations: ['owner', 'ownerSettings'],
+      });
+      if (!business) return;
+
+      const merchantId = business.ownerId || business.owner?.id;
+      const merchantEmail = business.ownerEmail || business.owner?.email;
+      const merchantName =
+        business.ownerName ||
+        `${business.owner?.firstName ?? ''} ${business.owner?.surname ?? ''}`.trim() ||
+        'Salon Owner';
+      const businessAlerts = this.businessAlertEnabled(business, 'newBookingAlerts');
+      const isCardPayment = !p.paymentNote;
+
+      if (businessAlerts && merchantId) {
+        await this.notificationService.create({
+          userId: merchantId,
+          type: NotificationType.BOOKING_CONFIRMED,
+          title: isCardPayment ? 'New Booking & Payment Received' : 'New Booking Confirmed',
+          message: isCardPayment
+            ? `Payment of $${p.amountPaid.toFixed(2)} received for booking by ${p.customerName} (${p.serviceNames}).`
+            : `A new booking has been placed by ${p.customerName} for ${p.serviceNames}.`,
+          link: '/merchant/dashboard/bookings',
+          metadata: {
+            orderId: p.orderId,
+            salonId: business.id,
+            customerId: p.customerId,
+            amountPaid: p.amountPaid,
+          },
+        });
+      }
+
+      // The salon's email copies KHS. If the salon turned alerts off, KHS still
+      // gets the email on its own.
+      const to = (businessAlerts && merchantEmail) || this.emailService.khsTeamEmail;
+      if (to) {
+        this.emailService.sendMerchantBookingNotificationEmail(
+          to,
+          merchantName,
+          p.customerName,
+          business.businessName || 'Your Salon',
+          p.serviceNames,
+          p.date,
+          p.time,
+          p.orderId,
+          p.amountPaid,
+          p.paymentNote,
+        );
+      }
+    } catch (err) {
+      this.logger.error(`Failed to notify merchant of new booking ${p.orderId}:`, err);
+    }
+  }
+
+  // Tells the salon (in-app + email) and KHS (email; Slack is sent by the
+  // caller) that a client cancelled.
+  private async notifyMerchantOfCancellation(p: {
+    businessId?: string;
+    orderId: string;
+    customerId: string;
+    customerName: string;
+    serviceNames: string;
+    date: string;
+    time: string;
+    moneyNote?: string;
+  }): Promise<void> {
+    try {
+      if (!p.businessId) return;
+      const business = await this.businessRepository.findOne({
+        where: { id: p.businessId },
+        relations: ['owner', 'ownerSettings'],
+      });
+      if (!business) return;
+
+      const merchantId = business.ownerId || business.owner?.id;
+      const merchantEmail = business.ownerEmail || business.owner?.email;
+      const merchantName =
+        business.ownerName ||
+        `${business.owner?.firstName ?? ''} ${business.owner?.surname ?? ''}`.trim() ||
+        'Salon Owner';
+      const businessAlerts = this.businessAlertEnabled(business, 'cancellationAlerts');
+
+      if (businessAlerts && merchantId) {
+        await this.notificationService.create({
+          userId: merchantId,
+          type: NotificationType.BOOKING_CANCELLED,
+          title: 'Booking Cancelled',
+          message: `${p.customerName} cancelled ${p.serviceNames} (${p.date} at ${p.time}).`,
+          link: '/merchant/dashboard/bookings',
+          metadata: {
+            orderId: p.orderId,
+            salonId: business.id,
+            customerId: p.customerId,
+          },
+        });
+      }
+
+      const to = (businessAlerts && merchantEmail) || this.emailService.khsTeamEmail;
+      if (to) {
+        this.emailService.sendMerchantCancellationNotificationEmail(
+          to,
+          merchantName,
+          p.customerName,
+          business.businessName || 'Your Salon',
+          p.serviceNames,
+          p.date,
+          p.time,
+          p.orderId,
+          p.moneyNote,
+        );
+      }
+    } catch (err) {
+      this.logger.error(`Failed to notify merchant of cancellation ${p.orderId}:`, err);
+    }
   }
 
   // Create Booking
@@ -365,6 +680,7 @@ export class BookingService {
     // Get business
     const business = await this.businessRepository.findOne({
       where: { id: createBookingDto.salonId },
+      relations: ['bookingPolicies', 'ownerSettings'],
     });
 
     if (!business) {
@@ -375,6 +691,7 @@ export class BookingService {
     const orderId = `BKID-${Math.floor(1000000 + Math.random() * 9000000)}`;
 
     const appointments: Appointment[] = [];
+    const bookedServices: Service[] = [];
 
     // Create appointments for each service
     for (const serviceId of createBookingDto.serviceIds) {
@@ -389,10 +706,16 @@ export class BookingService {
 
       // Variable-priced services store price as null and hold the actual
       // range on minPrice/maxPrice — appointments.amount is NOT NULL, so
-      // fall back to minPrice (then maxPrice, then 0). Final amount for
+      // fall back to minPrice (then maxPrice). Final amount for
       // variable services is settled during confirmBooking / at venue.
-      const bookingAmount =
-        service.price ?? service.minPrice ?? service.maxPrice ?? 0;
+      const bookingAmount = service.price ?? service.minPrice ?? service.maxPrice;
+      // A service with no price at all used to be booked at $0. A price of 0 is a free service and
+      // is fine; no price means the salon hasn't set one.
+      if (bookingAmount === null || bookingAmount === undefined) {
+        throw new BadRequestException(
+          `"${service.name}" doesn't have a price yet, so it can't be booked online. Please contact the salon.`,
+        );
+      }
 
       const appointment = this.bookingRepository.create({
         client: user,
@@ -406,16 +729,144 @@ export class BookingService {
         amount: bookingAmount,
         status: AppointmentStatus.PENDING,
         paymentStatus: PaymentStatus.UNPAID,
-        staff: service.assignedStaff || [],
+        // Who does it is decided below, once the time and the salon's rules are known.
+        staff: [],
       });
 
       appointments.push(appointment);
+      bookedServices.push(service);
     }
+
+    // The salon's scheduling rules (lead time, advance limit, same-day
+    // cutoff, buffer, double booking) — checked before anything is saved.
+    const totalDuration = appointments.reduce((sum, a) => sum + parseDurationToMinutes(a.duration), 0) || 30;
+    await this.assertBookingAllowedByRules(
+      business,
+      createBookingDto.date,
+      createBookingDto.time,
+      totalDuration,
+      createBookingDto.timezoneOffsetMinutes,
+    );
+
+    // The stylist the customer chose, or one who is free and can do these services.
+    await this.assignStylist(business, createBookingDto, bookedServices, appointments, totalDuration);
 
     // Save appointments
     await this.bookingRepository.save(appointments);
 
     return { orderId, appointments };
+  }
+
+  // Decides who does a new booking and puts them on every appointment in it. A stylist the customer asked for
+  // has to be on the team, able to do the services, and free then. With none asked for, one free stylist who can
+  // do them is picked (the one with the fewest appointments that day); a salon with nobody to assign leaves the
+  // booking unassigned, as before. Only ever one stylist per booking: it used to attach everyone assigned to the
+  // service, which blocked all of them for the slot and counted the booking for each.
+  private async assignStylist(
+    business: Business,
+    dto: { date: string; time: string; staffId?: string },
+    services: Service[],
+    appointments: Appointment[],
+    durationMinutes: number,
+  ): Promise<void> {
+    const startMinutes = parseClockToMinutes(dto.time);
+    const day = String(dto.date).slice(0, 10);
+    const rules = resolveBookingRules(business);
+
+    const activeStaff = await this.staffRepository.find({
+      where: { business: { id: business.id }, isActive: true },
+    });
+    const candidates = eligibleStylists(activeStaff, services);
+
+    if (startMinutes === null) {
+      if (dto.staffId) throw new BadRequestException('That time could not be read, so a stylist could not be checked.');
+      return;
+    }
+
+    const rows = await this.bookingRepository
+      .createQueryBuilder('a')
+      .leftJoinAndSelect('a.staff', 's')
+      .where('a.business_id = :businessId', { businessId: business.id })
+      .andWhere('a.date = :day', { day })
+      .andWhere('a.status != :cancelled', { cancelled: AppointmentStatus.CANCELLED })
+      .getMany();
+    // An unpaid PENDING hold only takes the time until it expires (see assertBookingAllowedByRules).
+    const holdCutoff = Date.now() - BookingService.PENDING_EXPIRY_MINUTES * 60 * 1000;
+    const dayAppointments = rows
+      .filter((r) => r.status !== AppointmentStatus.PENDING || new Date(r.createdAt).getTime() >= holdCutoff)
+      .map((r) => ({ time: r.time, duration: r.duration, staffIds: (r.staff ?? []).map((st) => st.id) }));
+
+    const blocks = await this.bookingRepository.manager.getRepository(BlockedTimeSlot).find({
+      where: { business: { id: business.id }, date: day },
+    });
+
+    const result = chooseStylist({
+      requestedId: dto.staffId,
+      candidates,
+      slot: { startMinutes, durationMinutes, bufferMinutes: rules.bufferMinutes },
+      appointments: dayAppointments,
+      blocks,
+      allowDoubleBookings: rules.allowDoubleBookings,
+    });
+
+    if (!result.ok) {
+      throw new BadRequestException(
+        result.reason === 'not-eligible'
+          ? "That stylist can't do the services you picked. Please choose another stylist, or any stylist."
+          : 'That stylist is no longer free at this time. Please choose another time or stylist.',
+      );
+    }
+
+    for (const appointment of appointments) {
+      appointment.staff = result.stylist ? [result.stylist as any] : [];
+    }
+  }
+
+  // Throws a BadRequestException with a client-readable reason when the
+  // requested slot breaks the salon's booking rules. excludeOrderId lets a
+  // reschedule ignore the appointment being moved.
+  private async assertBookingAllowedByRules(
+    business: Business,
+    date: string,
+    time: string,
+    durationMinutes: number,
+    timezoneOffsetMinutes?: number,
+    excludeOrderId?: string,
+  ): Promise<void> {
+    const rules = resolveBookingRules(business);
+
+    let existing: { date: string; time: string; duration: string }[] = [];
+    if (!rules.allowDoubleBookings) {
+      const qb = this.bookingRepository
+        .createQueryBuilder('a')
+        .select(['a.id', 'a.date', 'a.time', 'a.duration', 'a.status', 'a.createdAt'])
+        .where('a.business_id = :businessId', { businessId: business.id })
+        .andWhere('a.date = :date', { date: String(date).slice(0, 10) })
+        .andWhere('a.status != :cancelled', { cancelled: AppointmentStatus.CANCELLED });
+      if (excludeOrderId) {
+        qb.andWhere('a."orderId" != :excludeOrderId', { excludeOrderId });
+      }
+      const rows = await qb.getMany();
+
+      // An unpaid PENDING hold only blocks the slot until it expires, the
+      // same window expireStalePendingBookings uses.
+      const holdCutoff = Date.now() - BookingService.PENDING_EXPIRY_MINUTES * 60 * 1000;
+      existing = rows.filter(
+        (r) =>
+          r.status !== AppointmentStatus.PENDING ||
+          new Date(r.createdAt).getTime() >= holdCutoff,
+      );
+    }
+
+    const problem = checkBookingAgainstRules({
+      rules,
+      date,
+      time,
+      durationMinutes,
+      nowWallClockMs: wallClockNowMs(timezoneOffsetMinutes),
+      existing,
+    });
+    if (problem) throw new BadRequestException(problem);
   }
 
   // Promotes a staged Rebook date/time onto the real date/time fields and
@@ -443,11 +894,19 @@ export class BookingService {
     // Find all appointments for this orderId
     const appointments = await this.bookingRepository.find({
       where: { orderId, client: { id: user.id } },
-      relations: ['business', 'business.owner'],
+      relations: ['business', 'business.owner', 'business.ownerSettings'],
     });
 
     if (appointments.length === 0) {
       throw new NotFoundException('No appointments found for this order ID');
+    }
+
+    // Merchants can turn the 50% deposit option off for their salon; unset counts as on.
+    if (
+      depositOnly &&
+      appointments[0].business?.ownerSettings?.pricingPolicies?.allowDepositPayment === false
+    ) {
+      throw new BadRequestException('This salon does not accept deposit payments');
     }
 
     if (
@@ -476,18 +935,17 @@ export class BookingService {
       0,
     );
 
-    // Acquisition fee (tier %, one-time per business+client) + flat
-    // commission — replaces the old single flat platformFee. See
-    // calculateBookingFees for the race-safe first-booking detection.
-    const { acquisitionFeeAmount, commissionAmount } =
-      await this.calculateBookingFees(
-        appointments[0].business,
-        user.id,
-        orderId,
-        bookingAmount,
-      );
-    const feeAmount = acquisitionFeeAmount + commissionAmount;
-    const totalAmount = bookingAmount + feeAmount;
+    // Nothing to pay: confirm it straight away. This comes before the fees are worked out so a
+    // free booking doesn't use up the customer's "first booking with this salon".
+    if (bookingAmount <= 0) {
+      return this.confirmFreeBooking(appointments, orderId, user);
+    }
+
+    // KHS's commission and acquisition fee come out of what the merchant is paid, not out of the
+    // customer's pocket: the customer pays the service price (plus the card processing fee on
+    // the Stripe path). The fees are worked out below and only recorded so they can be deducted
+    // from the merchant.
+    const totalAmount = bookingAmount;
 
     // Round to 2 decimal places
     const roundedTotalAmount = Math.round(totalAmount * 100) / 100;
@@ -501,11 +959,7 @@ export class BookingService {
         where: { code: giftCard },
       });
 
-      if (!gift) throw new BadRequestException('Gift card not found');
-      if (gift.status !== BusinessGiftCardStatus.ACTIVE)
-        throw new BadRequestException('Gift card is not active');
-      if (gift.remainingAmount <= 0)
-        throw new BadRequestException('Gift card has no balance');
+      assertGiftCardUsable(gift, appointments[0].business.id);
 
       giftCardPayment = Math.min(
         Number(gift.remainingAmount),
@@ -517,13 +971,32 @@ export class BookingService {
       remainingToPay = Math.round(remainingToPay * 100) / 100;
     }
 
+    // Acquisition fee (tier %, one-time per business+client) + flat commission — replaces the old
+    // single flat platformFee. See calculateBookingFees for the race-safe first-booking detection.
+    // Both are on the whole booking, whatever pays for it: a gift card doesn't waive them. The salon
+    // was credited the gift card's full value when it was sold, so the part of the fees that the
+    // card payment can't cover is debited from the salon's wallet.
+    const { acquisitionFeeAmount, commissionAmount } =
+      await this.calculateBookingFees(
+        appointments[0].business,
+        user.id,
+        orderId,
+        bookingAmount,
+      );
+    const feeAmount = acquisitionFeeAmount + commissionAmount;
+    // Who the fee transactions below are recorded against.
+    const feePayerId = appointments[0].business?.owner?.id ?? user.id;
+
     // Handle full gift card payment (no card needed) - check this FIRST
     if (remainingToPay <= 0) {
       return await this.dataSource.manager.transaction(async (manager) => {
+        // Locked so two confirmations racing on one card cannot both spend it.
         const gift = await manager.findOne(BusinessGiftCard, {
           where: { code: giftCard },
+          lock: { mode: 'pessimistic_write' },
         });
-        if (!gift || Number(gift.remainingAmount) < totalAmount) {
+        assertGiftCardUsable(gift, appointments[0].business.id);
+        if (Number(gift.remainingAmount) < totalAmount) {
           throw new BadRequestException('Insufficient gift card balance');
         }
 
@@ -560,90 +1033,17 @@ export class BookingService {
         });
         await manager.save(Transaction, bookingTx);
 
-        // Create acquisition + commission fee transactions
+        // The salon was credited the gift card's full value when it was sold, so both fees are
+        // debited from its wallet. That records them too.
         if (acquisitionFeeAmount > 0) {
-          const acqTx = manager.create(Transaction, {
-            senderId: user.id,
-            amount: acquisitionFeeAmount,
-            type: TransactionType.FEE,
-            feeSubtype: 'Acquisition',
-            currency: WalletCurrency.USD,
-            description: `Acquisition fee for appointment order ${orderId}`,
-            mode: 'Web',
-            referenceId: orderId,
-            status: TxnStatus.COMPLETED,
-            method: PaymentMethod.GIFTCARD,
-            service: 'Booking-Fee',
-            customerName: `${user.firstName} ${user.surname}`,
-          });
-          await manager.save(Transaction, acqTx);
+          await this.debitBookingFee(appointments[0].business.id, feePayerId, acquisitionFeeAmount, orderId, 'Acquisition');
         }
         if (commissionAmount > 0) {
-          const commTx = manager.create(Transaction, {
-            senderId: user.id,
-            amount: commissionAmount,
-            type: TransactionType.FEE,
-            feeSubtype: 'Commission',
-            currency: WalletCurrency.USD,
-            description: `Commission for appointment order ${orderId}`,
-            mode: 'Web',
-            referenceId: orderId,
-            status: TxnStatus.COMPLETED,
-            method: PaymentMethod.GIFTCARD,
-            service: 'Booking-Fee',
-            customerName: `${user.firstName} ${user.surname}`,
-          });
-          await manager.save(Transaction, commTx);
+          await this.debitBookingFee(appointments[0].business.id, feePayerId, commissionAmount, orderId, 'Commission');
         }
 
-        // Add funds to business wallet for gift card payment
-        try {
-          const businessId = appointments[0].business.id;
-          const ownerId = appointments[0].business.owner?.id;
-
-          if (businessId && ownerId) {
-            // Try to get wallet, create if doesn't exist
-            try {
-              await this.walletService.getWalletByBusinessId(businessId);
-            } catch (walletNotFoundError) {
-              // Wallet doesn't exist, create it
-              await this.walletService.createWalletForBusiness({
-                businessId,
-                ownerId,
-                currency: WalletCurrency.USD,
-                description: 'Business wallet - auto-created from booking',
-              });
-            }
-
-            await this.walletService.addFunds({
-              businessId,
-              recipientId: ownerId,
-              senderId: user.id,
-              amount: bookingAmount, // Amount credited to business (excluding platform fee)
-              type: TransactionType.EARNING,
-              description: `Gift card booking payment for order ${orderId}`,
-              referenceId: orderId,
-              currency: WalletCurrency.USD,
-              mode: 'Web',
-              method: PaymentMethod.GIFTCARD,
-            });
-          }
-        } catch (walletError) {
-          console.error('Failed to add funds to business wallet:', walletError);
-          // Customer is already charged (via gift card) and the booking is
-          // confirmed below — if crediting the merchant fails here, the
-          // merchant is never paid, with nothing else set up to retry it.
-          StructuredSlackService.notify({
-            node: SlackNode.PAYMENT,
-            provider: SlackProvider.STRIPE,
-            severity: SlackSeverity.CRITICAL,
-            type: SlackEventType.ERROR_ALERT,
-            trigger: `Gift-card booking wallet credit failed for order ${orderId}`,
-            body: `A gift-card-paid booking was confirmed, but crediting the merchant's wallet for it failed — the merchant is not paid.
-• Order: ${orderId}
-• Error: ${walletError instanceof Error ? walletError.message : String(walletError)}`,
-          });
-        }
+        // The salon is not credited here: it was paid when the gift card was bought. Crediting it
+        // again would pay for the same money twice.
 
         if (user.email && (await this.shouldSendBookingConfirmationEmail(user))) {
           const serviceNames = [
@@ -663,6 +1063,18 @@ export class BookingService {
           const serviceNames = [
             ...new Set(appointments.map((a) => a.serviceName)),
           ].join(', ');
+          await this.notifyMerchantOfNewBooking({
+            businessId: appointments[0].business?.id,
+            orderId,
+            customerId: user.id,
+            customerName: `${user.firstName} ${user.surname}`,
+            serviceNames,
+            date: appointments[0].date,
+            time: appointments[0].time,
+            amountPaid: bookingAmount,
+            paymentNote: `Paid $${bookingAmount.toFixed(2)} with a gift card`,
+          });
+          this.syncIntegrations(() => this.integrationSync.onBookingConfirmed(orderId));
           this.slackService.notify(
             `🎁 *Booking Confirmed via Gift Card*\n` +
             `• *Order ID*: \`${orderId}\`\n` +
@@ -757,7 +1169,7 @@ export class BookingService {
         // Create acquisition + commission fee transactions
         if (acquisitionFeeAmount > 0) {
           const acqTx = manager.create(Transaction, {
-            senderId: user.id,
+            senderId: feePayerId,
             amount: acquisitionFeeAmount,
             type: TransactionType.FEE,
             feeSubtype: 'Acquisition',
@@ -774,7 +1186,7 @@ export class BookingService {
         }
         if (commissionAmount > 0) {
           const commTx = manager.create(Transaction, {
-            senderId: user.id,
+            senderId: feePayerId,
             amount: commissionAmount,
             type: TransactionType.FEE,
             feeSubtype: 'Commission',
@@ -813,7 +1225,7 @@ export class BookingService {
             type: NotificationType.BOOKING_CONFIRMED,
             title: 'Booking Confirmed',
             message: `Your booking at ${appointments[0].business?.businessName || 'the salon'} for ${serviceNames} has been confirmed.`,
-            link: '/customer/bookings',
+            link: '/customer/appointment/booking-management',
             metadata: {
               orderId,
               salonId: appointments[0].business?.id,
@@ -824,25 +1236,22 @@ export class BookingService {
           this.logger.error('Failed to create in-app notification for pay-at-venue:', err);
         }
 
-          // ADD MERCHANT NOTIFICATION HERE
     try {
       const firstAppointment = appointments[0];
-      const merchantId = firstAppointment.business?.ownerId || firstAppointment.business?.owner?.id;
       const serviceNames = [...new Set(appointments.map((a) => a.serviceName))].join(', ');
-      if (merchantId) {
-        await this.notificationService.create({
-          userId: merchantId,
-          type: NotificationType.BOOKING_CONFIRMED,
-          title: 'New Booking Confirmed',
-          message: `A new booking has been placed by ${user.firstName} ${user.surname} for ${serviceNames}.`,
-          link: '/merchant/dashboard/appointments',
-          metadata: {
-            orderId,
-            salonId: firstAppointment.business?.id,
-            customerId: user.id,
-          },
-        });
-      }
+      const dueAtVenue = remainingToPay + payAtVenueSurcharge;
+      await this.notifyMerchantOfNewBooking({
+        businessId: firstAppointment.business?.id,
+        orderId,
+        customerId: user.id,
+        customerName: `${user.firstName} ${user.surname}`,
+        serviceNames,
+        date: firstAppointment.date,
+        time: firstAppointment.time,
+        amountPaid: 0,
+        paymentNote: `Client pays $${dueAtVenue.toFixed(2)} at the venue`,
+      });
+      this.syncIntegrations(() => this.integrationSync.onBookingConfirmed(orderId));
 
       this.slackService.notify(
         `📅 *Booking Confirmed (Pay at Venue)*\n` +
@@ -928,12 +1337,26 @@ export class BookingService {
             100,
         ) / 100;
       const stripeChargeAmount = depositChargeBase + stripePassthroughAmount;
+      // Stripe refuses a charge under $0.50, which would only show up as a payment form that
+      // never loads.
+      if (Math.round(stripeChargeAmount * 100) < 50) {
+        throw new BadRequestException(
+          'Card payments have a minimum of $0.50. This booking is too small to pay by card.',
+        );
+      }
       // Informational only — the other 50% of the full price, due
       // directly to the merchant at the venue. Not persisted anywhere;
       // KHS has no further involvement with it.
       const remainingAtVenue = depositOnly
         ? Math.round((bookingAmount - depositChargeBase) * 100) / 100
         : 0;
+
+      // A new attempt replaces this order's earlier unpaid ones (the customer reloaded the page or
+      // changed the deposit or gift card), so an order has one live attempt instead of a pile.
+      const staleAttempts = await this.stripePaymentIntentRepository.find({
+        where: { orderId, status: StripeEscrowStatus.PENDING },
+      });
+      void this.cancelStaleAttempts(staleAttempts);
 
       const paymentIntent = await this.stripeService.createPaymentIntent({
         amount: Math.round(stripeChargeAmount * 100), // Convert to cents
@@ -1009,7 +1432,7 @@ export class BookingService {
       if (acquisitionFeeAmount > 0) {
         stripeTransactions.push(
           this.transactionRepository.create({
-            senderId: user.id,
+            senderId: feePayerId,
             amount: acquisitionFeeAmount,
             type: TransactionType.FEE,
             feeSubtype: 'Acquisition',
@@ -1028,7 +1451,7 @@ export class BookingService {
       if (commissionAmount > 0) {
         stripeTransactions.push(
           this.transactionRepository.create({
-            senderId: user.id,
+            senderId: feePayerId,
             amount: commissionAmount,
             type: TransactionType.FEE,
             feeSubtype: 'Commission',
@@ -1158,7 +1581,7 @@ export class BookingService {
     // structure not addressed by this ticket)
     if (acquisitionFeeAmount > 0) {
       const acqTx = this.transactionRepository.create({
-        senderId: user.id,
+        senderId: feePayerId,
         amount: acquisitionFeeAmount,
         type: TransactionType.FEE,
         feeSubtype: 'Acquisition',
@@ -1175,7 +1598,7 @@ export class BookingService {
     }
     if (commissionAmount > 0) {
       const commTx = this.transactionRepository.create({
-        senderId: user.id,
+        senderId: feePayerId,
         amount: commissionAmount,
         type: TransactionType.FEE,
         feeSubtype: 'Commission',
@@ -1229,6 +1652,13 @@ export class BookingService {
     const feeAmount = acquisitionFeeAmount + commissionAmount;
     const giftCardAmount = Number(meta.giftCardAmount) || 0;
     const orderId = meta.orderId;
+
+    // This callback can be hit again for the same payment (e.g. a page
+    // refresh); the salon and KHS were already told the first time.
+    const alreadyConfirmed =
+      (await this.bookingRepository.count({
+        where: { orderId, status: AppointmentStatus.CONFIRMED },
+      })) > 0;
 
     // Start DB transaction
     const result = await this.dataSource.manager.transaction(
@@ -1366,7 +1796,7 @@ export class BookingService {
         type: NotificationType.BOOKING_CONFIRMED,
         title: 'Booking Confirmed',
         message: `Your booking at ${firstAppointment.business?.businessName || 'the salon'} for ${serviceNames} has been confirmed.`,
-        link: '/customer/bookings',
+        link: '/customer/appointment/booking-management',
         metadata: {
           orderId,
           salonId: firstAppointment.business?.id,
@@ -1377,27 +1807,36 @@ export class BookingService {
       this.logger.error('Failed to create in-app notification for online booking completion:', err);
     }
 
-      // ADD MERCHANT NOTIFICATION HERE
     try {
       const firstAppointment = result.appointments[0];
-      const merchantId = firstAppointment.business?.ownerId || firstAppointment.business?.owner?.id;
       const serviceNames = [...new Set(result.appointments.map((a) => a.serviceName))].join(', ');
-      if (merchantId) {
-        await this.notificationService.create({
-          userId: merchantId,
-          type: NotificationType.BOOKING_CONFIRMED,
-          title: 'New Booking Confirmed',
-          message: `A new booking has been placed by ${result.user.firstName} ${result.user.surname} for ${serviceNames}.`,
-          link: '/merchant/dashboard/appointments',
-          metadata: {
-            orderId,
-            salonId: firstAppointment.business?.id,
-            customerId: result.user.id,
-          },
+      const amountPaid = result.appointments.reduce((sum, a) => sum + Number(a.amount || 0), 0);
+      if (!alreadyConfirmed) {
+        await this.notifyMerchantOfNewBooking({
+          businessId: firstAppointment.business?.id,
+          orderId,
+          customerId: result.user.id,
+          customerName: `${result.user.firstName} ${result.user.surname}`,
+          serviceNames,
+          date: firstAppointment.date,
+          time: firstAppointment.time,
+          amountPaid,
         });
+        this.syncIntegrations(() => this.integrationSync.onBookingConfirmed(orderId));
+
+        // This path had no Slack message; KHS is told about every booking.
+        this.slackService.notify(
+          `🎉 *New Booking Payment Confirmed (Paystack)*\n` +
+          `• *Order ID*: \`${orderId}\`\n` +
+          `• *Customer*: ${result.user.firstName || 'Customer'} ${result.user.surname || ''} (${result.user.email})\n` +
+          `• *Salon*: ${firstAppointment.business?.businessName || 'the salon'}\n` +
+          `• *Services*: ${serviceNames}\n` +
+          `• *Appointment*: ${firstAppointment.date} at ${firstAppointment.time}\n` +
+          `• *Amount Paid*: $${amountPaid.toFixed(2)}`
+        );
       }
     } catch (err) {
-      this.logger.error('Failed to send merchant booking notification (Stripe):', err);
+      this.logger.error('Failed to send merchant booking notification (Paystack):', err);
     }
 
     // Add funds to business wallet (outside transaction to avoid deadlock)
@@ -1598,50 +2037,23 @@ export class BookingService {
       );
     }
 
-    // 2. Fetch business with owner to ensure we have the merchant's ID and Email
+    // 2. Tell the salon (in-app + email, per its Notifications settings) and KHS.
+    await this.notifyMerchantOfNewBooking({
+      businessId: firstAppointment.business?.id,
+      orderId,
+      customerId: result.user.id,
+      customerName: `${result.user.firstName} ${result.user.surname}`,
+      serviceNames,
+      date: firstAppointment.date,
+      time: firstAppointment.time,
+      amountPaid: totalAmountPaid,
+    });
+    this.syncIntegrations(() => this.integrationSync.onBookingConfirmed(orderId));
+
     try {
-      const business = await this.businessRepository.findOne({
-        where: { id: firstAppointment.business?.id },
-        relations: ['owner'],
-      });
+      const business = firstAppointment.business;
 
-      const merchantId = business?.ownerId || business?.owner?.id;
-      const merchantEmail = business?.ownerEmail || business?.owner?.email;
-      const merchantName = business?.ownerName || (business?.owner ? `${business.owner.firstName ?? ''} ${business.owner.surname ?? ''}`.trim() : 'Merchant');
-
-      // 2a. In-App Notification to Merchant
-      if (merchantId) {
-        await this.notificationService.create({
-          userId: merchantId,
-          type: NotificationType.BOOKING_CONFIRMED,
-          title: 'New Booking & Payment Received',
-          message: `Payment of $${totalAmountPaid.toFixed(2)} received for booking by ${result.user.firstName} ${result.user.surname} (${serviceNames}).`,
-          link: '/merchant/dashboard/appointments',
-          metadata: {
-            orderId,
-            salonId: business?.id,
-            customerId: result.user.id,
-            amountPaid: totalAmountPaid,
-          },
-        });
-      }
-
-      // 2b. Email Notification to Merchant
-      if (merchantEmail) {
-        this.emailService.sendMerchantBookingNotificationEmail(
-          merchantEmail,
-          merchantName || 'Salon Owner',
-          `${result.user.firstName} ${result.user.surname}`,
-          business?.businessName || 'Your Salon',
-          serviceNames,
-          firstAppointment.date,
-          firstAppointment.time,
-          orderId,
-          totalAmountPaid,
-        );
-      }
-
-      // 2c. Slack Notification
+      // 2c. Slack Notification (KHS, always)
       this.slackService.notify(
         `🎉 *New Booking Payment Confirmed (Stripe)*\n` +
         `• *Order ID*: \`${orderId}\`\n` +
@@ -1699,17 +2111,15 @@ export class BookingService {
     }
   }
 
-  // Cancellation policy constants — see cancelBooking. A cancellation
-  // 24h+ before the (earliest) appointment is "early"; inside that window
-  // is "late" (treated the same as a no-show, since there's no separate
-  // no-show detection today).
-  private static readonly EARLY_CANCELLATION_WINDOW_HOURS = 24;
-  private static readonly EARLY_CANCELLATION_FEE = 10; // flat dollars
-  // No deposit concept exists yet — every Stripe booking is paid in full
-  // up front — so on a late cancellation the full amount already
-  // collected plays the role a deposit would: forfeited, split 70/30
-  // stylist/KHS, same as the eventual deposit-forfeiture rule will do.
-  private static readonly LATE_CANCELLATION_STYLIST_SHARE = 0.7;
+  // Cancellation policy — see cancelBooking. A cancellation at least the
+  // merchant's cancellation window before the (earliest) appointment is
+  // "early"; inside that window is "late" (treated the same as a no-show,
+  // since there's no separate no-show detection today). The window is the
+  // merchant's own setting; the early-cancellation fee and the stylist's
+  // share of a forfeited amount are platform-wide (admin Platform Settings
+  // > Payments), falling back to these defaults if unset.
+  private static readonly DEFAULT_EARLY_CANCELLATION_FEE = 10; // flat dollars
+  private static readonly DEFAULT_LATE_CANCELLATION_STYLIST_SHARE_PERCENT = 70;
 
   // This codebase stores appointment date/time as two separate strings —
   // date "2024-01-15", time "2:00 PM" (12-hour, not ISO) — so naively
@@ -1728,16 +2138,18 @@ export class BookingService {
     return dt;
   }
 
-  // Refund policy — early cancellation (24h+ before): the customer gets
-  // back the full booking amount minus a flat $10 cancellation fee. This
+  // Refund policy — early cancellation (outside the merchant's window): the
+  // customer gets back the full booking amount minus the flat platform
+  // cancellation fee. This
   // REPLACES the earlier acquisition/commission/real-Stripe-fee
   // withholding for this path entirely; it does not stack with it.
   // Returns cents: 0 or negative means nothing left to refund.
   private calculateEarlyCancellationRefundCents(
     spi: StripePaymentIntent,
+    cancellationFee: number,
   ): number {
     const bookingAmountCents = Math.round(spi.bookingAmount * 100);
-    const feeCents = Math.round(BookingService.EARLY_CANCELLATION_FEE * 100);
+    const feeCents = Math.round(cancellationFee * 100);
     return bookingAmountCents - feeCents;
   }
 
@@ -1769,6 +2181,34 @@ export class BookingService {
       .execute();
   }
 
+  // Fields of a user that must never be sent to anyone else (or back to the user in a booking).
+  private static readonly USER_SECRET_FIELDS = [
+    'password',
+    'verificationCode',
+    'verificationExpires',
+    'resetCode',
+    'resetCodeExpires',
+    'refreshTokens',
+  ] as const;
+
+  private withoutSecrets<T>(user: T): T {
+    if (!user || typeof user !== 'object') return user;
+    const copy: any = { ...(user as any) };
+    for (const field of BookingService.USER_SECRET_FIELDS) delete copy[field];
+    return copy;
+  }
+
+  // A booking can only be read or changed by the customer who made it. A booking that isn't theirs
+  // is reported as not found, so its existence isn't given away. If there is no such booking at all
+  // the caller's own "not found" handling applies.
+  private async assertOwnsOrder(orderId: string, user: User): Promise<void> {
+    const where = this.isUuid(orderId) ? { id: orderId } : { orderId };
+    const appointments = await this.bookingRepository.find({ where, relations: ['client'] });
+    if (appointments.length > 0 && !appointments.some((a) => a.client?.id === user?.id)) {
+      throw new NotFoundException('No appointments found for this order ID');
+    }
+  }
+
   async getUserBookings(userId: string): Promise<Appointment[]> {
     await this.expireStalePendingBookings(userId);
 
@@ -1787,7 +2227,8 @@ export class BookingService {
   }
 
   // Get Booking by ID
-  async getBookingById(orderId: string): Promise<Appointment[]> {
+  async getBookingById(orderId: string, user: User): Promise<Appointment[]> {
+    await this.assertOwnsOrder(orderId, user);
     const whereCondition = this.isUuid(orderId) ? { id: orderId } : { orderId };
 
     const appointments = await this.bookingRepository.find({
@@ -1810,6 +2251,8 @@ export class BookingService {
 
     return appointments.map((a) => ({
       ...a,
+      client: this.withoutSecrets(a.client),
+      business: a.business ? { ...a.business, owner: this.withoutSecrets(a.business.owner) } : a.business,
       hasReview: reviewedOrderIds.has(a.orderId),
     })) as Appointment[];
   }
@@ -1817,6 +2260,7 @@ export class BookingService {
   // Cancel Booking
   async cancelBooking(
     orderId: string,
+    user: User,
     cancellationsNote?: string,
     acceptedTerms?: boolean,
     serviceIds?: string[],
@@ -1838,6 +2282,9 @@ export class BookingService {
       khsShare: number;
     };
   }> {
+    // Only the customer who made the booking can cancel it: cancelling can forfeit what they paid.
+    await this.assertOwnsOrder(orderId, user);
+
     if (!acceptedTerms) {
       throw new BadRequestException(
         'You must accept the cancellation terms to proceed',
@@ -1847,7 +2294,12 @@ export class BookingService {
     // Find all appointments for this orderId
     const appointments = await this.bookingRepository.find({
       where: { orderId },
-      relations: ['client', 'service'],
+      relations: [
+        'client',
+        'service',
+        'business.bookingPolicies',
+        'business.ownerSettings',
+      ],
     });
 
     if (appointments.length === 0) {
@@ -1895,10 +2347,11 @@ export class BookingService {
       );
     }
 
-    // Cancellation policy: 24h+ before the *earliest* appointment among
-    // the ones being cancelled is "early" (flat $10 fee); inside that
-    // window is "late" (full forfeiture, split 70/30 stylist/KHS — see
-    // the class constants above). Order-level Stripe escrow is one row
+    // Cancellation policy: at least the merchant's window before the
+    // *earliest* appointment among the ones being cancelled is "early"
+    // (flat platform fee); inside that window is "late" (full forfeiture,
+    // split stylist/KHS by the platform share — see the class constants
+    // above). Order-level Stripe escrow is one row
     // per order, but appointments are per-service with their own date/
     // time, so the earliest one governs the whole order-level refund.
     let earliestAppointmentDateTime: Date | null = null;
@@ -1914,8 +2367,19 @@ export class BookingService {
     const hoursUntilAppointment = earliestAppointmentDateTime
       ? (earliestAppointmentDateTime.getTime() - Date.now()) / (1000 * 60 * 60)
       : Infinity;
-    const isEarlyCancellation =
-      hoursUntilAppointment >= BookingService.EARLY_CANCELLATION_WINDOW_HOURS;
+    const cancellationWindowHours = resolveCancellationWindowHours(
+      appointments[0].business,
+    );
+    const isEarlyCancellation = hoursUntilAppointment >= cancellationWindowHours;
+
+    const cancellationPayments = await this.platformSettingsService.getPayments();
+    const earlyCancellationFee =
+      Number(cancellationPayments.earlyCancellationFee ?? BookingService.DEFAULT_EARLY_CANCELLATION_FEE);
+    const lateStylistShare =
+      Number(
+        cancellationPayments.lateCancellationStylistShare ??
+          BookingService.DEFAULT_LATE_CANCELLATION_STYLIST_SHARE_PERCENT,
+      ) / 100;
 
     // Pre-flight: work out the actual refund amount for any Stripe escrow
     // held on this booking BEFORE cancelling anything, for the early-
@@ -1930,10 +2394,10 @@ export class BookingService {
     const refundPlans: { spi: StripePaymentIntent; refundAmountCents: number }[] = [];
     if (isEarlyCancellation) {
       for (const spi of heldPaymentIntents) {
-        const refundAmountCents = this.calculateEarlyCancellationRefundCents(spi);
+        const refundAmountCents = this.calculateEarlyCancellationRefundCents(spi, earlyCancellationFee);
         if (refundAmountCents <= 0) {
           throw new BadRequestException(
-            `Cannot cancel: after the $${BookingService.EARLY_CANCELLATION_FEE} cancellation fee, no refundable amount remains for order ${orderId}. Contact an admin to review.`,
+            `Cannot cancel: after the $${earlyCancellationFee} cancellation fee, no refundable amount remains for order ${orderId}. Contact an admin to review.`,
           );
         }
         refundPlans.push({ spi, refundAmountCents });
@@ -1947,6 +2411,13 @@ export class BookingService {
     // makes restoreBooking's Pending/Unpaid restore below meaningful: a
     // cancelled appointment restored later needs to go through real
     // payment again, not silently re-appear as already paid.
+    // A booking still Pending was never confirmed or paid (e.g. the client left
+    // the payment page), so the salon and KHS never heard of it and are not
+    // told it was cancelled.
+    const salonWasTold = appointmentsToCancel.some(
+      (a) => a.status !== AppointmentStatus.PENDING,
+    );
+
     const cancelledAt = new Date();
     for (const appointment of appointmentsToCancel) {
       appointment.status = AppointmentStatus.CANCELLED;
@@ -2008,7 +2479,7 @@ export class BookingService {
                 amount: refundAmountCents / 100,
                 currency: spi.currency.toUpperCase(),
                 reason: cancellationsNote || 'Booking cancelled before completion',
-                adminNote: `Stripe refund ${stripeRefund.id} ($${BookingService.EARLY_CANCELLATION_FEE} cancellation fee withheld)`,
+                adminNote: `Stripe refund ${stripeRefund.id} ($${earlyCancellationFee} cancellation fee withheld)`,
                 status: RefundStatus.PROCESSED,
                 refundMethod: RefundMethod.CARD_REFUND,
               }),
@@ -2044,12 +2515,12 @@ export class BookingService {
         });
       }
     } else {
-      // Late cancellation (inside the 24h window) — no refund at all. No
+      // Late cancellation (inside the merchant's window) — no refund at all. No
       // deposit concept exists yet, so the full amount already collected
       // plays the role a deposit would once deposits ship: forfeited,
-      // split 70/30 stylist/KHS, mirroring completeBooking's own escrow-
+      // split stylist/KHS by the platform share, mirroring completeBooking's own escrow-
       // release-to-wallet mechanism (src/business/services/business.service.ts)
-      // exactly, just at a 70% share instead of 100%.
+      // exactly, just at the stylist's share instead of 100%.
       try {
         for (const spi of heldPaymentIntents) {
           const businessId = firstAppt?.business?.id;
@@ -2062,7 +2533,7 @@ export class BookingService {
           if (!businessId || !ownerId) continue;
 
           const stylistShareAmount =
-            Math.round(spi.bookingAmount * BookingService.LATE_CANCELLATION_STYLIST_SHARE * 100) / 100;
+            Math.round(spi.bookingAmount * lateStylistShare * 100) / 100;
           const khsShareAmount = Math.round((spi.bookingAmount - stylistShareAmount) * 100) / 100;
 
           try {
@@ -2125,7 +2596,7 @@ export class BookingService {
             severity: SlackSeverity.INFO,
             type: SlackEventType.PAYMENT_SUCCESS,
             trigger: `Late-cancellation forfeiture for order ${orderId}`,
-            body: `A late cancellation forfeited the full amount already paid, split 70/30 stylist/KHS.
+            body: `A late cancellation forfeited the full amount already paid, split ${Math.round(lateStylistShare * 100)}/${100 - Math.round(lateStylistShare * 100)} stylist/KHS.
 • Order: ${orderId}
 • Total forfeited: $${forfeitureSummary.amount} ${forfeitureSummary.currency}
 • Stylist share: $${forfeitureSummary.stylistShare}
@@ -2138,7 +2609,7 @@ export class BookingService {
           forfeitureError.stack,
         );
         // Escrow stays HELD forever if this fails — the business is never
-        // credited its 70% share and KHS's fee row is never written, with
+        // credited its share and KHS's fee row is never written, with
         // nothing else in the system positioned to retry it.
         StructuredSlackService.notify({
           node: SlackNode.PAYMENT,
@@ -2146,13 +2617,15 @@ export class BookingService {
           severity: SlackSeverity.CRITICAL,
           type: SlackEventType.ERROR_ALERT,
           trigger: `Late-cancellation forfeiture failed for order ${orderId}`,
-          body: `A late cancellation was processed, but crediting the stylist's 70% forfeiture share and recording KHS's fee failed — Stripe escrow is left HELD indefinitely with no automatic retry.
+          body: `A late cancellation was processed, but crediting the stylist's forfeiture share and recording KHS's fee failed — Stripe escrow is left HELD indefinitely with no automatic retry.
 • Order: ${orderId}
 • Error: ${forfeitureError instanceof Error ? forfeitureError.message : String(forfeitureError)}`,
         });
       }
     }
-    if (firstAppt?.client?.email) {
+    // No "your appointment was cancelled" email (which also copies KHS) for a
+    // checkout the client abandoned before it was ever confirmed.
+    if (salonWasTold && firstAppt?.client?.email) {
       const serviceNames = [
         ...new Set(appointmentsToCancel.map((a) => a.serviceName)),
       ].join(', ');
@@ -2160,7 +2633,7 @@ export class BookingService {
       if (refundSummary) {
         moneyNote = `A refund of $${refundSummary.amount.toFixed(2)} ${refundSummary.currency} has been issued to your original payment method${refundSummary.cancellationFeeWithheld > 0 ? ` ($${refundSummary.cancellationFeeWithheld.toFixed(2)} cancellation fee withheld)` : ''}.`;
       } else if (forfeitureSummary) {
-        moneyNote = `As this cancellation was made within 24 hours of the appointment, the $${forfeitureSummary.amount.toFixed(2)} ${forfeitureSummary.currency} already paid is non-refundable per our late-cancellation policy.`;
+        moneyNote = `As this cancellation was made within ${cancellationWindowHours} hours of the appointment, the $${forfeitureSummary.amount.toFixed(2)} ${forfeitureSummary.currency} already paid is non-refundable per our late-cancellation policy.`;
       }
       this.emailService.sendCancellationConfirmationEmail(
         firstAppt.client.email,
@@ -2183,7 +2656,7 @@ export class BookingService {
           type: NotificationType.BOOKING_CANCELLED,
           title: 'Booking Cancelled',
           message: `Your booking for ${serviceNames} has been cancelled.`,
-          link: '/customer/bookings',
+          link: '/customer/appointment/booking-management',
           metadata: {
             orderId,
             cancelledCount: appointmentsToCancel.length,
@@ -2192,6 +2665,45 @@ export class BookingService {
       }
     } catch (err) {
       this.logger.error('Failed to create in-app notification for booking cancellation:', err);
+    }
+
+    // Tell the salon (per its Notifications settings) and KHS. The Slack
+    // message for a refund or forfeiture is sent above; only cancellations
+    // where no money moved need one here.
+    const cancelledServiceNames = [
+      ...new Set(appointmentsToCancel.map((a) => a.serviceName)),
+    ].join(', ');
+    const clientName =
+      `${firstAppt?.client?.firstName ?? ''} ${firstAppt?.client?.surname ?? ''}`.trim() ||
+      'A client';
+    let merchantMoneyNote: string | undefined;
+    if (refundSummary) {
+      merchantMoneyNote = `The client was refunded $${refundSummary.amount.toFixed(2)} ${refundSummary.currency}${refundSummary.cancellationFeeWithheld > 0 ? ` after a $${refundSummary.cancellationFeeWithheld.toFixed(2)} cancellation fee` : ''}.`;
+    } else if (forfeitureSummary) {
+      merchantMoneyNote = `This was inside your ${cancellationWindowHours}-hour cancellation window, so the $${forfeitureSummary.amount.toFixed(2)} ${forfeitureSummary.currency} paid is not refunded. Your share is $${forfeitureSummary.stylistShare.toFixed(2)}.`;
+    }
+    this.syncIntegrations(() =>
+      this.integrationSync.onBookingCancelled(appointmentsToCancel.map((a) => a.id)),
+    );
+    if (salonWasTold) await this.notifyMerchantOfCancellation({
+      businessId: firstAppt?.business?.id,
+      orderId,
+      customerId: firstAppt?.client?.id ?? '',
+      customerName: clientName,
+      serviceNames: cancelledServiceNames,
+      date: firstAppt?.date ?? '',
+      time: firstAppt?.time ?? '',
+      moneyNote: merchantMoneyNote,
+    });
+    if (salonWasTold && !refundSummary && !forfeitureSummary) {
+      this.slackService.notify(
+        `🚫 *Booking Cancelled*\n` +
+        `• *Order ID*: \`${orderId}\`\n` +
+        `• *Customer*: ${clientName}${firstAppt?.client?.email ? ` (${firstAppt.client.email})` : ''}\n` +
+        `• *Salon*: ${firstAppt?.business?.businessName || 'the salon'}\n` +
+        `• *Services*: ${cancelledServiceNames}\n` +
+        `• *Was scheduled for*: ${firstAppt?.date} at ${firstAppt?.time}`,
+      );
     }
 
     const remainingCount = appointments.filter(
@@ -2220,7 +2732,9 @@ export class BookingService {
 
   async restoreBooking(
     orderId: string,
+    user: User,
   ): Promise<{ message: string; requiresPayment: boolean }> {
+    await this.assertOwnsOrder(orderId, user);
     const appointment = await this.bookingRepository.findOne({
       where: { orderId },
       relations: ['client'],
@@ -2307,7 +2821,7 @@ export class BookingService {
           type: NotificationType.SYSTEM,
           title: 'Client Confirmed Availability',
           message: `${clientName} has confirmed their availability for appointment ${firstAppointment.orderId || orderId} (${serviceNames}) on ${firstAppointment.date} at ${firstAppointment.time}.`,
-          link: '/merchant/dashboard/appointments',
+          link: '/merchant/dashboard/bookings',
           metadata: {
             orderId: firstAppointment.orderId || orderId,
             salonId: firstAppointment.business?.id,
@@ -2343,9 +2857,12 @@ export class BookingService {
   // Reschedule Booking
   async rescheduleBooking(
     orderId: string,
+    user: User,
     newDate: Date,
     newTime: string,
+    timezoneOffsetMinutes?: number,
   ): Promise<{ message: string; requiresPayment: boolean }> {
+    await this.assertOwnsOrder(orderId, user);
     const appointment = await this.bookingRepository.findOne({
       where: { orderId },
       relations: ['client'],
@@ -2364,6 +2881,23 @@ export class BookingService {
     if (isNaN(requestedDateTime.getTime()) || requestedDateTime <= new Date()) {
       throw new BadRequestException(
         'Cannot reschedule to a past date/time',
+      );
+    }
+
+    // Moving an appointment is a booking too: the salon's lead time, advance
+    // limit, same-day cutoff, buffer and double-booking rules all apply.
+    const salon = await this.businessRepository.findOne({
+      where: { id: appointment.business.id },
+      relations: ['bookingPolicies', 'ownerSettings'],
+    });
+    if (salon) {
+      await this.assertBookingAllowedByRules(
+        salon,
+        newDate.toISOString().split('T')[0],
+        newTime,
+        parseDurationToMinutes(appointment.duration),
+        timezoneOffsetMinutes,
+        orderId,
       );
     }
 
@@ -2399,6 +2933,9 @@ export class BookingService {
     appointment.time = newTime;
     appointment.status = AppointmentStatus.RESCHEDULED;
     await this.bookingRepository.save(appointment);
+    this.syncIntegrations(() =>
+      this.integrationSync.onBookingRescheduled(appointment.id),
+    );
 
     if (appointment.client?.email) {
       this.emailService.sendRescheduleConfirmationEmail(
@@ -2430,6 +2967,8 @@ export class BookingService {
     commissionRate: number;
     stripePassthroughRate: number;
     stripePassthroughFixedFee: number;
+    allowDepositPayment: boolean;
+    cancellationWindowHours: number;
   }> {
     const payments = await this.platformSettingsService.getPayments();
     const commissionRate = Number(payments.commissionRate) || 0;
@@ -2442,10 +2981,15 @@ export class BookingService {
         commissionRate,
         stripePassthroughRate,
         stripePassthroughFixedFee,
+        allowDepositPayment: true,
+        cancellationWindowHours: DEFAULT_CANCELLATION_WINDOW_HOURS,
       };
     }
 
-    const business = await this.businessRepository.findOne({ where: { id: businessId } });
+    const business = await this.businessRepository.findOne({
+      where: { id: businessId },
+      relations: ['ownerSettings', 'bookingPolicies'],
+    });
     if (!business) {
       throw new NotFoundException('Business not found');
     }
@@ -2465,6 +3009,9 @@ export class BookingService {
       commissionRate,
       stripePassthroughRate,
       stripePassthroughFixedFee,
+      allowDepositPayment:
+        business.ownerSettings?.pricingPolicies?.allowDepositPayment !== false,
+      cancellationWindowHours: resolveCancellationWindowHours(business),
     };
   }
 

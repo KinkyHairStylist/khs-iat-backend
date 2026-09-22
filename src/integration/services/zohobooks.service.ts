@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -8,484 +9,422 @@ import { Appointment } from 'src/business/entities/appointment.entity';
 import { Repository } from 'typeorm';
 import { ZohoBooksCredentials } from '../entities/zohobooks-credentials.entity';
 import axios, { AxiosInstance } from 'axios';
-import { UpdateBusinessOwnerSettingsDto } from 'src/business/dtos/requests/BusinessOwnerSettingsDto';
 import { BusinessOwnerSettingsService } from 'src/business/services/business-owner-settings.service';
+import { IntegrationAccessService } from './integration-access.service';
+import {
+  IntegrationAuthError,
+  ZOHO_DATA_CENTRES,
+  integrationRedirectUri,
+  ZohoDataCentre,
+  zohoDataCentreFromAccountsServer,
+  zohoDataCentreOrDefault,
+} from '../integration.helpers';
+
+const REFRESH_BUFFER_MS = 5 * 60 * 1000;
 
 @Injectable()
 export class ZohoBooksService {
-  private zohoClientId;
-  private zohoSecret;
-  private zohoRedirectUri;
-  private readonly ZOHO_ACCOUNTS_URL = 'https://accounts.zoho.com';
-  private readonly ZOHO_API_BASE = 'https://books.zoho.com/api/v3';
+  private readonly logger = new Logger(ZohoBooksService.name);
 
   constructor(
     @InjectRepository(ZohoBooksCredentials)
     private zohoBooksCredsRepo: Repository<ZohoBooksCredentials>,
     @InjectRepository(Appointment)
     private appointmentRepo: Repository<Appointment>,
-
     private readonly businessOwnerSettingsService: BusinessOwnerSettingsService,
-  ) {
-    const zohoClientId = process.env.ZOHO_CLIENT_ID;
-    const zohoRedirectUri = process.env.ZOHO_REDIRECT_URI;
-    const zohoSecret = process.env.ZOHO_SECRET;
+    private readonly access: IntegrationAccessService,
+  ) {}
 
-    if (!zohoClientId || !zohoRedirectUri || !zohoSecret) {
-      throw new Error('ZohoBooks credentials not found');
+  // Read when needed rather than in the constructor, so a server without Zoho
+  // configured still starts; only connecting fails, with a clear message.
+  private get config() {
+    const clientId = process.env.ZOHO_CLIENT_ID;
+    const secret = process.env.ZOHO_SECRET || process.env.ZOHO_CLIENT_SECRET;
+    const redirectUri = integrationRedirectUri('zohobooks');
+    if (!clientId || !secret || !redirectUri) {
+      throw new BadRequestException('ZohoBooks is not set up on this server yet.');
     }
-
-    this.zohoClientId = zohoClientId;
-    this.zohoRedirectUri = zohoRedirectUri;
-    this.zohoSecret = zohoSecret;
+    return { clientId, secret, redirectUri };
   }
 
   /**
-   * Generate ZohoBooks OAuth URL
-   *
-   * @param businessId - Business ID to connect
-   * @returns Authorization URL
+   * The Zoho sign-in URL for the merchant to authorise. `state` is signed and
+   * tied to this merchant and salon. Zoho sends the merchant to their own
+   * region's sign-in and reports it back as `accounts-server` on the callback.
    */
-  getAuthUrl(businessId: string): string {
+  async getAuthUrl(businessId: string, ownerId: string): Promise<string> {
+    await this.access.assertOwnsBusiness(ownerId, businessId);
+    const { clientId, redirectUri } = this.config;
+
     const params = new URLSearchParams({
-      client_id: this.zohoClientId,
-      redirect_uri: this.zohoRedirectUri,
+      client_id: clientId,
+      redirect_uri: redirectUri,
       response_type: 'code',
       scope: 'ZohoBooks.fullaccess.all',
       access_type: 'offline',
       prompt: 'consent',
-      state: businessId, // Pass businessId for callback
+      state: this.access.signState('zohobooks', businessId, ownerId),
     });
-
-    return `${this.ZOHO_ACCOUNTS_URL}/oauth/v2/auth?${params.toString()}`;
+    return `${ZOHO_DATA_CENTRES.com.accounts}/oauth/v2/auth?${params.toString()}`;
   }
 
   /**
-   * Handle OAuth callback and store credentials
-   *
-   * @param code - Authorization code from Zoho
-   * @param businessId - Business ID from state parameter
+   * Finish the OAuth hand-off: verify the signed state, swap the code for tokens
+   * on the region the merchant signed in to, find their Books organisation and
+   * store everything for the salon.
    */
   async handleOAuthCallback(
     code: string,
-    businessId: string,
+    state: string,
     ownerId: string,
-    updateDto: UpdateBusinessOwnerSettingsDto,
-  ): Promise<ZohoBooksCredentials> {
+    accountsServer?: string,
+  ): Promise<void> {
+    if (!code) throw new BadRequestException('Missing authorisation code.');
+    const businessId = this.access.verifyState('zohobooks', state, ownerId);
+    await this.access.assertOwnsBusiness(ownerId, businessId);
+
+    const { clientId, secret, redirectUri } = this.config;
+    const dataCentre = zohoDataCentreFromAccountsServer(accountsServer);
+    const urls = ZOHO_DATA_CENTRES[dataCentre];
+
     try {
-      // Step 1: Exchange code for tokens
-      const tokenResponse = await axios.post(
-        `${this.ZOHO_ACCOUNTS_URL}/oauth/v2/token`,
-        null,
-        {
-          params: {
-            code,
-            client_id: this.zohoClientId,
-            client_secret: this.zohoSecret,
-            redirect_uri: this.zohoRedirectUri,
-            grant_type: 'authorization_code',
-          },
-        },
-      );
-
-      const { access_token, refresh_token, expires_in, api_domain } =
-        tokenResponse.data;
-
-      // Step 2: Determine the correct API base URL from api_domain
-      // const domain = api_domain.replace('https://www.', ''); // "zohoapis.com"
-      // const apiBaseUrl = `https://books.${domain}/api/v3`;
-      const apiBaseUrl = `${api_domain}/books/v3`;
-
-      // Step 3: Get organizations
-
-      const orgResponse = await axios.get(`${apiBaseUrl}/organizations`, {
-        headers: {
-          Authorization: `Zoho-oauthtoken ${access_token}`,
+      const tokenResponse = await axios.post(`${urls.accounts}/oauth/v2/token`, null, {
+        params: {
+          code,
+          client_id: clientId,
+          client_secret: secret,
+          redirect_uri: redirectUri,
+          grant_type: 'authorization_code',
         },
       });
+      const { access_token, refresh_token, expires_in } = tokenResponse.data;
+      if (!access_token || !refresh_token) {
+        throw new BadRequestException(
+          tokenResponse.data?.error
+            ? `Zoho said: ${tokenResponse.data.error}`
+            : 'Zoho did not grant ongoing access.',
+        );
+      }
 
+      const orgResponse = await axios.get(`${urls.api}/organizations`, {
+        headers: { Authorization: `Zoho-oauthtoken ${access_token}` },
+      });
       const organizations = orgResponse.data.organizations;
       if (!organizations || organizations.length === 0) {
         throw new BadRequestException('No ZohoBooks organization found');
       }
 
-      const organizationId = organizations[0].organization_id;
-
-      // Step 4: Determine data center from api_domain
-      let dataCenter = 'com'; // Default to .com (US)
-      if (api_domain.includes('.eu')) dataCenter = 'eu';
-      else if (api_domain.includes('.in')) dataCenter = 'in';
-      else if (api_domain.includes('.com.au')) dataCenter = 'com.au';
-      else if (api_domain.includes('.jp')) dataCenter = 'jp';
-
-      // Step 5: Save credentials
-
-      let credentials = await this.zohoBooksCredsRepo.findOne({
+      const existing = await this.zohoBooksCredsRepo.findOne({
         where: { business: { id: businessId } },
       });
-
-      const expiryDate = Date.now() + expires_in * 1000;
-
-      if (credentials) {
-        credentials.accessToken = access_token;
-        credentials.refreshToken = refresh_token;
-        credentials.organizationId = organizationId;
-        credentials.expiryDate = expiryDate;
-        credentials.dataCenter = dataCenter;
-      } else {
-        credentials = this.zohoBooksCredsRepo.create({
-          business: { id: businessId },
-          accessToken: access_token,
-          refreshToken: refresh_token,
-          organizationId,
-          expiryDate,
-          dataCenter,
-        });
-      }
-
+      const credentials =
+        existing ?? this.zohoBooksCredsRepo.create({ business: { id: businessId } });
+      credentials.accessToken = access_token;
+      credentials.refreshToken = refresh_token;
+      credentials.organizationId = organizations[0].organization_id;
+      credentials.expiryDate = Date.now() + (Number(expires_in) || 3600) * 1000;
+      credentials.dataCenter = dataCentre;
+      credentials.updatedAt = new Date();
       await this.zohoBooksCredsRepo.save(credentials);
-
-      await this.businessOwnerSettingsService.update(
-        ownerId,
-        businessId,
-        updateDto,
-      );
-
-      return credentials;
     } catch (error) {
-      console.error('❌ ZohoBooks OAuth error:', {
-        status: error.response?.status,
-        statusText: error.response?.statusText,
-        data: error.response?.data,
-        message: error.message,
-      });
-
+      if (error instanceof BadRequestException) throw error;
+      this.logger.error(
+        `ZohoBooks OAuth error: ${JSON.stringify(error.response?.data ?? error.message)}`,
+      );
       throw new BadRequestException(
         'Failed to authenticate with ZohoBooks: ' +
-          (error.response?.data?.message || error.message),
+          (error.response?.data?.message || error.response?.data?.error || error.message),
       );
     }
+
+    await this.businessOwnerSettingsService.update(ownerId, businessId, {
+      integrations: { zohoBooks: true },
+    });
   }
 
-  /**
-   * Check if business has connected ZohoBooks
-   */
   async isConnected(businessId: string): Promise<boolean> {
-    const credentials = await this.zohoBooksCredsRepo.findOne({
+    return this.zohoBooksCredsRepo.exists({
       where: { business: { id: businessId } },
     });
-    return !!credentials;
   }
 
-  /**
-   * Get authenticated Zoho client
-   */
+  /** A Books API client for the salon; the token is refreshed only when due. */
   private async getClient(
     businessId: string,
   ): Promise<{ client: AxiosInstance; organizationId: string }> {
     const credentials = await this.zohoBooksCredsRepo.findOne({
       where: { business: { id: businessId } },
     });
-
     if (!credentials) {
       throw new NotFoundException('ZohoBooks not connected for this business');
     }
 
-    // Check if token needs refresh (5 minute buffer)
-    // if (Date.now() >= credentials.expiryDate - 300000) {
-    //   await this.refreshAccessToken(credentials);
-    // }
-    await this.refreshAccessToken(credentials);
-
-    // Determine API URL based on data center
-    //  'https://www.zohoapis.com'
-    // let apiBaseUrl = 'https://books.zoho.com/api/v3';
-    let apiBaseUrl = 'https://www.zohoapis.com/api/v3';
-    if (credentials.dataCenter !== 'com') {
-      apiBaseUrl = `https://books.zoho.${credentials.dataCenter}/api/v3`;
+    if (Date.now() >= Number(credentials.expiryDate) - REFRESH_BUFFER_MS) {
+      await this.refreshAccessToken(credentials);
     }
 
+    const dataCentre = zohoDataCentreOrDefault(credentials.dataCenter);
     const client = axios.create({
-      baseURL: apiBaseUrl,
+      baseURL: ZOHO_DATA_CENTRES[dataCentre].api,
       headers: {
         Authorization: `Zoho-oauthtoken ${credentials.accessToken}`,
         'Content-Type': 'application/json',
       },
+      // Books wants the organisation on every request as a query parameter.
+      params: { organization_id: credentials.organizationId },
+      timeout: 20_000,
     });
-
     return { client, organizationId: credentials.organizationId };
   }
 
-  /**
-   * Refresh access token
-   */
   private async refreshAccessToken(
     credentials: ZohoBooksCredentials,
   ): Promise<ZohoBooksCredentials> {
+    const { clientId, secret } = this.config;
+    const dataCentre: ZohoDataCentre = zohoDataCentreOrDefault(credentials.dataCenter);
+
     try {
       const response = await axios.post(
-        `${this.ZOHO_ACCOUNTS_URL}/oauth/v2/token`,
+        `${ZOHO_DATA_CENTRES[dataCentre].accounts}/oauth/v2/token`,
         null,
         {
           params: {
             refresh_token: credentials.refreshToken,
-            client_id: this.zohoClientId,
-            client_secret: this.zohoSecret,
+            client_id: clientId,
+            client_secret: secret,
             grant_type: 'refresh_token',
           },
         },
       );
+      if (!response.data.access_token) {
+        throw Object.assign(new Error(response.data.error || 'no token returned'), {
+          response,
+        });
+      }
 
       credentials.accessToken = response.data.access_token;
-
-      const expiresIn = Number(response.data.expires_in);
-      if (!expiresIn || isNaN(expiresIn)) {
-        console.warn('Invalid expires_in received:', response.data.expires_in);
-        credentials.expiryDate = Date.now() + 3600 * 1000; // fallback
-      } else {
-        credentials.expiryDate = Date.now() + expiresIn * 1000;
-      }
-
+      credentials.expiryDate =
+        Date.now() + (Number(response.data.expires_in) || 3600) * 1000;
+      credentials.updatedAt = new Date();
       return await this.zohoBooksCredsRepo.save(credentials);
     } catch (error) {
-      console.error('Failed to refresh ZohoBooks token:', error);
-      throw new BadRequestException(
-        'Failed to refresh ZohoBooks access. Please reconnect.',
-      );
+      const zohoError = error.response?.data?.error;
+      this.logger.error(`Failed to refresh ZohoBooks token: ${zohoError ?? error.message}`);
+      if (zohoError === 'invalid_code' || zohoError === 'invalid_client') {
+        throw new IntegrationAuthError(
+          'ZohoBooks access was revoked. Please reconnect.',
+        );
+      }
+      throw new BadRequestException('Failed to refresh ZohoBooks access.');
     }
   }
-  /**
-   * Create or get customer in ZohoBooks
-   *
-   * @param appointmentId - Appointment ID
-   * @returns Zoho customer ID
-   */
-  async createOrGetCustomer(appointmentId: string): Promise<string> {
+
+  private async loadAppointment(
+    appointmentId: string,
+    relations: string[],
+  ): Promise<Appointment> {
     const appointment = await this.appointmentRepo.findOne({
       where: { id: appointmentId },
-      relations: ['client', 'businessClient', 'business'],
+      relations,
     });
+    if (!appointment) throw new NotFoundException('Appointment not found');
+    return appointment;
+  }
 
-    if (!appointment) {
-      throw new NotFoundException('Appointment not found');
-    }
+  /** Find the client in the salon's Books contacts by email, or create them. */
+  async createOrGetCustomer(appointmentId: string): Promise<string> {
+    const appointment = await this.loadAppointment(appointmentId, [
+      'client',
+      'businessClient',
+      'business',
+    ]);
+    if (appointment.zohoCustomerId) return appointment.zohoCustomerId;
 
     const email = appointment.client?.email ?? appointment.businessClient?.email;
-    if (!email) {
-      throw new BadRequestException('Client has no email on file');
-    }
+    if (!email) throw new BadRequestException('Client has no email on file');
 
-    const { client, organizationId } = await this.getClient(
-      appointment.business.id,
-    );
+    const { client } = await this.getClient(appointment.business.id);
 
     try {
-      // Search for existing customer by email
-      const searchResponse = await client.get('/contacts', {
-        params: {
-          organization_id: organizationId,
-          email,
-        },
-      });
+      const search = await client.get('/contacts', { params: { email } });
+      let contactId: string | undefined = search.data.contacts?.[0]?.contact_id;
 
-      if (
-        searchResponse.data.contacts &&
-        searchResponse.data.contacts.length > 0
-      ) {
-        return searchResponse.data.contacts[0].contact_id;
+      if (!contactId) {
+        let firstName: string;
+        let lastName: string;
+        let phone: string;
+        if (appointment.client) {
+          const nameParts = (appointment.client.firstName ?? '').trim().split(' ');
+          firstName = nameParts[0] || '';
+          lastName =
+            appointment.client.surname?.trim() || nameParts.slice(1).join(' ') || '';
+          phone = appointment.client.phoneNumber || '';
+        } else {
+          firstName = appointment.businessClient?.firstName || '';
+          lastName = appointment.businessClient?.lastName || '';
+          phone = appointment.businessClient?.phone || '';
+        }
+
+        const created = await client.post('/contacts', {
+          contact_name: `${firstName} ${lastName}`.trim() || email,
+          contact_type: 'customer',
+          contact_persons: [
+            { first_name: firstName, last_name: lastName, email, phone },
+          ],
+        });
+        contactId = created.data.contact.contact_id;
       }
 
-      // Create new customer
-      let firstName: string;
-      let lastName: string;
-      let phone: string;
-
-      if (appointment.client) {
-        const nameParts = appointment.client.firstName.trim().split(' ');
-        firstName = nameParts[0] || '';
-        lastName = nameParts.slice(1).join(' ') || '';
-        phone = appointment.client.phoneNumber || '';
-      } else {
-        firstName = appointment.businessClient?.firstName || '';
-        lastName = appointment.businessClient?.lastName || '';
-        phone = appointment.businessClient?.phone || '';
-      }
-
-      const customerData = {
-        contact_name: `${firstName} ${lastName}`.trim(),
-        contact_type: 'customer',
-        first_name: firstName,
-        last_name: lastName,
-        email,
-        phone,
-      };
-
-      const createResponse = await client.post('/contacts', {
-        organization_id: organizationId,
-        ...customerData,
-      });
-
-      return createResponse.data.contact.contact_id;
+      await this.appointmentRepo.update(appointment.id, { zohoCustomerId: contactId });
+      return contactId as string;
     } catch (error) {
-      console.error(
-        'Failed to create/get customer in ZohoBooks:',
-        error.response?.data || error,
+      this.logger.error(
+        `Failed to create/get customer in ZohoBooks: ${JSON.stringify(error.response?.data ?? error.message)}`,
       );
       throw new BadRequestException(
-        'Failed to create customer: ' + error.message,
+        'Failed to create customer: ' + (error.response?.data?.message || error.message),
       );
     }
   }
 
   /**
-   * Create invoice for appointment
-   *
-   * @param appointmentId - Appointment ID
-   * @param customerId - Zoho customer ID (optional)
-   * @returns Zoho invoice ID
+   * Create the invoice for an appointment, once. Returns the invoice id and
+   * whether it was created just now (an existing invoice is returned as is, so
+   * repeating a sync never produces a duplicate).
    */
-  async createInvoice(
+  async ensureInvoice(
     appointmentId: string,
-    customerId?: string,
-  ): Promise<string> {
-    const appointment = await this.appointmentRepo.findOne({
-      where: { id: appointmentId },
-      relations: ['client', 'business', 'staff'],
-    });
-
-    if (!appointment) {
-      throw new NotFoundException('Appointment not found');
+  ): Promise<{ invoiceId: string; created: boolean }> {
+    const appointment = await this.loadAppointment(appointmentId, [
+      'client',
+      'business',
+      'staff',
+    ]);
+    if (appointment.zohoInvoiceId) {
+      return { invoiceId: appointment.zohoInvoiceId, created: false };
     }
 
-    const { client, organizationId } = await this.getClient(
-      appointment.business.id,
-    );
-
-    // Get or create customer
-    if (!customerId) {
-      customerId = await this.createOrGetCustomer(appointmentId);
-    }
+    const customerId = await this.createOrGetCustomer(appointmentId);
+    const { client } = await this.getClient(appointment.business.id);
 
     try {
-      const invoiceData = {
+      const response = await client.post('/invoices', {
         customer_id: customerId,
-        date: appointment.date, // Invoice date
-        due_date: appointment.date, // Due on appointment date
+        date: appointment.date,
+        due_date: appointment.date,
+        reference_number: appointment.orderId,
         line_items: [
           {
             name: appointment.serviceName,
-            description: `${appointment.serviceName} - ${appointment.date} at ${appointment.time}\nStaff: ${appointment.staff.map((s) => s.firstName).join(', ')}`,
-            rate: appointment.amount,
+            description: `${appointment.serviceName} - ${appointment.date} at ${appointment.time}\nStaff: ${(appointment.staff ?? []).map((s) => s.firstName).join(', ')}`,
+            rate: Number(appointment.amount),
             quantity: 1,
             unit: 'service',
           },
         ],
         notes: appointment.specialRequests || '',
-      };
-
-      const response = await client.post('/invoices', {
-        organization_id: organizationId,
-        ...invoiceData,
       });
 
-      return response.data.invoice.invoice_id;
+      const invoiceId: string = response.data.invoice.invoice_id;
+      await this.appointmentRepo.update(appointment.id, { zohoInvoiceId: invoiceId });
+      return { invoiceId, created: true };
     } catch (error) {
-      console.error(
-        'Failed to create invoice in ZohoBooks:',
-        error.response?.data || error,
+      this.logger.error(
+        `Failed to create invoice in ZohoBooks: ${JSON.stringify(error.response?.data ?? error.message)}`,
       );
       throw new BadRequestException(
-        'Failed to create invoice: ' + error.message,
+        'Failed to create invoice: ' + (error.response?.data?.message || error.message),
       );
     }
   }
 
+  /** Kept for callers that only need the id. */
+  async createInvoice(appointmentId: string): Promise<string> {
+    return (await this.ensureInvoice(appointmentId)).invoiceId;
+  }
+
   /**
-   * Record payment for invoice
-   *
-   * @param appointmentId - Appointment ID
-   * @param invoiceId - Zoho invoice ID
+   * Record a payment against an invoice. Books only accepts payments on invoices
+   * that have been sent, so a draft is marked sent first.
    */
-  async recordPayment(appointmentId: string, invoiceId: string): Promise<void> {
-    const appointment = await this.appointmentRepo.findOne({
-      where: { id: appointmentId },
-      relations: ['business'],
-    });
-
-    if (!appointment) {
-      throw new NotFoundException('Appointment not found');
-    }
-
-    const { client, organizationId } = await this.getClient(
-      appointment.business.id,
-    );
+  async recordPayment(
+    appointmentId: string,
+    invoiceId: string,
+    amount?: number,
+    paymentMode: 'creditcard' | 'cash' | 'others' = 'creditcard',
+  ): Promise<void> {
+    const appointment = await this.loadAppointment(appointmentId, ['business']);
+    const { client } = await this.getClient(appointment.business.id);
+    const paid = Number(amount ?? appointment.amount);
+    if (!(paid > 0)) return;
 
     try {
-      const paymentData = {
-        customer_id: await this.createOrGetCustomer(appointmentId),
-        payment_mode: 'cash', // or 'card', 'bank_transfer', etc.
-        amount: appointment.amount,
-        date: new Date().toISOString().split('T')[0],
-        invoices: [
-          {
-            invoice_id: invoiceId,
-            amount_applied: appointment.amount,
-          },
-        ],
-      };
+      await client.post(`/invoices/${invoiceId}/status/sent`);
+    } catch (error) {
+      // Already sent (or not a draft) is fine; the payment call below will tell
+      // us if the invoice really can't take a payment.
+      this.logger.debug(
+        `ZohoBooks mark-sent skipped: ${error.response?.data?.message ?? error.message}`,
+      );
+    }
 
+    try {
       await client.post('/customerpayments', {
-        organization_id: organizationId,
-        ...paymentData,
+        customer_id: await this.createOrGetCustomer(appointmentId),
+        payment_mode: paymentMode,
+        amount: paid,
+        date: new Date().toISOString().split('T')[0],
+        invoices: [{ invoice_id: invoiceId, amount_applied: paid }],
       });
     } catch (error) {
-      console.error(
-        'Failed to record payment in ZohoBooks:',
-        error.response?.data || error,
+      this.logger.error(
+        `Failed to record payment in ZohoBooks: ${JSON.stringify(error.response?.data ?? error.message)}`,
       );
       throw new BadRequestException(
-        'Failed to record payment: ' + error.message,
+        'Failed to record payment: ' + (error.response?.data?.message || error.message),
       );
     }
   }
 
-  /**
-   * Get invoice details
-   *
-   * @param businessId - Business ID
-   * @param invoiceId - Zoho invoice ID
-   */
-  async getInvoice(businessId: string, invoiceId: string): Promise<any> {
-    const { client, organizationId } = await this.getClient(businessId);
+  /** Cancelled booking: void its invoice, if it has one. */
+  async voidInvoice(appointmentId: string): Promise<void> {
+    const appointment = await this.loadAppointment(appointmentId, ['business']);
+    if (!appointment.zohoInvoiceId) return;
+    const { client } = await this.getClient(appointment.business.id);
 
     try {
-      const response = await client.get(`/invoices/${invoiceId}`, {
-        params: { organization_id: organizationId },
-      });
+      await client.post(`/invoices/${appointment.zohoInvoiceId}/status/void`);
+    } catch (error) {
+      throw new BadRequestException(
+        'Failed to void invoice: ' + (error.response?.data?.message || error.message),
+      );
+    }
+  }
 
+  async getInvoice(businessId: string, invoiceId: string): Promise<any> {
+    const { client } = await this.getClient(businessId);
+    try {
+      const response = await client.get(`/invoices/${invoiceId}`);
       return response.data.invoice;
     } catch (error) {
-      console.error(
-        'Failed to get invoice from ZohoBooks:',
-        error.response?.data || error,
-      );
       throw new BadRequestException('Failed to get invoice: ' + error.message);
     }
   }
 
-  /**
-   * Disconnect ZohoBooks integration
-   */
-  async disconnect(
-    businessId: string,
-    ownerId: string,
-    updateDto: UpdateBusinessOwnerSettingsDto,
-  ): Promise<void> {
-    await this.businessOwnerSettingsService.update(
-      ownerId,
-      businessId,
-      updateDto,
-    );
+  async disconnect(ownerId: string, businessId: string): Promise<void> {
+    await this.access.assertOwnsBusiness(ownerId, businessId);
+    await this.forget(businessId, ownerId);
+  }
+
+  /** Credentials stopped working: forget them so the UI shows Connect again. */
+  async markDisconnected(businessId: string, ownerId: string): Promise<void> {
+    await this.forget(businessId, ownerId);
+  }
+
+  private async forget(businessId: string, ownerId: string): Promise<void> {
     await this.zohoBooksCredsRepo.delete({ business: { id: businessId } });
+    await this.businessOwnerSettingsService.update(ownerId, businessId, {
+      integrations: { zohoBooks: false },
+    });
   }
 }

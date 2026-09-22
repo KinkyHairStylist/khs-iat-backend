@@ -561,18 +561,76 @@ export class PaymentService {
     return { message: 'Escrow refunded successfully', refunded };
   }
 
-  async deleteAllPayments() {
-    const result = await this.paymentRepo.clear();
-    return { message: 'All payments deleted.', result };
+  // A payment is a customer paying for something: the Debit rows of the ledger. The other rows
+  // (fees, the salon's matching earning, refunds, withdrawals) are the other side of the same
+  // money, so counting them too would count it several times.
+  static readonly ABANDONED_AFTER_HOURS = 24;
+
+  // The headline numbers for the payments page. "Waiting" is a payment that was started
+  // recently and not paid yet; "abandoned" was started more than ABANDONED_AFTER_HOURS ago and
+  // never paid.
+  async getPaymentsOverview(now: Date = new Date()) {
+    const cutoff = new Date(now.getTime() - PaymentService.ABANDONED_AFTER_HOURS * 3_600_000);
+
+    const byStatus = await this.transactionRepo
+      .createQueryBuilder('t')
+      .select('t.status', 'status')
+      .addSelect('COUNT(*)', 'count')
+      .addSelect('COALESCE(SUM(t.amount), 0)', 'amount')
+      .where('t.type = :type', { type: TransactionType.DEBIT })
+      .groupBy('t.status')
+      .getRawMany();
+
+    const oldPending = await this.transactionRepo
+      .createQueryBuilder('t')
+      .select('COUNT(*)', 'count')
+      .addSelect('COALESCE(SUM(t.amount), 0)', 'amount')
+      .where('t.type = :type', { type: TransactionType.DEBIT })
+      .andWhere('t.status = :status', { status: TransactionStatus.PENDING })
+      .andWhere('t.createdAt < :cutoff', { cutoff })
+      .getRawOne();
+
+    const totals = (statuses: string[]) =>
+      byStatus
+        .filter((r) => statuses.includes(r.status))
+        .reduce(
+          (sum, r) => ({
+            count: sum.count + Number(r.count || 0),
+            amount: sum.amount + Number(r.amount || 0),
+          }),
+          { count: 0, amount: 0 },
+        );
+
+    const pending = totals([TransactionStatus.PENDING]);
+    const abandoned = {
+      count: Number(oldPending?.count || 0),
+      amount: Number(oldPending?.amount || 0),
+    };
+    const round = (n: number) => Math.round(n * 100) / 100;
+
+    return {
+      received: { ...totals([TransactionStatus.COMPLETED]), amount: round(totals([TransactionStatus.COMPLETED]).amount) },
+      waiting: { count: pending.count - abandoned.count, amount: round(pending.amount - abandoned.amount) },
+      abandoned: { count: abandoned.count, amount: round(abandoned.amount) },
+      failed: {
+        ...totals([TransactionStatus.FAILED, TransactionStatus.CANCELLED]),
+        amount: round(totals([TransactionStatus.FAILED, TransactionStatus.CANCELLED]).amount),
+      },
+      totalPayments: byStatus.reduce((sum, r) => sum + Number(r.count || 0), 0),
+      abandonedAfterHours: PaymentService.ABANDONED_AFTER_HOURS,
+      methods: await this.getPaymentMethodStats(),
+    };
   }
 
+  // What customers actually paid, by method: completed payments only.
   async getPaymentMethodStats() {
     const raw = await this.transactionRepo
       .createQueryBuilder('t')
       .select('t.method', 'method')
       .addSelect('COUNT(*)', 'count')
       .addSelect('SUM(t.amount)', 'totalAmount')
-      .where('t.status = :status', { status: 'completed' })
+      .where('t.status = :status', { status: TransactionStatus.COMPLETED })
+      .andWhere('t.type = :type', { type: TransactionType.DEBIT })
       .groupBy('t.method')
       .getRawMany();
 

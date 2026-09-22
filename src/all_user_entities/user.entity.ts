@@ -8,6 +8,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
+import { Exclude } from 'class-transformer';
 import { Card } from './card.entity';
 import { GiftCard } from './gift-card.entity';
 import { Referral } from '../user/user_entities/referrals.entity';
@@ -39,6 +40,9 @@ export class User {
     fullAddress?: string;
   }[];
 
+  // Never sent in an API response: a user record can travel inside another one (a booking's
+  // client, a business's owner), and these fields must not go with it.
+  @Exclude({ toPlainOnly: true })
   @Column({ type: 'varchar', nullable: true })
   password?: string;
 
@@ -76,6 +80,7 @@ export class User {
   @OneToMany(() => RefreshToken, (token) => token.user, {
     cascade: true,
   })
+  @Exclude({ toPlainOnly: true })
   refreshTokens: RefreshToken[];
 
   @OneToMany(() => Business, (business) => business.owner, {
@@ -95,15 +100,19 @@ export class User {
   })
   cards: Card[];
 
+  @Exclude({ toPlainOnly: true })
   @Column({ type: 'varchar', nullable: true })
   verificationCode: string | null;
 
+  @Exclude({ toPlainOnly: true })
   @Column({ type: 'timestamp', nullable: true })
   verificationExpires: Date | null;
 
+  @Exclude({ toPlainOnly: true })
   @Column({ type: 'varchar', nullable: true })
   resetCode: string | null;
 
+  @Exclude({ toPlainOnly: true })
   @Column({ type: 'timestamp', nullable: true })
   resetCodeExpires: Date | null;
 

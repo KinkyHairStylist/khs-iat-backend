@@ -8,6 +8,7 @@ import { BookingDay } from 'src/business/entities/booking-day.entity';
 import { BlockedTimeSlot } from 'src/business/entities/blocked-time-slot.entity';
 import { Appointment } from 'src/business/entities/appointment.entity';
 import { Staff } from 'src/business/entities/staff.entity';
+import { resolveBookingRules } from 'src/helpers/booking-rules.helper';
 
 @Injectable()
 export class BusinessServicesService {
@@ -63,6 +64,7 @@ export class BusinessServicesService {
   async getServicesByBusinessId(businessId: string) {
     const business = await this.businessRepo.findOne({
       where: { id: businessId, status: BusinessStatus.APPROVED },
+      relations: ['bookingPolicies', 'ownerSettings'],
     });
 
     if (!business) {
@@ -97,7 +99,6 @@ export class BusinessServicesService {
       bookings: business.bookings,
       plan: business.plan,
       performance: business.performance,
-      revenueGoal: business.revenueGoal,
       createdAt: business.createdAt,
       updatedAt: business.updatedAt,
       serviceList: services,
@@ -105,6 +106,8 @@ export class BusinessServicesService {
       staff,
       blockedSlots,
       appointments,
+      // Scheduling rules the booking modal applies when listing time slots.
+      bookingRules: resolveBookingRules(business),
     };
   }
 
@@ -130,7 +133,7 @@ export class BusinessServicesService {
       maxPrice: srv.maxPrice,
       duration: srv.duration,
       images: srv.images,
-      assignedStaff: (srv.assignedStaff || []).map((st) => ({
+      assignedStaff: (srv.assignedStaff || []).filter((st) => st.isActive !== false).map((st) => ({
         id: st.id,
         name: `${st.firstName || ''} ${st.lastName || ''}`.trim() || 'Staff Member',
         firstName: st.firstName,
@@ -150,7 +153,7 @@ export class BusinessServicesService {
    */
   async getStaffList(businessId: string) {
     const rawStaff = await this.staffRepo.find({
-      where: { business: { id: businessId } },
+      where: { business: { id: businessId }, isActive: true },
       order: { firstName: 'ASC' },
     });
 

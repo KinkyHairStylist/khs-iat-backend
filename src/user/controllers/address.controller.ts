@@ -65,7 +65,7 @@ export class AddressController {
   @ApiResponse({ status: 200, description: 'Address deleted successfully' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 404, description: 'Address not found' })
-  async deleteAddress(@Param('id') addressId: string) {
-    return this.addressService.deleteAddress(addressId);
+  async deleteAddress(@GetUser() user: User, @Param('id') addressId: string) {
+    return this.addressService.deleteAddress(user, addressId);
   }
 }

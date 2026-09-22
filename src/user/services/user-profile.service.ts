@@ -38,10 +38,16 @@ export class UserProfileService implements OnModuleInit {
     }
   }
 
+  // The password hash has no business leaving the server — this used to come back as plain JSON on every call.
+  private withoutPassword(user: User): User {
+    const { password, ...rest } = user;
+    return rest as User;
+  }
+
   async getProfile(user: User): Promise<User> {
     const foundUser = await this.userRepo.findOne({ where: { id: user.id } });
     if (!foundUser) throw new NotFoundException('User not found');
-    return foundUser;
+    return this.withoutPassword(foundUser);
   }
 
   async updateProfile(user: User, dto: UpdateUserProfileDto): Promise<User> {
@@ -53,7 +59,8 @@ export class UserProfileService implements OnModuleInit {
 
       Object.assign(foundUser, dto);
 
-      return await this.userRepo.save(foundUser);
+      const saved = await this.userRepo.save(foundUser);
+      return this.withoutPassword(saved);
     } catch (error) {
       console.error('Error updating profile:', error);
 
@@ -86,7 +93,8 @@ export class UserProfileService implements OnModuleInit {
     const uploadedUrl = await this.cloudinaryService.uploadFile(file);
     foundUser.avatarUrl = uploadedUrl;
 
-    return this.userRepo.save(foundUser);
+    const saved = await this.userRepo.save(foundUser);
+    return this.withoutPassword(saved);
   }
 
   async deleteAvatar(user: User): Promise<{ message: string }> {

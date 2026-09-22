@@ -105,6 +105,20 @@ describe('NotificationService', () => {
         unreadCount: 1,
       });
     });
+
+    it('can list only the notifications that have not been read', async () => {
+      mockRepository.findAndCount.mockResolvedValue([[], 0]);
+      mockRepository.count.mockResolvedValue(0);
+
+      await service.getUserNotifications('user-1', 2, 10, true);
+
+      expect(mockRepository.findAndCount).toHaveBeenCalledWith({
+        where: { userId: 'user-1', isRead: false },
+        order: { createdAt: 'DESC' },
+        skip: 10,
+        take: 10,
+      });
+    });
   });
 
   describe('markAsRead', () => {

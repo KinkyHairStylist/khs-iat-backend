@@ -60,6 +60,7 @@ export class BusinessSettingsController {
 
       const business = await this.businessRepository.findOne({
         where: { ownerId },
+        relations: ['bookingPolicies'],
       });
 
       if (!business) {

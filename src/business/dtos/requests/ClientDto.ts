@@ -9,6 +9,7 @@ import {
   MinLength,
   IsNumber,
   Min,
+  Max,
   IsIn,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -312,6 +313,11 @@ export class ClientFiltersDto {
   @IsEnum(ClientType)
   clientType?: ClientType;
 
+  // "active" lists only clients who hold an active membership package with this merchant.
+  @IsOptional()
+  @IsIn(['active'])
+  membership?: string;
+
   @IsOptional()
   @IsIn(['createdAt', 'firstName', 'lastName', 'email', 'phone', 'updatedAt'])
   sortBy?: string;
@@ -328,6 +334,7 @@ export class ClientFiltersDto {
   @IsOptional()
   @IsNumber()
   @Min(1)
+  @Max(200)
   limit?: number;
 }
 

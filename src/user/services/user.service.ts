@@ -2,9 +2,11 @@ import {
   Injectable,
   Logger,
   BadRequestException,
+  ForbiddenException,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { assertNotSuspended } from '../utils/account-suspension';
 import { SlackService } from '../../services/slack.service';
 import {
   SlackChannel,
@@ -14,7 +16,7 @@ import {
   SlackSeverity,
 } from '../../utils/enum';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, Raw, Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import axios from 'axios';
 
@@ -133,7 +135,10 @@ export class UserService {
     const verificationCode = this.generateCode();
     const verificationExpires = new Date(Date.now() + 10 * 60 * 1000);
 
-    const user = await this.userRepository.findOne({ where: { email } });
+    // Case-insensitive so "Name@x.com" and "name@x.com" are the same account here.
+    const user = await this.userRepository.findOne({
+      where: { email: Raw((alias) => `LOWER(${alias}) = :email`, { email: email.toLowerCase() }) },
+    });
 
     // Create referral record early if a referral code was provided — before early returns
     if (dto.refCode) {
@@ -177,7 +182,7 @@ export class UserService {
         const locked = await manager
           .createQueryBuilder(User, 'u')
           .setLock('pessimistic_write')
-          .where('u.email = :email', { email })
+          .where('u.email = :email', { email: user.email })
           .getOne();
 
         if (!locked) {
@@ -390,6 +395,10 @@ export class UserService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
+    // Only after the password is right, so this never reveals which emails are registered.
+    assertNotSuspended(user);
+    this.assertCustomerAccount(user);
+
     user.activity = new Date().toISOString();
     await this.userRepository.save(user);
 
@@ -411,6 +420,19 @@ export class UserService {
       user: this.sanitizeUser(user),
       success: true,
     };
+  }
+
+  // The customer site is for customer accounts. A merchant or admin account signing in here would
+  // get a session it can't use (every customer action is refused), so it is turned away at the
+  // door with the way to the right place. An account that is a customer as well is let in.
+  private assertCustomerAccount(user: User): void {
+    if (user.isCustomer) return;
+    if (user.isStaff) {
+      throw new ForbiddenException('This is an admin account. Please sign in from the admin site.');
+    }
+    if (user.isMerchant || user.isBusinessStaff) {
+      throw new ForbiddenException('This is a merchant account. Please sign in as a merchant instead.');
+    }
   }
 
   async startResetPassword(
@@ -521,6 +543,9 @@ export class UserService {
       if (!user) {
         throw new UnauthorizedException('User not found');
       }
+      // A session that was opened before this rule (or by an account that has since changed type)
+      // ends here instead of being renewed.
+      this.assertCustomerAccount(user);
 
       const { accessToken, refreshToken: newRefreshToken } = await getTokens(
         this.jwtService,
@@ -540,42 +565,4 @@ export class UserService {
     }
   }
 
-  async updateUser(userId: string, dto: any): Promise<any> {
-    try {
-      const user = await this.userRepository.findOne({ where: { id: userId } });
-
-      if (!user) {
-        return {
-          success: false,
-          message: 'User not found',
-        };
-      }
-
-      // ✅ Convert dateOfBirth string → Date
-      if (dto.dateOfBirth) {
-        dto.dateOfBirth = new Date(dto.dateOfBirth) as any;
-      }
-
-      // ✅ Hash password ONLY if provided
-      if (dto.password) {
-        dto.password = await this.passwordUtil.hashPassword(dto.password);
-      }
-
-      Object.assign(user, dto);
-
-      await this.userRepository.save(user);
-
-      return {
-        success: true,
-        data: user,
-        message: 'User updated successfully',
-      };
-    } catch (error) {
-      return {
-        success: false,
-        message: 'Failed to update user',
-        error: error.message,
-      };
-    }
-  }
 }

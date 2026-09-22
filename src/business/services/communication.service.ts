@@ -1,16 +1,31 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import sgMail from '@sendgrid/mail';
 import { ClientSchema } from '../entities/client.entity';
 import { Business } from '../entities/business.entity';
 import { capitalizeString } from '../utils/client.utils';
 import { Communication } from '../entities/communication.entity';
 import { TemplateService } from 'src/email/template.service';
+import { assertCanManageBusiness } from '../utils/business-access';
 import {
   SendBulkMessageDto,
   SendDirectMessageDto,
 } from '../dtos/requests/CommunicationDto';
+
+// Who is sending. A platform admin can message any client; a merchant only their own.
+export interface Sender {
+  id?: string;
+  sub?: string;
+  isStaff?: boolean;
+}
+
+interface SenderBusiness {
+  id: string | null;
+  name: string;
+}
+
+const DEFAULT_SENDER_NAME = 'Kinky Hairstylist';
 
 @Injectable()
 export class CommunicationService {
@@ -40,30 +55,51 @@ export class CommunicationService {
 
     sgMail.setApiKey(apiKey);
     this.fromEmail = fromEmail;
-    this.fromName = fromName || 'Kinky Hairstylist';
+    this.fromName = fromName || DEFAULT_SENDER_NAME;
   }
 
-  private async getBusinessName(businessId?: string): Promise<string> {
-    if (!businessId) return 'Kinky Hairstylist';
-    try {
-      const business = await this.businessRepo.findOne({
-        where: { id: businessId },
-        select: ['businessName'],
-      });
-      return business?.businessName || 'Kinky Hairstylist';
-    } catch {
-      return 'Kinky Hairstylist';
+  // The salon the message is sent on behalf of. It names the sender in the email, so it has to be one the
+  // sender owns: a merchant cannot send as someone else's salon. With none given it is the sender's own
+  // salon. Throws Forbidden, which is not swallowed into a "failed to send" answer.
+  private async resolveSenderBusiness(sender: Sender, businessId?: string): Promise<SenderBusiness> {
+    if (businessId) {
+      const business = await this.businessRepo.findOne({ where: { id: businessId } });
+      assertCanManageBusiness(sender, business);
+      return { id: business!.id, name: business!.businessName || DEFAULT_SENDER_NAME };
     }
+    const senderId = sender.id ?? sender.sub;
+    if (!sender.isStaff && senderId) {
+      const own = await this.businessRepo.findOne({ where: { ownerId: senderId } });
+      if (own) return { id: own.id, name: own.businessName || DEFAULT_SENDER_NAME };
+    }
+    return { id: null, name: DEFAULT_SENDER_NAME };
   }
 
-  async sendDirectMessage(payload: SendDirectMessageDto) {
-    try {
-      const client = await this.clientRepo.findOneBy({
-        id: payload.clientId,
-        email: payload.clientEmail,
-      });
+  // Only the sender's own active clients can be messaged (a platform admin can message any).
+  private async findReachableClients(sender: Sender, ids: string[]): Promise<Map<string, ClientSchema>> {
+    if (ids.length === 0) return new Map();
+    const senderId = sender.id ?? sender.sub;
+    const clients = await this.clientRepo.find({
+      where: sender.isStaff
+        ? { id: In(ids), isActive: true }
+        : { id: In(ids), isActive: true, ownerId: senderId },
+    });
+    return new Map(clients.map((c) => [c.id, c]));
+  }
 
-      if (!client) {
+  private displayName(client: ClientSchema, fallback?: string): string {
+    return `${client.firstName ?? ''} ${client.lastName ?? ''}`.trim() || fallback || 'Valued Client';
+  }
+
+  async sendDirectMessage(payload: SendDirectMessageDto, sender: Sender) {
+    const business = await this.resolveSenderBusiness(sender, payload.businessId);
+
+    try {
+      const reachable = await this.findReachableClients(sender, [payload.clientId]);
+      const client = reachable.get(payload.clientId);
+
+      // The address must be the one on file for that client.
+      if (!client || client.email?.trim().toLowerCase() !== payload.clientEmail.trim().toLowerCase()) {
         return {
           success: false,
           error: 'Client account not found',
@@ -72,9 +108,12 @@ export class CommunicationService {
       }
 
       const { closingRemarks, ...restofPayload } = payload;
-      const customMessage = this.communicationRepo.create(restofPayload);
+      const customMessage = this.communicationRepo.create({
+        ...restofPayload,
+        businessId: business.id ?? restofPayload.businessId,
+      });
 
-      await this.sendDirectMessageEmail(payload);
+      await this.sendDirectMessageEmail(payload, business.name, client);
 
       customMessage.sent = true;
       await this.communicationRepo.save(customMessage);
@@ -82,7 +121,7 @@ export class CommunicationService {
       return {
         success: true,
         data: customMessage,
-        message: `Message sent ${payload.clientEmail} successfully`,
+        message: `Message sent ${client.email} successfully`,
       };
     } catch (error) {
       return {
@@ -93,7 +132,9 @@ export class CommunicationService {
     }
   }
 
-  async sendBulkCustomMessages(payload: SendBulkMessageDto) {
+  async sendBulkCustomMessages(payload: SendBulkMessageDto, sender: Sender) {
+    const business = await this.resolveSenderBusiness(sender, payload.businessId);
+
     try {
       if (!payload.recipients || payload.recipients?.length === 0) {
         return {
@@ -103,19 +144,27 @@ export class CommunicationService {
         };
       }
 
+      // One entry per client, however many times they were listed.
+      const uniqueRecipients = [...new Map(payload.recipients.map((r) => [r.clientId, r])).values()];
+
       // Arrays to hold valid and invalid recipients
-      const validRecipients: typeof payload.recipients = [];
+      const validRecipients: { clientId: string; clientName: string; clientEmail: string }[] = [];
       const invalidRecipients: { name: string; email: string }[] = [];
 
-      // Validate each recipient
-      for (const recipient of payload.recipients) {
-        const client = await this.clientRepo.findOneBy({
-          id: recipient.clientId,
-          email: recipient.clientEmail,
-        });
+      const reachable = await this.findReachableClients(
+        sender,
+        uniqueRecipients.map((r) => r.clientId),
+      );
 
-        if (client) {
-          validRecipients.push(recipient);
+      for (const recipient of uniqueRecipients) {
+        const client = reachable.get(recipient.clientId);
+        if (client && client.email?.trim().toLowerCase() === recipient.clientEmail.trim().toLowerCase()) {
+          // The stored address and name are used, not what the request said.
+          validRecipients.push({
+            clientId: client.id,
+            clientEmail: client.email,
+            clientName: this.displayName(client, recipient.clientName),
+          });
         } else {
           invalidRecipients.push({
             name: recipient.clientName,
@@ -139,6 +188,7 @@ export class CommunicationService {
       const { succeeded, failed } = await this.sendCustomMessageEmailBatch(
         payload,
         validRecipients,
+        business.name,
       );
 
       if (succeeded.length === 0) {
@@ -159,6 +209,7 @@ export class CommunicationService {
         messageSubject: payload.messageSubject,
         message: payload.message,
         recipients: succeeded,
+        businessId: business.id ?? undefined,
         sent: true,
       });
 
@@ -188,7 +239,7 @@ export class CommunicationService {
         data: customMessage,
         message:
           notes.length > 0
-            ? `Message sent to ${succeeded.length} of ${payload.recipients.length} recipient(s). ${notes.join(' ')}`
+            ? `Message sent to ${succeeded.length} of ${uniqueRecipients.length} recipient(s). ${notes.join(' ')}`
             : 'Message sent to all recipients successfully',
       };
     } catch (error) {
@@ -207,14 +258,16 @@ export class CommunicationService {
   //   EMAILS
   private async sendDirectMessageEmail(
     data: SendDirectMessageDto,
+    businessName: string,
+    client: ClientSchema,
   ): Promise<void> {
-    const businessName = await this.getBusinessName(data.businessId);
     const subject = capitalizeString(data.messageSubject);
-    const text = `Dear ${data.clientName ?? 'Valued Client'},\n\n${data.message}\n\n${data.closingRemarks ?? 'Thank you'}.`;
+    const clientName = this.displayName(client, data.clientName);
+    const text = `Dear ${clientName},\n\n${data.message}\n\n${data.closingRemarks ?? 'Thank you'}.`;
 
     const html = this.templateService.render('communication-bulk', {
       businessName,
-      clientName: data.clientName ?? 'Valued Client',
+      clientName,
       subject,
       message: data.message,
       closingRemarks: data.closingRemarks ?? 'Thank you',
@@ -223,7 +276,7 @@ export class CommunicationService {
     });
 
     const msg = {
-      to: data.clientEmail,
+      to: client.email,
       from: { email: this.fromEmail, name: this.fromName },
       subject,
       text,
@@ -235,22 +288,22 @@ export class CommunicationService {
 
   private async sendCustomMessageEmailBatch(
     data: SendBulkMessageDto,
-    recipients: SendBulkMessageDto['recipients'],
+    recipients: { clientId: string; clientName: string; clientEmail: string }[],
+    businessName: string,
   ): Promise<{
-    succeeded: SendBulkMessageDto['recipients'];
+    succeeded: { clientId: string; clientName: string; clientEmail: string }[];
     failed: { name: string; email: string; error: string }[];
   }> {
     if (!recipients || recipients.length === 0) {
       throw new Error('No recipients provided');
     }
 
-    const businessName = await this.getBusinessName(data.businessId);
     const subject = capitalizeString(data.messageSubject);
     const frontendUrl = process.env.FRONTEND_URL || 'https://kinkyhairstylists.com';
     const year = new Date().getFullYear();
     const BATCH_SIZE = 1000; // Cap on concurrent in-flight sends per chunk
 
-    const succeeded: SendBulkMessageDto['recipients'] = [];
+    const succeeded: { clientId: string; clientName: string; clientEmail: string }[] = [];
     const failed: { name: string; email: string; error: string }[] = [];
 
     for (let i = 0; i < recipients.length; i += BATCH_SIZE) {

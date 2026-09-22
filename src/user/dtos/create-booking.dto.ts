@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsArray, IsDateString, IsNotEmpty, IsNumber, IsString, IsUUID } from 'class-validator';
+import { IsArray, IsDateString, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID } from 'class-validator';
 
 export class CreateBookingDto {
   @ApiProperty({
@@ -41,4 +41,23 @@ export class CreateBookingDto {
   @IsNumber()
   @IsNotEmpty()
   totalAmount: number;
+
+  @ApiProperty({
+    example: -60,
+    required: false,
+    description:
+      "The browser's Date.getTimezoneOffset(), so the salon's rules are checked against the client's local clock",
+  })
+  @IsNumber()
+  @IsOptional()
+  timezoneOffsetMinutes?: number;
+
+  @ApiProperty({
+    example: 'bbf9f0a9-b83e-418b-8f8c-bb06f547b1f9',
+    required: false,
+    description: 'The stylist the customer chose. Leave out for any stylist who is free.',
+  })
+  @IsUUID()
+  @IsOptional()
+  staffId?: string;
 }

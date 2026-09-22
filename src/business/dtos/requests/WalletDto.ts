@@ -50,6 +50,7 @@ export class AddTransactionDto {
   senderId: string;
 
   @IsNumber()
+  @Min(0.01)
   amount: number;
 
   @IsOptional()

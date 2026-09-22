@@ -32,7 +32,7 @@ export class CommunicationController {
     @Body() directMessageData: SendDirectMessageDto,
   ) {
     const result =
-      await this.communicationService.sendDirectMessage(directMessageData);
+      await this.communicationService.sendDirectMessage(directMessageData, req.user);
 
     if (!result.success) {
       throw new HttpException(result.message, HttpStatus.BAD_REQUEST);
@@ -47,7 +47,7 @@ export class CommunicationController {
     @Body() bulkMessagesData: SendBulkMessageDto,
   ) {
     const result =
-      await this.communicationService.sendBulkCustomMessages(bulkMessagesData);
+      await this.communicationService.sendBulkCustomMessages(bulkMessagesData, req.user);
 
     if (!result.success) {
       throw new HttpException(result.message, HttpStatus.BAD_REQUEST);

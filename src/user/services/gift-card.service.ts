@@ -33,6 +33,17 @@ import {
 import { PlatformSettingsService } from '../../admin/platform-settings/platform-settings.service';
 import { EmailService } from '../../email/email.service';
 import { SlackService } from 'src/slack/slack.service';
+import { NotificationService } from 'src/notifications/notification.service';
+import { NotificationType } from 'src/notifications/notification.enum';
+
+// The salon a gift card belongs to, as needed to tell it about a sale.
+type SoldBy = {
+  ownerId?: string;
+  businessName?: string;
+  ownerEmail?: string;
+  ownerName?: string;
+  owner?: { email?: string; firstName?: string; surname?: string };
+};
 
 @Injectable()
 export class GiftCardService {
@@ -53,6 +64,7 @@ export class GiftCardService {
     private readonly platformSettingsService: PlatformSettingsService,
     private readonly emailService: EmailService,
     private readonly slackService: SlackService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   // ------------------------------------------------------
@@ -220,6 +232,7 @@ export class GiftCardService {
             platformFee: feeAmount,
             totalPaid: giftCardAmount + feeAmount,
             alreadyCompleted: true,
+            business: undefined as SoldBy | undefined,
           };
         }
 
@@ -232,7 +245,7 @@ export class GiftCardService {
         // Load business and owner relations after basic validations
         const giftCardWithRelations = await manager.findOne(BusinessGiftCard, {
           where: { id: meta.giftCardId },
-          relations: ['business', 'owner'],
+          relations: ['business', 'business.owner', 'owner'],
         });
         if (!giftCardWithRelations?.business)
           throw new NotFoundException('Gift card business not found');
@@ -295,6 +308,7 @@ export class GiftCardService {
           giftCardAmount: giftCardAmount,
           platformFee: feeAmount,
           totalPaid: giftCardAmount + feeAmount,
+          business: giftCardWithRelations.business as SoldBy | undefined,
         };
       },
     );
@@ -312,13 +326,16 @@ export class GiftCardService {
       };
     }
 
+    // The salon is credited the card's full value now. KHS's commission and acquisition fee are
+    // taken when the card is spent on a booking, on the whole booking.
+
     // Update business wallet outside the transaction to avoid deadlock
     try {
       await this.walletService.addFunds({
         businessId: result.giftCard.businessId,
         recipientId: result.giftCard.ownerId!,
         senderId: meta.purchaserId,
-        amount: result.giftCardAmount, // Convert to minor units
+        amount: result.giftCardAmount,
         type: TransactionType.EARNING,
         description: `Business Gift card purchase via Stripe`,
         referenceId: reference,
@@ -362,11 +379,56 @@ export class GiftCardService {
       );
     }
 
+    // Tell the salon its gift card was sold and that the money is in its wallet.
+    try {
+      if (result.business?.ownerId) {
+        await this.notificationService.create({
+          userId: result.business.ownerId,
+          type: NotificationType.SYSTEM,
+          title: 'Gift card sold',
+          message: `${result.giftCard.ownerFullName || 'A customer'} bought your gift card "${result.giftCard.title}" for $${result.giftCardAmount.toFixed(2)}. The amount has been added to your wallet.`,
+          link: '/merchant/dashboard/gift-management',
+          metadata: {
+            giftCardId: result.giftCard.id,
+            businessId: result.giftCard.businessId,
+            amount: result.giftCardAmount,
+          },
+        });
+      }
+    } catch (notifyError) {
+      console.error('Failed to notify the salon of a gift card sale:', notifyError);
+    }
+
+    // Email the salon too. The email service copies the KHS team; if the salon has no email on
+    // file the KHS team gets it on its own.
+    try {
+      const salon = result.business;
+      const merchantEmail = salon?.ownerEmail || salon?.owner?.email;
+      const to = merchantEmail || this.emailService.khsTeamEmail;
+      if (to) {
+        const merchantName =
+          salon?.ownerName ||
+          `${salon?.owner?.firstName ?? ''} ${salon?.owner?.surname ?? ''}`.trim() ||
+          'Salon Owner';
+        this.emailService.sendMerchantGiftCardSoldEmail(
+          to,
+          merchantName,
+          salon?.businessName || 'your salon',
+          result.giftCard.ownerFullName || 'A customer',
+          result.giftCard.title,
+          result.giftCardAmount,
+        );
+      }
+    } catch (emailError) {
+      console.error('Failed to email the salon about a gift card sale:', emailError);
+    }
+
     // Send Slack notification
     try {
       this.slackService.notify(
         `🎁 *Gift Card Purchased*\n` +
         `• *Card*: "${result.giftCard.title}" (\`${result.giftCard.code}\`)\n` +
+        `• *Salon*: ${result.business?.businessName || 'N/A'}\n` +
         `• *Purchaser*: ${result.giftCard.ownerFullName || 'Customer'} (${result.giftCard.ownerEmail || 'N/A'})\n` +
         `• *Recipient*: ${result.giftCard.recipientName || 'N/A'} (${result.giftCard.recipientEmail || 'N/A'})\n` +
         `• *Amount*: $${result.giftCardAmount.toFixed(2)}`
@@ -400,6 +462,10 @@ export class GiftCardService {
     if (giftCard.remainingAmount <= 0)
       // return { valid: false, reason: 'Gift card fully redeemed' };
       return { valid: false, reason: 'Gift card already redeemed' };
+    if (giftCard.status !== BusinessGiftCardStatus.ACTIVE)
+      return { valid: false, reason: 'Gift card is not active' };
+    if (dto.businessId && giftCard.businessId !== dto.businessId)
+      return { valid: false, reason: 'Gift card is for a different salon', reasonCode: 'wrong_salon' };
 
     return {
       valid: true,
@@ -421,6 +487,12 @@ export class GiftCardService {
 
     const now = new Date();
 
+    // Unsold salon stock and deactivated cards cannot be redeemed.
+    if (
+      giftCard.soldStatus !== BusinessGiftCardSoldStatus.PURCHASED ||
+      giftCard.status === BusinessGiftCardStatus.INACTIVE
+    )
+      throw new BadRequestException('Gift card is not active');
     if (giftCard.expiresAt < now)
       throw new BadRequestException('Gift card expired');
     if (giftCard.remainingAmount <= 0)
@@ -539,11 +611,12 @@ export class GiftCardService {
   }
 
   /** Get all AVAILABLE gift cards */
-  async getAllAvailableBusinessGiftCards() {
+  async getAllAvailableBusinessGiftCards(businessId?: string) {
     return this.giftCardRepo.find({
       where: {
         soldStatus: BusinessGiftCardSoldStatus.AVAILABLE,
         status: BusinessGiftCardStatus.ACTIVE,
+        ...(businessId ? { businessId } : {}),
       },
       relations: ['business'],
       order: { createdAt: 'DESC' },

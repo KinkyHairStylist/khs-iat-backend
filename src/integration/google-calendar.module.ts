@@ -6,11 +6,13 @@ import { GoogleCalendarService } from './services/google-calendar.service';
 import { GoogleCalendarController } from './controllers/google-calendar.controller';
 import { BusinessModule } from 'src/business/business.module';
 import { BusinessOwnerSettingsModule } from 'src/business/business-owner-settings.module';
+import { IntegrationCoreModule } from './integration-core.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Appointment, GoogleCredentials]),
     BusinessOwnerSettingsModule,
+    IntegrationCoreModule,
     forwardRef(() => BusinessModule),
   ],
   providers: [GoogleCalendarService],

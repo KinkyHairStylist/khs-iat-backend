@@ -3,6 +3,7 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
   InternalServerErrorException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -216,42 +217,12 @@ export class BusinessWalletService {
       );
     }
 
-    const wallet = await this.getWalletByBusinessId(
-      debitWalletDto.transaction.businessId,
-    );
-
-    // Check if sufficient balance
-    if (wallet.balance < debitWalletDto.transaction.amount) {
-      throw new BadRequestException('Insufficient wallet balance ');
-    }
-
-    // Fetch the payment method entity
-    const bankDetails = await this.paymentMethodRepository.findOne({
-      where: { id: debitWalletDto.withdrawal.bankDetailsId, isActive: true },
-      relations: ['wallet'],
+    const result = await this.requestWithdrawal({
+      businessId: debitWalletDto.transaction.businessId,
+      amount: Number(debitWalletDto.transaction.amount),
+      bankDetailsId: debitWalletDto.withdrawal.bankDetailsId,
+      description: debitWalletDto.transaction.description,
     });
-
-    if (!bankDetails) {
-      throw new NotFoundException('Bank details not found');
-    }
-
-    const transaction = await this.processTransaction(
-      debitWalletDto.transaction,
-    );
-
-    // Optional: ensure payment method belongs to same wallet/business
-    if (bankDetails.walletId !== transaction.walletId) {
-      throw new BadRequestException(
-        'Payment method does not belong to this business',
-      );
-    }
-
-    const withdrawal = await this.createWithdrawal(
-      bankDetails,
-      debitWalletDto.transaction,
-      wallet.business.businessName,
-      wallet.balance,
-    );
 
     // Largest outbound money movement in the system — same shape as the
     // business "goes live" notification (business.service.ts:167).
@@ -260,17 +231,149 @@ export class BusinessWalletService {
       provider: SlackProvider.SYSTEM,
       severity: SlackSeverity.INFO,
       type: SlackEventType.PAYMENT_ATTEMPT,
-      trigger: `Payout requested: ${wallet.business.businessName}`,
-      body: `A merchant requested a payout.
-• Business: ${wallet.business.businessName}
-• Amount: $${debitWalletDto.transaction.amount}
-• Withdrawal ID: ${withdrawal.id}`,
+      trigger: `Payout requested: ${result.withdrawal.businessName}`,
+      body: `A merchant requested a payout. It is waiting for review on Wallets & Payouts.
+• Business: ${result.withdrawal.businessName}
+• Amount: $${result.withdrawal.amount}
+• Reference: ${result.transaction.referenceId}`,
     });
 
-    return {
-      transaction,
-      withdrawal,
-    };
+    return result;
+  }
+
+  /**
+   * A salon asks KHS to pay out part of its available balance. The amount comes off the balance
+   * straight away (so it can't be spent twice) and a Pending request is created for KHS to review.
+   * Everything happens in one database transaction with the wallet row locked, so two requests made
+   * at the same moment can't both use the same money, and a failure part-way leaves nothing behind.
+   */
+  async requestWithdrawal(params: {
+    businessId: string;
+    amount: number;
+    bankDetailsId: string;
+    description?: string;
+  }): Promise<{ transaction: Transaction; withdrawal: Withdrawal }> {
+    const amount = Math.round(Number(params.amount) * 100) / 100;
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new BadRequestException('Enter an amount greater than zero');
+    }
+
+    return this.walletRepository.manager.transaction(async (manager) => {
+      const wallet = await manager.findOne(Wallet, {
+        where: { businessId: params.businessId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!wallet) throw new NotFoundException('Wallet not found');
+      if (wallet.status !== WalletStatus.ACTIVE) {
+        throw new BadRequestException('Wallet is not active');
+      }
+      if (Number(wallet.balance) < amount) {
+        throw new BadRequestException('Insufficient wallet balance');
+      }
+
+      // The payout account has to be this wallet's own, and still in use.
+      const bankDetails = await manager.findOne(WalletPaymentMethod, {
+        where: { id: params.bankDetailsId, walletId: wallet.id, isActive: true },
+      });
+      if (!bankDetails) {
+        throw new NotFoundException('Payout account not found for this business');
+      }
+
+      const business = await manager.findOne(Business, { where: { id: wallet.businessId } });
+
+      const balanceAfter = Math.round((Number(wallet.balance) - amount) * 100) / 100;
+      wallet.balance = balanceAfter;
+      wallet.totalExpenses = Number(wallet.totalExpenses) + amount;
+      await manager.save(Wallet, wallet);
+
+      const transaction = await manager.save(
+        Transaction,
+        manager.create(Transaction, {
+          walletId: wallet.id,
+          amount,
+          senderId: wallet.ownerId,
+          method: PaymentMethod.BANK,
+          type: TransactionType.WITHDRAWAL,
+          currency: wallet.currency,
+          status: TransactionStatus.PENDING,
+          mode: 'Web',
+          description: params.description || `Withdrawal request for ${business?.businessName ?? 'business'}`,
+        }),
+      );
+
+      const withdrawal = await manager.save(
+        Withdrawal,
+        manager.create(Withdrawal, {
+          businessId: wallet.businessId,
+          businessName: business?.businessName ?? '',
+          bankDetails,
+          bankDetailsId: bankDetails.id,
+          amount,
+          status: 'Pending',
+          currentBalance: balanceAfter,
+          requestDate: new Date().toISOString(),
+          transactionId: transaction.id,
+        }),
+      );
+
+      // A short reference the salon and KHS can both quote.
+      transaction.referenceId = `WD-${withdrawal.id.slice(0, 8).toUpperCase()}`;
+      await manager.save(Transaction, transaction);
+
+      return { transaction, withdrawal };
+    });
+  }
+
+  /**
+   * Puts a withdrawal's money back in the wallet and marks its ledger row cancelled. Used when KHS
+   * rejects a request and when the salon cancels one. Does not change the withdrawal's own status,
+   * the caller does, so it can record the reason.
+   */
+  async refundWithdrawal(withdrawal: Withdrawal): Promise<void> {
+    await this.walletRepository.manager.transaction(async (manager) => {
+      const wallet = await manager.findOne(Wallet, {
+        where: withdrawal.bankDetails?.walletId
+          ? { id: withdrawal.bankDetails.walletId }
+          : { businessId: withdrawal.businessId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!wallet) throw new NotFoundException('Wallet not found');
+
+      const amount = Number(withdrawal.amount);
+      wallet.balance = Math.round((Number(wallet.balance) + amount) * 100) / 100;
+      wallet.totalExpenses = Math.max(0, Number(wallet.totalExpenses) - amount);
+      await manager.save(Wallet, wallet);
+
+      if (withdrawal.transactionId) {
+        await manager.update(
+          Transaction,
+          { id: withdrawal.transactionId },
+          { status: TransactionStatus.CANCELLED },
+        );
+      }
+    });
+  }
+
+  /** A salon takes back a withdrawal request that KHS hasn't started on. */
+  async cancelWithdrawal(withdrawalId: string, user: any): Promise<Withdrawal> {
+    const withdrawal = await this.withdrawalRepository.findOne({ where: { id: withdrawalId } });
+    if (!withdrawal) throw new NotFoundException('Withdrawal request not found');
+
+    const wallet = await this.walletRepository.findOne({ where: { businessId: withdrawal.businessId } });
+    const userId = user?.id ?? user?.sub;
+    if (!user?.isStaff && (!wallet || !userId || wallet.ownerId !== userId)) {
+      throw new ForbiddenException('You can only cancel your own withdrawal requests');
+    }
+    if (withdrawal.status !== 'Pending') {
+      throw new BadRequestException(
+        `This request is already ${withdrawal.status.toLowerCase()} and can't be cancelled`,
+      );
+    }
+
+    await this.refundWithdrawal(withdrawal);
+    withdrawal.status = 'Cancelled';
+    withdrawal.reviewedAt = new Date();
+    return this.withdrawalRepository.save(withdrawal);
   }
 
   // Stripe-sourced booking earnings sit here before becoming withdrawable

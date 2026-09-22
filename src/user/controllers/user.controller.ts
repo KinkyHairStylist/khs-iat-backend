@@ -274,8 +274,4 @@ export class UserController {
     return this.userService.refreshTokens(req.user.refreshToken);
   }
 
-  @Patch('/auth/updateUser/:id')
-  updateUser(@Param('id') id: string, @Body() dto: any) {
-    return this.userService.updateUser(id, dto);
-  }
 }

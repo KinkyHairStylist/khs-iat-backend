@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { Brackets, DataSource, Repository } from 'typeorm';
 import {
   ClientFormData,
   ClientlistResponse,
@@ -18,7 +18,8 @@ import { ClientAddressSchema } from '../entities/client-address.entity';
 import { EmergencyContactSchema } from '../entities/emergency-contact-schema.entity';
 import { ClientSettingsSchema } from '../entities/client-settings.entity';
 import { Review } from '../entities/review.entity';
-import { formatClientType } from '../utils/client.utils';
+import { groupAppointmentsByClient, summarizeClientAppointments } from '../utils/client-stats';
+import { clientSegment, newClientCutoff } from '../utils/client-segments';
 import { ClientFiltersDto, UpdateClientDto } from '../dtos/requests/ClientDto';
 import {
   BusinessCloudinaryService,
@@ -73,25 +74,6 @@ export class ClientService {
     sgMail.setApiKey(apiKey);
     this.fromEmail = fromEmail;
     this.frontendUrl = frontendUrl;
-  }
-
-  async clearAllClients() {
-    try {
-      const count = await this.clientRepo.count(); // total reviews before deletion
-      if (count === 0) {
-        return { message: 'No clients to delete', deleted: 0 };
-      }
-
-      // await this.clientRepo.delete({}); // delete all rows
-      await this.clientRepo.query(`TRUNCATE TABLE "clients" CASCADE`);
-      return { message: '✅ All clients deleted successfully', deleted: count };
-    } catch (err) {
-      console.error('Failed to delete clients:', err);
-      throw new HttpException(
-        'Failed to delete clients',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
   }
 
   // async createClient(
@@ -477,6 +459,7 @@ export class ClientService {
       const {
         search,
         clientType,
+        membership,
         sortBy = 'createdAt',
         sortOrder = 'desc',
         page = 1,
@@ -500,11 +483,30 @@ export class ClientService {
         );
       }
 
-      // Client type filter (join with settings table)
+      // New and Regular are worked out from when the person became a client, not from a typed-in tag
+      // (VIP is gone: a membership is what marks a special client). New is the last 30 days.
       if (clientType && clientType !== 'all') {
-        queryBuilder.andWhere('client.clientType = :clientType', {
-          clientType,
-        });
+        const cutoff = newClientCutoff();
+        if (clientType === ClientType.NEW) {
+          queryBuilder.andWhere('client.createdAt >= :cutoff', { cutoff });
+        } else {
+          queryBuilder.andWhere('client.createdAt < :cutoff', { cutoff });
+        }
+      }
+
+      // Members: clients whose KHS account (same email) holds an active membership package at one of this
+      // merchant's salons.
+      if (membership === 'active') {
+        queryBuilder.andWhere(`EXISTS (
+          SELECT 1 FROM merchant_membership_purchases mp
+          JOIN "user" mu ON mu.id = mp."clientId"
+          JOIN businesses mb ON mb.id = mp."businessId"
+          WHERE LOWER(mu.email) = LOWER(client.email)
+            AND mb.owner_id = :ownerId
+            AND mp.status = 'ACTIVE'
+            AND mp."remainingSessions" > 0
+            AND mp."expiresAt" > NOW()
+        )`);
       }
 
       // Sorting — allowlist prevents column name injection
@@ -565,6 +567,53 @@ export class ClientService {
         ratings.map((r) => [r.clientId, Number(r.avgRating)]),
       );
 
+      // Visits, what they were worth and the next booking, from each client's real appointments.
+      const emails = clients.map((c) => c.email?.trim().toLowerCase()).filter((e): e is string => !!e);
+      const appointmentQuery = this.appointmentRepo
+        .createQueryBuilder('a')
+        .leftJoin('a.businessClient', 'bc')
+        .leftJoin('a.client', 'u')
+        .leftJoin('a.business', 'b')
+        .select(['a.id', 'a.date', 'a.time', 'a.status', 'a.amount'])
+        .addSelect(['bc.id', 'u.email'])
+        .where('bc.id IN (:...clientIds)', { clientIds })
+        .orWhere(
+          new Brackets((qb) => {
+            qb.where('b.ownerId = :ownerId', { ownerId });
+            if (emails.length) qb.andWhere('LOWER(u.email) IN (:...emails)', { emails });
+            else qb.andWhere('1 = 0');
+          }),
+        );
+      const appointmentRows = (await appointmentQuery.getMany()).map((a) => ({
+        id: a.id,
+        date: a.date,
+        time: a.time,
+        status: a.status,
+        amount: a.amount,
+        businessClientId: a.businessClient?.id ?? null,
+        clientEmail: a.client?.email ?? null,
+      }));
+      const appointmentsByClient = groupAppointmentsByClient(clients, appointmentRows);
+      const today = new Date().toISOString().slice(0, 10);
+
+      // Which of these clients are members, and how many sessions they have left.
+      const memberRows: { email: string; sessions: number }[] = emails.length
+        ? await this.dataSource.query(
+            `SELECT LOWER(u.email) AS email, SUM(p."remainingSessions")::int AS sessions
+               FROM merchant_membership_purchases p
+               JOIN "user" u ON u.id = p."clientId"
+               JOIN businesses b ON b.id = p."businessId"
+              WHERE b.owner_id = $1
+                AND LOWER(u.email) = ANY($2)
+                AND p.status = 'ACTIVE'
+                AND p."remainingSessions" > 0
+                AND p."expiresAt" > NOW()
+              GROUP BY 1`,
+            [ownerId, emails],
+          )
+        : [];
+      const sessionsByEmail = new Map(memberRows.map((r) => [r.email, r.sessions]));
+
       // Transform data (settings already loaded via leftJoinAndSelect)
       const clientsWithSettings = clients.map((client) => ({
         id: client.id,
@@ -576,13 +625,16 @@ export class ClientService {
         gender: client.gender,
         pronouns: client.pronouns,
         address: addressMap.get(client.id) || undefined,
-        clientType: formatClientType(client.clientType || ClientType.REGULAR),
+        clientType: clientSegment(client.createdAt),
         clientSource: client.clientSource,
         profileImage: client.profileImage,
         isActive: client.isActive,
         createdAt: client.createdAt,
         updatedAt: client.updatedAt,
         averageRating: ratingMap.get(client.id) ?? 0,
+        ...summarizeClientAppointments(appointmentsByClient.get(client.id) ?? [], today),
+        isMember: sessionsByEmail.has(client.email?.trim().toLowerCase() ?? ''),
+        membershipSessionsLeft: sessionsByEmail.get(client.email?.trim().toLowerCase() ?? '') ?? 0,
         ownerId,
       }));
 
