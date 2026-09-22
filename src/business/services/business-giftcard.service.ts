@@ -72,45 +72,36 @@ export class BusinessGiftCardsService {
       throw new BadRequestException(`No business found for this user`);
     }
 
-    // The code is generated here, server-side — never taken from the request. It used to be
-    // generated in the browser and submitted as plain input, which meant the merchant creating
-    // the card already knew its redeemable code before it was ever "sold" to anyone, and the
-    // server only checked its format. A merchant who knows a card's code can redeem it themselves
-    // (see redeem(), below) with nothing to connect that to a real paying customer.
-    const code = await this.generateUniqueCode();
+    // Validate the gift card code format
+    if (!this.isValidCodeFormat(createGiftCardDto.code)) {
+      throw new BadRequestException('Invalid gift card code format');
+    }
+
+    // Check if code already exists
+    const existingCard = await this.giftCardRepository.findOne({
+      where: {
+        code: createGiftCardDto.code,
+        status: Not(BusinessGiftCardStatus.DELETED),
+      },
+    });
+
+    if (existingCard) {
+      throw new ConflictException(
+        'Gift card code already exists. Please generate a new code.',
+      );
+    }
 
     // Calculate expiry date based on expiryInDays
     const expiryInDays = createGiftCardDto.expiryInDays || 365;
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + expiryInDays);
 
-    const { code: _ignoredClientCode, ...rest } = createGiftCardDto as any;
-    const giftCard: BusinessGiftCard = this.giftCardRepository.create({
-      ...rest,
-      code,
+    const giftCard = this.giftCardRepository.create({
+      ...createGiftCardDto,
       expiresAt,
       businessId: business.id,
-    } as Partial<BusinessGiftCard>);
+    });
     return await this.giftCardRepository.save(giftCard);
-  }
-
-  // KSH + 5 random characters (excludes I/O/0/1 — easy to misread aloud when a customer reads a
-  // code out at the counter), regenerated on the rare collision instead of trusting the caller's
-  // uniqueness.
-  private async generateUniqueCode(): Promise<string> {
-    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    for (let attempt = 0; attempt < 10; attempt++) {
-      let suffix = '';
-      for (let i = 0; i < 5; i++) {
-        suffix += alphabet[Math.floor(Math.random() * alphabet.length)];
-      }
-      const code = `KSH${suffix}`;
-      const existing = await this.giftCardRepository.findOne({
-        where: { code, status: Not(BusinessGiftCardStatus.DELETED) },
-      });
-      if (!existing) return code;
-    }
-    throw new Error('Could not generate a unique gift card code — try again.');
   }
 
   async getBusinessSummary(ownerId: string): Promise<any> {
@@ -188,6 +179,11 @@ export class BusinessGiftCardsService {
       totalRemainingValue: parseFloat(totalRemainingValue.toFixed(2)),
       totalRedeemedValue: parseFloat(totalRedeemedValue.toFixed(2)),
     };
+  }
+
+  private isValidCodeFormat(code: string): boolean {
+    const pattern = /^KSH[A-Z0-9]{5}$/;
+    return pattern.test(code);
   }
 
   /**
