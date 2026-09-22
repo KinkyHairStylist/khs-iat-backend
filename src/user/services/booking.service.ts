@@ -1679,13 +1679,23 @@ export class BookingService {
         });
         if (!user) throw new NotFoundException('User not found');
 
-        // Handle gift card portion if any
-        if (meta.giftCard && giftCardAmount > 0) {
+        // Handle gift card portion if any. This callback can genuinely run more than once for the
+        // same payment (page refresh, a retried request, two tabs) — alreadyConfirmed above only
+        // guards re-sending notification emails further down, not this. Without a lock and a real
+        // balance check here, a second run (or two concurrent bookings citing the same card before
+        // either commits) could each spend the same balance — the gift card version of double-
+        // spending. Locked and re-checked the same way the full-gift-card-payment branch above
+        // already does it.
+        if (meta.giftCard && giftCardAmount > 0 && !alreadyConfirmed) {
           const gift = await manager.findOne(BusinessGiftCard, {
             where: { code: meta.giftCard },
+            lock: { mode: 'pessimistic_write' },
           });
 
           if (!gift) throw new BadRequestException('Gift card not found');
+          if (Number(gift.remainingAmount) < giftCardAmount) {
+            throw new BadRequestException('Insufficient gift card balance');
+          }
 
           gift.remainingAmount = Number(gift.remainingAmount) - giftCardAmount;
           if (gift.remainingAmount === 0) {
