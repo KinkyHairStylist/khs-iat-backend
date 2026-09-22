@@ -46,22 +46,32 @@ async function bootstrap() {
   );
 
   // CORS Configuration
-  // const allowedOrigins = [
-  //   'http://localhost:3000', // dev
-  //   'https://sit.kinkyhairstylists.com', // staging
-  //   'https://uat.kinkyhairstylists.com', // staging
-  //   'https://www.kinkyhairstylists.com', // production
-  // ];
+  // origin: true (reflect any request's Origin back as allowed) combined
+  // with credentials: true let ANY website send authenticated, cookie-
+  // bearing cross-origin requests here -- flagged as a real security gap
+  // (Temidayo, 2026-09-11). Restrict to known KHS frontends instead.
+  //
+  // Per-environment URLs come from env vars (matching the RAT_/IAT_/UAT_/
+  // PROD_FRONTEND_URL pattern already used on the C2C backends) so each
+  // deploy only needs to allow its own origin -- falls back to the current
+  // known-good domains if a given env var isn't set yet on that server.
+  const allowedOrigins = [
+    process.env.LOCAL_FRONTEND_URL || 'http://localhost:3000', // dev
+    process.env.IAT_FRONTEND_URL || 'https://iat.kinkyhairstylists.com', // integration
+    process.env.SIT_FRONTEND_URL || 'https://sit.kinkyhairstylists.com', // staging
+    process.env.UAT_FRONTEND_URL || 'https://uat.kinkyhairstylists.com', // staging
+    process.env.PROD_FRONTEND_URL || 'https://kinkyhairstylists.com', // production
+    'https://www.kinkyhairstylists.com', // production (www variant)
+  ];
 
   app.enableCors({
-    // origin: (origin, callback) => {
-    //   if (!origin || allowedOrigins.includes(origin)) {
-    //     callback(null, true);
-    //   } else {
-    //     callback(new Error('Not allowed by CORS'));
-    //   }
-    // },
-    origin: true,
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],

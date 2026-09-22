@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, Param, Patch, Query, UseGuards, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, Patch, Query, UseGuards, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 import { Role } from 'src/middleware/role.enum';
@@ -93,15 +93,17 @@ export class BookingController {
   // Get user bookings (admin use - secured by roles)
   @Get('user/:userId')
   @ApiOperation({ summary: 'Get all bookings for a user' })
-  async getUserBookings(@Param('userId') userId: string) {
+  async getUserBookings(@Param('userId') userId: string, @GetUser() user: User) {
+    // A customer can only list their own bookings.
+    if (userId !== user.id) throw new ForbiddenException('You can only see your own bookings');
     return this.bookingService.getUserBookings(userId);
   }
 
   // Get single booking details
   @Get(':orderId')
   @ApiOperation({ summary: 'Get single booking details by ID' })
-  async getBookingById(@Param('orderId') orderId: string) {
-    return this.bookingService.getBookingById(orderId);
+  async getBookingById(@Param('orderId') orderId: string, @GetUser() user: User) {
+    return this.bookingService.getBookingById(orderId, user);
   }
 
   // Cancel booking
@@ -109,9 +111,14 @@ export class BookingController {
   @ApiOperation({ summary: 'Cancel a booking or specific services within a booking' })
   @ApiBody({ type: CancelBookingDto })
   @ApiResponse({ status: 200, description: 'Booking cancelled successfully' })
-  async cancelBooking(@Param('orderId') orderId: string, @Body() cancelBookingDto: CancelBookingDto) {
+  async cancelBooking(
+    @Param('orderId') orderId: string,
+    @Body() cancelBookingDto: CancelBookingDto,
+    @GetUser() user: User,
+  ) {
     return this.bookingService.cancelBooking(
       orderId,
+      user,
       cancelBookingDto.cancellationsNote,
       cancelBookingDto.acceptedTerms,
       cancelBookingDto.serviceIds,
@@ -122,8 +129,8 @@ export class BookingController {
   @Patch(':orderId/restore')
   @ApiOperation({ summary: 'Restore a cancelled booking' })
   @ApiResponse({ status: 200, description: 'Booking restored successfully' })
-  async restoreBooking(@Param('orderId') orderId: string) {
-    return this.bookingService.restoreBooking(orderId);
+  async restoreBooking(@Param('orderId') orderId: string, @GetUser() user: User) {
+    return this.bookingService.restoreBooking(orderId, user);
   }
 
   // Client confirms their own intent to attend
@@ -157,12 +164,19 @@ export class BookingController {
   })
   async rescheduleBooking(
     @Param('orderId') orderId: string,
-    @Body() body: { date: string; time: string },
+    @Body() body: { date: string; time: string; timezoneOffsetMinutes?: number },
+    @GetUser() user: User,
   ) {
     if (!body.date || isNaN(new Date(body.date).getTime())) {
       throw new BadRequestException('Invalid or missing date value');
     }
-    return this.bookingService.rescheduleBooking(orderId, new Date(body.date), body.time);
+    return this.bookingService.rescheduleBooking(
+      orderId,
+      user,
+      new Date(body.date),
+      body.time,
+      body.timezoneOffsetMinutes,
+    );
   }
 
   // (Existing) Get salon time slots (static example)

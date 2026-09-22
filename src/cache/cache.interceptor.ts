@@ -40,6 +40,8 @@ const redisClient = new Redis(
   {
     lazyConnect: false,
     maxRetriesPerRequest: 1,
+    // Fail immediately while disconnected — queued commands waited out the reconnect delay (up to ~60s).
+    enableOfflineQueue: false,
     // Cap reconnect attempts at 30s apart once we're clearly down — no point
     // hammering every 2s if Redis has been unreachable for a while.
     retryStrategy: (times) => Math.min(times * 1000, 30000),

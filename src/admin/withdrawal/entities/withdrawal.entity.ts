@@ -48,8 +48,11 @@ export class Withdrawal {
   @Column('decimal', { precision: 10, scale: 2 })
   amount: number;
 
+  // Pending: waiting for KHS to review. Processing: approved, KHS is sending the money. Completed: KHS
+  // has sent it (payoutReference says how to trace it). Rejected: KHS refused (rejectionReason says
+  // why) and the amount went back to the wallet. Cancelled: the salon withdrew the request first.
   @Column({ default: 'Pending' })
-  status: 'Pending' | 'Processing' | 'Completed' | 'Rejected';
+  status: 'Pending' | 'Processing' | 'Completed' | 'Rejected' | 'Cancelled';
 
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
   currentBalance: number;
@@ -59,6 +62,24 @@ export class Withdrawal {
 
   @Column({ nullable: true })
   timeAgo: string;
+
+  // The transfer reference KHS entered when it sent the money, and when.
+  @Column({ type: 'varchar', length: 120, nullable: true })
+  payoutReference: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  paidAt: Date | null;
+
+  @Column({ type: 'text', nullable: true })
+  rejectionReason: string | null;
+
+  // When KHS approved or rejected it.
+  @Column({ type: 'timestamptz', nullable: true })
+  reviewedAt: Date | null;
+
+  // The ledger row the request took the money out of, so approving, paying or rejecting can update it.
+  @Column({ type: 'uuid', nullable: true })
+  transactionId: string | null;
 
   @CreateDateColumn()
   createdAt: Date;

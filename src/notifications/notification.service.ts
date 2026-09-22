@@ -40,6 +40,7 @@ NotificationService {
     userId: string,
     page: number = 1,
     limit: number = 20,
+    unreadOnly: boolean = false,
   ): Promise<{
     notifications: Notification[];
     total: number;
@@ -48,7 +49,7 @@ NotificationService {
     unreadCount: number;
   }> {
     const [notifications, total] = await this.notificationRepository.findAndCount({
-      where: { userId },
+      where: unreadOnly ? { userId, isRead: false } : { userId },
       order: { createdAt: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,

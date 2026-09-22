@@ -3,6 +3,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Admin, In, Not, Repository } from 'typeorm';
@@ -55,6 +56,7 @@ import { BusinessOwnerSettingsService } from './business-owner-settings.service'
 import { ZohoBooksService } from 'src/integration/services/zohobooks.service';
 import { PasswordUtil } from '../utils/password.util';
 import { NotificationService } from 'src/notifications/notification.service';
+import { MerchantSignupService } from './merchant-signup.service';
 import { NotificationType } from 'src/notifications/notification.enum';
 import { SlackService } from 'src/services/slack.service';
 import {
@@ -65,6 +67,9 @@ import {
 } from 'src/utils/enum';
 import { promises } from 'dns';
 import { Review } from '../entities/review.entity';
+import { merchantPayout } from 'src/user/services/booking-fees';
+import { assertCanManageBusiness } from '../utils/business-access';
+import { summarizeStaffAppointments, weekBounds } from '../utils/staff-stats';
 
 @Injectable()
 export class BusinessService {
@@ -114,6 +119,7 @@ export class BusinessService {
     private readonly businessOwnerSettingsService: BusinessOwnerSettingsService,
     private readonly zohoBooksService: ZohoBooksService,
     private readonly notificationService: NotificationService,
+    private readonly merchantSignupService: MerchantSignupService,
   ) {}
 
   /**
@@ -125,14 +131,23 @@ export class BusinessService {
   async create(
     createBusinessDto: CreateBusinessDto,
     owner: User,
+    options: { sendUnderReviewEmail?: boolean } = {},
   ): Promise<Business> {
     if (!owner) {
       throw new BadRequestException('Owner is required to create a business');
     }
 
+    // No payment, no merchant: the chosen start (a paid plan whose payment Stripe confirms, the
+    // Trial or MVP) is checked BEFORE anything is created.
+    const signup = await this.merchantSignupService.resolveSignup(
+      owner,
+      createBusinessDto.signup,
+    );
+
     const business = this.businessRepo.create({
       ...createBusinessDto,
       owner,
+      planTier: signup.planTier,
     });
 
     owner.isMerchant = true;
@@ -144,14 +159,43 @@ export class BusinessService {
     business.ownerEmail = owner?.email || '';
     business.ownerPhone = owner?.phoneNumber || '';
 
-    await this.businessRepo.save(business);
+    // The business and its payment / MVP record are saved together.
+    await this.businessRepo.manager.transaction(async (manager) => {
+      await manager.save(Business, business);
+      await this.merchantSignupService.recordSignup(business, signup, manager);
+    });
+
+    // Sign-up asks two questions that belong to the salon's owner settings.
+    // A failure here must not fail the registration; the owner can still set
+    // both later under Settings > Booking Rules.
+    const { allowDoubleBookings, allowDepositPayment } =
+      createBusinessDto.bookingPolicies ?? {};
+    if (allowDoubleBookings !== undefined || allowDepositPayment !== undefined) {
+      try {
+        await this.businessOwnerSettingsService.update(owner.id, business.id, {
+          ...(allowDoubleBookings !== undefined && {
+            bookingRules: { allowDoubleBookings },
+          }),
+          ...(allowDepositPayment !== undefined && {
+            pricingPolicies: { allowDepositPayment },
+          }),
+        });
+      } catch (error) {
+        Logger.error(
+          `Failed to save sign-up booking choices for business ${business.id}: ${error.message}`,
+        );
+      }
+    }
 
     try {
-      this.emailService.sendMerchantUnderReviewEmail(
-        business.ownerEmail || owner.email,
-        business.businessName,
-        business.id,
-      );
+      // An admin adding a merchant approves them straight away, so "under review" would be wrong.
+      if (options.sendUnderReviewEmail !== false) {
+        this.emailService.sendMerchantUnderReviewEmail(
+          business.ownerEmail || owner.email,
+          business.businessName,
+          business.id,
+        );
+      }
     } catch (error) {
       Logger.error(
         `Failed to send merchant under-review email: ${error.message}`,
@@ -187,7 +231,46 @@ export class BusinessService {
     return business;
   }
 
-async getBooking(id: string) {
+  // May the signed-in user act on this business? A platform admin can; so can its owner, and a
+  // staff member of it. Anyone else gets a 403, so a salon can't read or change another salon's
+  // bookings, staff, services or schedule by guessing an id.
+  private async assertCanActOnBusiness(user: User, businessId: string | undefined): Promise<void> {
+    if (user?.isStaff) return;
+    const userId = user?.id;
+    if (!userId || !businessId) {
+      throw new ForbiddenException('You can only manage your own business');
+    }
+    const owned = await this.businessRepo.findOne({ where: { id: businessId, owner: { id: userId } } });
+    if (owned) return;
+    const ownBusiness = await this.getBusinessFromStaff(userId);
+    if (ownBusiness?.id === businessId) return;
+    throw new ForbiddenException('You can only manage your own business');
+  }
+
+  // The checks below do nothing when the record doesn't exist, so each method's own "not found"
+  // handling still applies.
+  private async assertCanActOnAppointment(id: string, user: User): Promise<void> {
+    const appointment = await this.appointmentRepo.findOne({ where: { id }, relations: ['business'] });
+    if (appointment) await this.assertCanActOnBusiness(user, appointment.business?.id);
+  }
+
+  private async assertCanActOnStaffMember(id: string, user: User): Promise<void> {
+    const staff = await this.staffRepo.findOne({ where: { id }, relations: ['business'] });
+    if (staff) await this.assertCanActOnBusiness(user, staff.business?.id);
+  }
+
+  private async assertCanActOnService(id: string, user: User): Promise<void> {
+    const service = await this.serviceRepo.findOne({ where: { id }, relations: ['business'] });
+    if (service) await this.assertCanActOnBusiness(user, service.business?.id);
+  }
+
+  private async assertCanActOnBlockedSlot(id: string, user: User): Promise<void> {
+    const slot = await this.blockedSlotRepo.findOne({ where: { id }, relations: ['business'] });
+    if (slot) await this.assertCanActOnBusiness(user, slot.business?.id);
+  }
+
+  async getBooking(id: string, user: User) {
+    await this.assertCanActOnAppointment(id, user);
   const appointment = await this.appointmentRepo.findOne({
     where: { id },
     relations: ['client', 'businessClient', 'staff', 'service', 'service.assignedStaff'],
@@ -204,7 +287,8 @@ async getBooking(id: string) {
   return { ...appointment, review };
 }
 
-  async completeBooking(id: string) {
+  async completeBooking(id: string, user: User) {
+    await this.assertCanActOnAppointment(id, user);
     const appointment = await this.appointmentRepo.findOne({
       where: { id },
       relations: ['business', 'client', 'businessClient'],
@@ -285,16 +369,19 @@ async getBooking(id: string) {
           });
         }
 
-        // KHS's commission + acquisition fee are charged to the client at
-        // checkout, so they must come back out of the merchant's payout
-        // here — for both booking types. (Previously only the deposit
-        // path subtracted them; a full/non-deposit booking credited the
-        // merchant the entire client charge, fees included, so KHS's cut
-        // never actually landed anywhere.) Cancellation logic is
-        // unaffected — it already operates on the gross bookingAmount for
-        // both booking types.
-        const netAmount =
-          spi.bookingAmount - Number(spi.acquisitionFeeAmount) - Number(spi.commissionFeeAmount);
+        // KHS's commission + acquisition fee come out of the merchant's
+        // payout, for every booking type; the customer is never charged
+        // them. (Bookings paid before that change carried the fees inside
+        // bookingAmount, so subtracting them here gives the same result
+        // for those.) Cancellation logic is unaffected — it operates on
+        // the gross bookingAmount.
+        // When a gift card paid most of the booking the fees can be more than the card payment held
+        // here; whatever the payout can't cover is debited from the salon's wallet.
+        const { credit: netAmount, shortfall } = merchantPayout(
+          spi.bookingAmount,
+          spi.acquisitionFeeAmount,
+          spi.commissionFeeAmount,
+        );
 
         // Informational staff commission — no staff wallet exists (staff
         // have no working login yet), so this only ever records a number
@@ -339,18 +426,44 @@ async getBooking(id: string) {
         // chargeback landing in that window is recovered from money never
         // handed out, rather than clawing back an already-released
         // balance (see WalletReleaseCronService).
-        await this.walletService.addFundsPending({
-          businessId,
-          recipientId: ownerId,
-          senderId: spi.userId,
-          amount: netAmount,
-          type: TransactionType.EARNING,
-          description: `Escrow release for completed booking ${appointment.orderId}`,
-          referenceId: spi.stripePaymentIntentId,
-          currency: WalletCurrency.USD,
-          mode: 'Web',
-          method: PaymentMethod.STRIPE,
-        });
+        if (netAmount > 0) {
+          await this.walletService.addFundsPending({
+            businessId,
+            recipientId: ownerId,
+            senderId: spi.userId,
+            amount: netAmount,
+            type: TransactionType.EARNING,
+            description: `Escrow release for completed booking ${appointment.orderId}`,
+            referenceId: spi.stripePaymentIntentId,
+            currency: WalletCurrency.USD,
+            mode: 'Web',
+            method: PaymentMethod.STRIPE,
+          });
+        }
+        if (shortfall > 0) {
+          // Split what is still owed between the two fees, in proportion, so each is recorded as
+          // its own kind.
+          const acquisition = Number(spi.acquisitionFeeAmount);
+          const commission = Number(spi.commissionFeeAmount);
+          const feeTotal = acquisition + commission;
+          const acquisitionShare = feeTotal > 0 ? Math.round(((shortfall * acquisition) / feeTotal) * 100) / 100 : 0;
+          const commissionShare = Math.round((shortfall - acquisitionShare) * 100) / 100;
+          for (const [kind, amount] of [
+            ['Acquisition', acquisitionShare],
+            ['Commission', commissionShare],
+          ] as const) {
+            if (amount <= 0) continue;
+            await this.walletService.debitWithPendingFallback({
+              businessId,
+              amount,
+              type: TransactionType.FEE,
+              feeSubtype: kind,
+              referenceId: spi.stripePaymentIntentId,
+              description: `${kind} on gift card booking ${appointment.orderId}`,
+              senderId: ownerId,
+            });
+          }
+        }
 
         spi.status = StripeEscrowStatus.RELEASED;
         spi.releasedAt = new Date();
@@ -385,7 +498,11 @@ async getBooking(id: string) {
 
     if (settings.integrations.mailChimp) {
       // sync client for email marketing
-      await this.mailchimpService.syncContact(appointment.id);
+      try {
+        await this.mailchimpService.syncContact(appointment.id);
+      } catch (error) {
+        console.error('Failed to sync contact to Mailchimp:', error);
+      }
     }
 
     if (settings.integrations.googleCalendar) {
@@ -404,15 +521,13 @@ async getBooking(id: string) {
 
     if (settings.integrations.zohoBooks) {
       try {
-        // Create customer and invoice in ZohoBooks
-        const invoiceId = await this.zohoBooksService.createInvoice(id);
-
-        // Record payment
-        await this.zohoBooksService.recordPayment(id, invoiceId);
-
-        // Store invoice ID in appointment
+        // Create the invoice if the booking doesn't have one yet (online bookings
+        // get theirs when they are confirmed) and record the venue payment once.
+        const { invoiceId, created } = await this.zohoBooksService.ensureInvoice(id);
+        if (created) {
+          await this.zohoBooksService.recordPayment(id, invoiceId, undefined, 'cash');
+        }
         appointment.zohoInvoiceId = invoiceId;
-        await this.appointmentRepo.save(appointment);
       } catch (error) {
         console.error('Failed to sync with ZohoBooks:', error);
       }
@@ -496,8 +611,11 @@ async getBooking(id: string) {
     }
 
     if (settings.integrations.mailChimp) {
-      // integrate Mailchimp: appointment confirmation
-      await this.mailchimpService.sendAppointmentConfirmation(appointment.id);
+      try {
+        await this.mailchimpService.syncContact(appointment.id);
+      } catch (error) {
+        console.error('Failed to sync contact to Mailchimp:', error);
+      }
     }
 
     return appointment;
@@ -604,7 +722,8 @@ async getBooking(id: string) {
     return slots;
   }
 
-  async editBlockedTime(id: string, dto: CreateBlockedTimeDto) {
+  async editBlockedTime(id: string, dto: CreateBlockedTimeDto, user: User) {
+    await this.assertCanActOnBlockedSlot(id, user);
     const slot = await this.blockedSlotRepo.findOne({ where: { id } });
     if (!slot) {
       throw new NotFoundException('Blocked slot not found');
@@ -730,8 +849,13 @@ async getBooking(id: string) {
     }
 
     // Create staff profile
+    // Addresses, emergency contacts and services are saved below. Passing them here as well saved every
+    // address and contact twice.
     const staff = this.staffRepo.create({
       ...createStaffDto,
+      addresses: [],
+      emergencyContacts: [],
+      servicesAssigned: [],
       email: staffEmail,
       business,
       settings: settings || undefined,
@@ -757,23 +881,34 @@ async getBooking(id: string) {
       staff.addresses = await this.addressRepo.save(cleanAddresses);
     }
 
-    // Handle assigned services
-    if (selectedServices?.length) {
-      staff.services = await this.serviceRepo.findByIds(selectedServices);
-      await this.staffRepo.save(staff);
+    // Handle assigned services. The form sends servicesAssigned; selectedServices is the older name.
+    const serviceIds = [...new Set([...(createStaffDto.servicesAssigned ?? []), ...(selectedServices ?? [])])];
+    if (serviceIds.length) {
+      await this.applyStaffServices(staff, business.id, serviceIds);
     }
 
     return staff;
   }
 
-  async editStaff(staffId: string, editStaffDto: EditStaffDto): Promise<Staff> {
+  async editStaff(staffId: string, editStaffDto: EditStaffDto, user: User): Promise<Staff> {
+    await this.assertCanActOnStaffMember(staffId, user);
     const staff = await this.staffRepo.findOne({
       where: { id: staffId },
-      relations: ['addresses', 'emergencyContacts'],
+      relations: ['addresses', 'emergencyContacts', 'business'],
     });
 
     if (!staff) {
       throw new Error('Staff not found');
+    }
+
+    if (editStaffDto.email) {
+      editStaffDto.email = editStaffDto.email.toLowerCase().trim();
+      if (editStaffDto.email !== (staff.email ?? '').toLowerCase()) {
+        const taken = await this.staffRepo.findOne({ where: { email: editStaffDto.email } });
+        if (taken && taken.id !== staff.id) {
+          throw new BadRequestException('Another staff member already uses this email');
+        }
+      }
     }
 
     // Ensure user record stays as merchant when staff is edited
@@ -814,14 +949,12 @@ async getBooking(id: string) {
       staff.settings = editStaffDto.settings;
     }
 
+    await this.staffRepo.save(staff);
+
     if (editStaffDto.servicesAssigned) {
-      const services = await this.serviceRepo.findByIds(
-        editStaffDto.servicesAssigned,
-      );
-      staff.services = services;
+      await this.applyStaffServices(staff, staff.business.id, editStaffDto.servicesAssigned);
     }
 
-    await this.staffRepo.save(staff);
     return staff;
   }
 
@@ -870,7 +1003,8 @@ async getBooking(id: string) {
     return await this.blockedSlotRepo.save(blockedSlot);
   }
 
-  async deleteBlockedSlot(slotId: string) {
+  async deleteBlockedSlot(slotId: string, user: User) {
+    await this.assertCanActOnBlockedSlot(slotId, user);
     await this.blockedSlotRepo.delete({ id: slotId });
     return { message: 'Blocked time deleted successfully' };
   }
@@ -897,13 +1031,17 @@ async getBooking(id: string) {
     return date.toLocaleDateString('en-US', { weekday: 'long' });
   }
 
-  async rescheduleBooking(body: {
-    id: string;
-    reason: string;
-    date: string;
-    time: string;
-  }) {
+  async rescheduleBooking(
+    body: {
+      id: string;
+      reason: string;
+      date: string;
+      time: string;
+    },
+    user: User,
+  ) {
     const { id, date, time } = body;
+    await this.assertCanActOnAppointment(id, user);
 
     const appointment = await this.appointmentRepo.findOne({
       where: { id },
@@ -979,7 +1117,8 @@ async getBooking(id: string) {
     );
   }
 
-  async rejectBooking(id: string) {
+  async rejectBooking(id: string, user: User) {
+    await this.assertCanActOnAppointment(id, user);
     const appointment = await this.appointmentRepo.findOne({
       where: { id },
       relations: ['client', 'business'],
@@ -1039,15 +1178,11 @@ async getBooking(id: string) {
       }
     }
 
-    if (settings.integrations.mailChimp) {
-      // integrate mailchimp: appointment rejection mail
-      await this.mailchimpService.sendAppointmentRejection(appointment.id);
-    }
-
     return appointment;
   }
 
-  async acceptBooking(id: string) {
+  async acceptBooking(id: string, user: User) {
+    await this.assertCanActOnAppointment(id, user);
     const appointment = await this.appointmentRepo.findOne({
       where: { id },
       relations: ['client', 'business'],
@@ -1109,8 +1244,11 @@ async getBooking(id: string) {
     }
 
     if (settings.integrations.mailChimp) {
-      // integrate Mailchimp: appointment acceptance
-      await this.mailchimpService.sendAppointmentAcceptance(appointment.id);
+      try {
+        await this.mailchimpService.syncContact(appointment.id);
+      } catch (error) {
+        console.error('Failed to sync contact to Mailchimp:', error);
+      }
     }
 
     return appointment;
@@ -1186,11 +1324,31 @@ async getBooking(id: string) {
       ratingRows.map((r) => [r.staffId, { rating: Number(r.avgRating), reviews: Number(r.reviewCount) }]),
     );
 
+    // Each person's bookings this week, what they earned, and who they see next: from the appointments they
+    // are on. These were never sent before, so every card showed 0 and no next appointment.
+    const week = weekBounds();
+    const appointmentRows = staff.length
+      ? await this.appointmentRepo
+          .createQueryBuilder('a')
+          .innerJoinAndSelect('a.staff', 's')
+          .where('s.id IN (:...staffIds)', { staffIds: staff.map((m) => m.id) })
+          .andWhere('a.date >= :from', { from: week.start })
+          .getMany()
+      : [];
+    const rowsByStaff = new Map<string, typeof appointmentRows>();
+    for (const appointment of appointmentRows) {
+      for (const member of appointment.staff ?? []) {
+        rowsByStaff.set(member.id, [...(rowsByStaff.get(member.id) ?? []), appointment]);
+      }
+    }
+
     return staff.map((s) => ({
       ...s,
       commissionEarnedThisWeek: commissionMap.get(s.id) ?? 0,
       rating: ratingMap.get(s.id)?.rating ?? 0,
       reviews: ratingMap.get(s.id)?.reviews ?? 0,
+      servicesAssigned: (s.services ?? []).map((service) => service.id),
+      ...summarizeStaffAppointments(rowsByStaff.get(s.id) ?? [], week),
     }));
   }
 
@@ -1311,7 +1469,8 @@ async getBooking(id: string) {
     return this.serviceRepo.save(service);
   }
 
-  async updateService(serviceId: string, updateServiceDto: UpdateServiceDto) {
+  async updateService(serviceId: string, updateServiceDto: UpdateServiceDto, user: User) {
+    await this.assertCanActOnService(serviceId, user);
     const service = await this.serviceRepo.findOne({
       where: { id: serviceId },
       relations: ['business'],
@@ -1358,16 +1517,19 @@ async getBooking(id: string) {
     return this.serviceRepo.save(service);
   }
 
-  async deleteService(deleteServiceDto: DeleteServiceDto) {
+  async deleteService(deleteServiceDto: DeleteServiceDto, user?: any) {
     const { serviceId } = deleteServiceDto;
 
     const service = await this.serviceRepo.findOne({
       where: { id: serviceId },
+      relations: ['business'],
     });
 
     if (!service) {
       throw new NotFoundException('Service not found');
     }
+    // Only the salon that offers a service (or an admin) can delete it.
+    assertCanManageBusiness(user, service.business);
 
     // Check if service has any appointments
     const appointmentCount = await this.appointmentRepo.count({
@@ -1384,8 +1546,9 @@ async getBooking(id: string) {
     return { message: 'Service deleted successfully' };
   }
 
-  async assignStaffToService(assignStaffDto: AssignStaffToServiceDto) {
+  async assignStaffToService(assignStaffDto: AssignStaffToServiceDto, user: User) {
     const { serviceId, staffIds } = assignStaffDto;
+    await this.assertCanActOnService(serviceId, user);
 
     // Find the service
     const service = await this.serviceRepo.findOne({
@@ -1439,16 +1602,30 @@ async getBooking(id: string) {
       throw new NotFoundException('Staff member not found');
     }
 
+    await this.applyStaffServices(staffMember, staffMember.business.id, serviceIds);
+
+    return {
+      message: 'Staff services updated successfully',
+      staffId,
+      serviceIds,
+    };
+  }
+
+  // Makes these the services this staff member does. Customers pick a stylist from each service's own list of
+  // staff (Service.assignedStaff), so that list is what gets changed here. Only services of this business are
+  // used, and the staff member's own copy of the list is set to match what was really linked.
+  private async applyStaffServices(staffMember: Staff, businessId: string, serviceIds: string[]) {
+    const staffId = staffMember.id;
     const [currentlyAssigned, toAssign] = await Promise.all([
       this.serviceRepo
         .createQueryBuilder('service')
         .innerJoin('service.assignedStaff', 'staff', 'staff.id = :staffId', { staffId })
         .leftJoinAndSelect('service.assignedStaff', 'allStaff')
-        .where('service.businessId = :businessId', { businessId: staffMember.business.id })
+        .where('service.businessId = :businessId', { businessId: businessId })
         .getMany(),
       serviceIds.length
         ? this.serviceRepo.find({
-            where: { id: In(serviceIds), business: { id: staffMember.business.id } },
+            where: { id: In(serviceIds), business: { id: businessId } },
             relations: ['assignedStaff'],
           })
         : Promise.resolve([]),
@@ -1472,18 +1649,13 @@ async getBooking(id: string) {
       await this.serviceRepo.save(service);
     }
 
-    staffMember.servicesAssigned = serviceIds;
+    staffMember.servicesAssigned = toAssign.map((service) => service.id);
     await this.staffRepo.save(staffMember);
-
-    return {
-      message: 'Staff services updated successfully',
-      staffId,
-      serviceIds,
-    };
   }
 
-  async assignStaffToAppointment(dto: AssignStaffToBookingDto) {
+  async assignStaffToAppointment(dto: AssignStaffToBookingDto, user: User) {
     const { appointmentId, staffIds } = dto;
+    await this.assertCanActOnAppointment(appointmentId, user);
 
     // Find the appointment (booking)
     const appointment = await this.appointmentRepo.findOne({
@@ -1518,7 +1690,8 @@ async getBooking(id: string) {
     };
   }
 
-  async deactivateStaff(id: string) {
+  async deactivateStaff(id: string, user: User) {
+    await this.assertCanActOnStaffMember(id, user);
     const staff = await this.staffRepo.findOne({
       where: { id: id },
       relations: ['business'],

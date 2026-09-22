@@ -25,10 +25,12 @@ export class ReminderRule {
 }
 
 export class BusinessNotifications {
-  @Column({ default: false })
+  // On by default: salons have always been told about new bookings, and the
+  // booking flow treats anything but an explicit false as on.
+  @Column({ default: true })
   newBookingAlerts: boolean;
 
-  @Column({ default: false })
+  @Column({ default: true })
   cancellationAlerts: boolean;
 
   @Column({ default: false })
@@ -156,6 +158,10 @@ export class PricingPolicies {
 
   @Column({ default: false, nullable: true })
   acceptCashPayment: boolean;
+
+  // Whether clients may use the 50% deposit option at checkout. Unset/true = offered.
+  @Column({ default: true, nullable: true })
+  allowDepositPayment: boolean;
 }
 
 @Entity('business_owner_settings')

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { UserAddress } from '../user_entities/address.entity';
@@ -40,7 +40,15 @@ export class AddressService {
     });
   }
 
+  // An address can only be read back, changed or deleted by the customer it belongs to.
+  private async findOwnAddress(user: User, addressId: string): Promise<UserAddress> {
+    const address = await this.addressRepository.findOne({ where: { id: addressId, user: { id: user.id } } });
+    if (!address) throw new NotFoundException('Address not found');
+    return address;
+  }
+
   async updateAddress(user: User, addressId: string, updateAddressDto: UpdateAddressDto): Promise<UserAddress> {
+    await this.findOwnAddress(user, addressId);
     await this.addressRepository.update(addressId, updateAddressDto);
     const updatedAddress = await this.addressRepository.findOne({ where: { id: addressId } });
     if (!updatedAddress) {
@@ -60,7 +68,8 @@ export class AddressService {
     return updatedAddress;
   }
 
-  async deleteAddress(addressId: string): Promise<void> {
+  async deleteAddress(user: User, addressId: string): Promise<void> {
+    await this.findOwnAddress(user, addressId);
     await this.addressRepository.delete(addressId);
   }
 }

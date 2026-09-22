@@ -92,7 +92,7 @@ export class GiftCardController {
     summary: 'List all available gift cards for purchase',
     description: 'Only returns gift cards with soldStatus = AVAILABLE',
   })
-  async getAllGiftCards() {
-    return await this.giftCardService.getAllAvailableBusinessGiftCards();
+  async getAllGiftCards(@Query('businessId') businessId?: string) {
+    return await this.giftCardService.getAllAvailableBusinessGiftCards(businessId);
   }
 }

@@ -376,24 +376,6 @@ export class ReviewService {
     await this.businessRepo.save(business);
   }
 
-  async clearAllReviews() {
-    try {
-      const count = await this.reviewRepo.count(); // total reviews before deletion
-      if (count === 0) {
-        return { message: 'No reviews to delete', deleted: 0 };
-      }
-
-      await this.reviewRepo.clear(); // delete all rows
-      return { message: '✅ All reviews deleted successfully', deleted: count };
-    } catch (err) {
-      console.error('Failed to delete reviews:', err);
-      throw new HttpException(
-        'Failed to delete reviews',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
   //   EMAILS
   // Uses the same shared communication-bulk template every other
   // business-to-client message on the platform uses (see

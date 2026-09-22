@@ -54,11 +54,6 @@ export class ClientController {
     private readonly clientSettingsService: ClientSettingsService,
   ) {}
 
-  @Delete('/clear')
-  async deleteAllClients() {
-    await this.clientService.clearAllClients();
-  }
-
   @Post()
   async createClient(@Request() req) {
     const body = req.body;

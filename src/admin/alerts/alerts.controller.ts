@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Param, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
 import { Roles } from 'src/middleware/roles.decorator';
@@ -21,8 +21,8 @@ export class AlertsController {
   }
 
   @Post()
-  async create(@Body() dto: CreateAlertDto) {
-    return this.alertsService.create(dto);
+  async create(@Body() dto: CreateAlertDto, @Req() req: { user?: { id?: string } }) {
+    return this.alertsService.create(dto, req.user?.id);
   }
 
   @Patch(':id/deactivate')

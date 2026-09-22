@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { LessThanOrEqual, Repository } from 'typeorm';
 import { SystemAlert, SystemAlertAudience } from './entities/system-alert.entity';
@@ -12,6 +12,10 @@ export class AlertsService {
   ) {}
 
   async create(dto: CreateAlertDto, createdBy?: string): Promise<SystemAlert> {
+    // An alert that has already expired would say "published" and never be shown.
+    if (dto.expiresAt && new Date(dto.expiresAt) <= new Date()) {
+      throw new BadRequestException('The expiry must be in the future.');
+    }
     const alert = this.alertRepo.create({
       title: dto.title,
       message: dto.message,

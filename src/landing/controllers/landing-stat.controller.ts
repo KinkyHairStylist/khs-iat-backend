@@ -33,7 +33,7 @@ export class LandingStatController {
     const payments = await this.platformSettingsService.getPayments();
     const tiers = payments.subscriptionPrices;
     return {
-      trialDays: 14,
+      trialDays: payments.trialDays ?? 14,
       tiers: {
         Starter: { displayAmount: tiers?.Starter?.displayAmount ?? 29.99, acquisitionFeeRate: payments.acquisitionFeeTiers?.Starter },
         Growth: { displayAmount: tiers?.Growth?.displayAmount ?? 59.99, acquisitionFeeRate: payments.acquisitionFeeTiers?.Growth },

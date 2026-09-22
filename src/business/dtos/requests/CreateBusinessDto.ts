@@ -12,6 +12,7 @@ import { Type } from 'class-transformer';
 import { CompanySize } from '../../types/constants';
 import { CreateBookingPoliciesDto } from './CreateBookingPoliciesDto';
 import { CreateBookingDayDto } from './CreateBookingDayDto';
+import { SignupChoiceDto } from './SignupChoiceDto';
 
 export class CreateBusinessDto {
   @IsString({ message: 'Business name must be a string.' })
@@ -47,6 +48,14 @@ export class CreateBusinessDto {
   @Type(() => CreateBookingPoliciesDto)
   @IsNotEmpty({ message: 'Booking policies are required.' })
   readonly bookingPolicies: CreateBookingPoliciesDto;
+
+  // How the merchant is starting (paid plan / Trial / MVP). Required: no
+  // business, and so no merchant, is created without one; a paid choice is only accepted
+  // once its payment is confirmed.
+  @ValidateNested()
+  @Type(() => SignupChoiceDto)
+  @IsNotEmpty({ message: 'Choose how you want to start.' })
+  readonly signup: SignupChoiceDto;
 
   @IsEnum(CompanySize, { message: 'Invalid company size.' })
   @IsNotEmpty({ message: 'Company size is required.' })

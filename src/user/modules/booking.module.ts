@@ -27,6 +27,7 @@ import { NotificationSettingsModule } from './notification-settings.module';
 import { NotificationModule } from 'src/notifications/notification.module';
 import { SlackModule } from 'src/slack/slack.module';
 import { User } from 'src/all_user_entities/user.entity';
+import { IntegrationsModule } from 'src/integration/integrations.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { User } from 'src/all_user_entities/user.entity';
     SlackModule,
     NotificationSettingsModule,
     NotificationModule,
+    IntegrationsModule,
   ],
   controllers: [BookingController],
   providers: [BookingService, PlatformSettingsService, PaystackService, StripeService],
