@@ -1,0 +1,43 @@
+<%- include('layouts/head') %>
+<p style="margin:0 0 4px 0; font-size:13px; font-weight:600; letter-spacing:0.5px; text-transform:uppercase; color:#ED3131;">Your account is ready</p>
+<h1 style="margin:0 0 16px 0; font-size:22px; font-weight:700; color:#18181b; line-height:1.3;">Welcome to Kinky Hairstylist, <%= name %></h1>
+<p style="margin:0 0 16px 0; font-size:15px; line-height:1.6; color:#52525b;">
+  <%= intro %>
+</p>
+
+<% if (notes && notes.length) { %>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px 0;">
+  <tr>
+    <td style="background-color:#FEF2F2; border:1px solid #FBD5D5; border-radius:12px; padding:20px;">
+      <p style="margin:0 0 12px 0; font-size:14px; font-weight:700; color:#B91C1C;">Your account:</p>
+      <table role="presentation" cellpadding="0" cellspacing="0">
+        <% notes.forEach(function (note) { %>
+        <tr><td style="padding:4px 0; font-size:14px; color:#52525b;"><%= note %></td></tr>
+        <% }) %>
+      </table>
+    </td>
+  </tr>
+</table>
+<% } %>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 28px 0;">
+  <tr>
+    <td align="center">
+      <table role="presentation" cellpadding="0" cellspacing="0">
+        <tr>
+          <td style="background-color:#ED3131; border-radius:999px;">
+            <a href="<%= actionUrl %>" style="display:inline-block; padding:14px 36px; font-size:15px; font-weight:600; color:#ffffff; text-decoration:none;"><%= actionLabel %></a>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+
+<% if (footnote) { %>
+<p style="margin:0 0 4px 0; font-size:13px; line-height:1.6; color:#a1a1aa;"><%= footnote %></p>
+<% } %>
+<p style="margin:0 0 32px 0; font-size:13px; line-height:1.6; color:#a1a1aa;">
+  Need help? Visit our <a href="<%= frontendUrl %>/customer/help" style="color:#ED3131; text-decoration:underline;">Help Center</a>.
+</p>
+<%- include('layouts/foot', { frontendUrl, year }) %>

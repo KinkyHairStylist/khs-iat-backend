@@ -4,6 +4,12 @@ import {
   BadRequestException,
   ConflictException,
 } from '@nestjs/common';
+import {
+  Actor,
+  assertCanReactivate,
+  markDeactivated,
+  markReactivated,
+} from '../utils/gift-card-deactivation';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Not, Repository } from 'typeorm';
 import { BusinessGiftCard } from '../entities/business-giftcard.entity';
@@ -480,9 +486,9 @@ export class BusinessGiftCardsService {
     return await this.giftCardRepository.save(giftCard);
   }
 
-  async markAsExpired(id: string): Promise<BusinessGiftCard> {
+  async markAsExpired(id: string, actor?: Actor): Promise<BusinessGiftCard> {
     const giftCard = await this.findOne(id);
-    giftCard.status = BusinessGiftCardStatus.INACTIVE;
+    markDeactivated(giftCard, actor);
     const saved = await this.giftCardRepository.save(giftCard);
     this.notifyGiftCardDeactivated(giftCard, 'marked expired');
     return saved;
@@ -514,14 +520,21 @@ export class BusinessGiftCardsService {
     return await this.giftCardRepository.save(giftCard);
   }
 
-  async cancel(id: string): Promise<BusinessGiftCard> {
+  async reactivate(id: string, actor: Actor): Promise<BusinessGiftCard> {
+    const giftCard = await this.findOne(id);
+    assertCanReactivate(giftCard, actor.role);
+    markReactivated(giftCard);
+    return await this.giftCardRepository.save(giftCard);
+  }
+
+  async cancel(id: string, actor?: Actor): Promise<BusinessGiftCard> {
     const giftCard = await this.findOne(id);
 
     if (giftCard.status === BusinessGiftCardStatus.USED) {
       throw new BadRequestException('Cannot cancel a redeemed gift card');
     }
 
-    giftCard.status = BusinessGiftCardStatus.INACTIVE;
+    markDeactivated(giftCard, actor);
     const saved = await this.giftCardRepository.save(giftCard);
     this.notifyGiftCardDeactivated(giftCard, 'cancelled by the business');
     return saved;

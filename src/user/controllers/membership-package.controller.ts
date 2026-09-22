@@ -27,6 +27,12 @@ export class MembershipPackageController {
     return this.membershipPurchaseService.listPackagesForBusiness(businessId);
   }
 
+  @Get('marketplace')
+  @ApiOperation({ summary: 'Browse active membership packages from every approved salon' })
+  async marketplace(@Query('search') search?: string, @Query('businessId') businessId?: string) {
+    return this.membershipPurchaseService.listMarketplace({ search, businessId });
+  }
+
   @Get('owned')
   @ApiOperation({ summary: 'List membership purchases owned by the authenticated user' })
   async getOwned(@GetUser() user: User) {

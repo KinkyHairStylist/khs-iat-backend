@@ -1,11 +1,14 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
   IsArray,
   IsEmail,
   IsEnum,
   IsOptional,
   IsString,
   IsUUID,
+  MaxLength,
   MinLength,
   ValidateNested,
 } from 'class-validator';
@@ -25,6 +28,7 @@ export class SendDirectMessageDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(200)
   closingRemarks?: string;
 
   @IsString()
@@ -36,10 +40,12 @@ export class SendDirectMessageDto {
 
   @IsString()
   @MinLength(1)
+  @MaxLength(5000)
   message: string;
 
   @IsString()
   @MinLength(1)
+  @MaxLength(200)
   messageSubject: string;
 
   @IsEnum(COMMUNICATION_MESSAGE_TYPE)
@@ -60,6 +66,8 @@ export class RecipientDto {
 
 export class SendBulkMessageDto {
   @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(1000)
   @ValidateNested({ each: true })
   @Type(() => RecipientDto)
   recipients: RecipientDto[];
@@ -70,14 +78,17 @@ export class SendBulkMessageDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(200)
   closingRemarks?: string;
 
   @IsString()
   @MinLength(1)
+  @MaxLength(5000)
   message: string;
 
   @IsString()
   @MinLength(1)
+  @MaxLength(200)
   messageSubject: string;
 
   @IsEnum(COMMUNICATION_MESSAGE_TYPE)

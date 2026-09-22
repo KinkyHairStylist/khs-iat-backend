@@ -129,6 +129,16 @@ export class BusinessGiftCard {
 
   @Column({ nullable: true })
   comment?: string;
+
+  // Who deactivated the card (a name), whether that was KHS or the salon, and when.
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  deactivatedBy?: string | null;
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  deactivatedByRole?: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  deactivatedAt?: Date | null;
   
   @Column({ nullable: true })
   clientPersonalMessage?: string;

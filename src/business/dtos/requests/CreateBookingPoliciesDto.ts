@@ -1,4 +1,4 @@
-import { IsNumber, Min, IsNotEmpty } from 'class-validator';
+import { IsBoolean, IsNumber, IsOptional, Min, IsNotEmpty } from 'class-validator';
 
 export class CreateBookingPoliciesDto {
   @IsNumber({}, { message: 'Minimum lead time must be a number.' })
@@ -19,4 +19,14 @@ export class CreateBookingPoliciesDto {
   @IsNumber({}, { message: 'Deposit amount must be a number.' })
   @Min(0, { message: 'Deposit amount cannot be negative.' })
   readonly depositAmount: number = 0;
+
+  // The two choices below live in the salon's owner settings, not on
+  // booking_policies; they are collected here because sign-up asks for them.
+  @IsBoolean()
+  @IsOptional()
+  readonly allowDoubleBookings?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  readonly allowDepositPayment?: boolean;
 }

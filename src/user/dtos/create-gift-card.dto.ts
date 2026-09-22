@@ -63,4 +63,11 @@ export class ValidateGiftCardDto {
   @IsString()
   @IsNotEmpty()
   code: string;
+
+  @ApiPropertyOptional({
+    description: 'Salon the card is about to be spent at; a card from another salon is reported invalid.',
+  })
+  @IsOptional()
+  @IsString()
+  businessId?: string;
 }

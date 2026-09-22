@@ -5,11 +5,13 @@ import { MailchimpService } from './services/mailchimp.service';
 import { MailchimpController } from './controllers/mail-chimp.controller';
 import { MailchimpCredentials } from './entities/mail-chimp.entity';
 import { BusinessOwnerSettingsModule } from 'src/business/business-owner-settings.module';
+import { IntegrationCoreModule } from './integration-core.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Appointment, MailchimpCredentials]),
     BusinessOwnerSettingsModule,
+    IntegrationCoreModule,
   ],
   providers: [MailchimpService],
   controllers: [MailchimpController],

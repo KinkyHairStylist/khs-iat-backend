@@ -1,6 +1,7 @@
 ﻿import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   HttpException,
   HttpStatus,
@@ -20,6 +21,10 @@ import {
   TransactionFiltersDto,
 } from '../dtos/requests/WalletDto';
 import { BusinessWalletService } from '../services/wallet.service';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Business } from '../entities/business.entity';
+import { assertCanManageBusiness } from '../utils/business-access';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
 import { RolesGuard } from 'src/middleware/roles.guard';
@@ -32,7 +37,30 @@ import { Roles } from 'src/middleware/roles.decorator';
 @Roles(Role.Merchant, Role.Staff)
 @Controller('business-wallet')
 export class BusinessWalletController {
-  constructor(private readonly walletService: BusinessWalletService) {}
+  constructor(
+    private readonly walletService: BusinessWalletService,
+    @InjectRepository(Business)
+    private readonly businessRepository: Repository<Business>,
+  ) {}
+
+  // A merchant can only use the wallet of the business they own (a platform admin can use any).
+  // Without this, a wallet id or business id from anywhere would read, add payout accounts to, or
+  // withdraw from someone else's wallet.
+  private assertOwnsWallet(wallet: { ownerId?: string }, user: any): void {
+    if (user?.isStaff) return;
+    const userId = user?.id ?? user?.sub;
+    if (!userId || wallet.ownerId !== userId) {
+      throw new ForbiddenException('You can only use your own wallet');
+    }
+  }
+
+  private async assertOwnsWalletById(walletId: string, user: any): Promise<void> {
+    this.assertOwnsWallet(await this.walletService.getWalletById(walletId), user);
+  }
+
+  private async assertOwnsBusinessWallet(businessId: string, user: any): Promise<void> {
+    this.assertOwnsWallet(await this.walletService.getWalletByBusinessId(businessId), user);
+  }
 
   @Post('/wallet')
   async createWallet(
@@ -48,8 +76,16 @@ export class BusinessWalletController {
       );
     }
 
-    const result =
-      await this.walletService.createWalletForBusiness(createWalletData);
+    const business = await this.businessRepository.findOne({ where: { id: createWalletData.businessId } });
+    if (!business) {
+      throw new HttpException('Business not found', HttpStatus.NOT_FOUND);
+    }
+    assertCanManageBusiness(req.user, business);
+
+    const result = await this.walletService.createWalletForBusiness({
+      ...createWalletData,
+      ownerId: business.ownerId,
+    });
 
     if (!result.success) {
       throw new HttpException(
@@ -98,6 +134,7 @@ export class BusinessWalletController {
       );
     }
 
+    await this.assertOwnsWalletById(paymentMethodData.walletId, req.user);
     const result = await this.walletService.addPaymentMethod(paymentMethodData);
 
     if (!result.success) {
@@ -124,6 +161,7 @@ export class BusinessWalletController {
       );
     }
 
+    await this.assertOwnsWalletById(walletId, req.user);
     const result = await this.walletService.getPaymentMethods(walletId);
 
     if (!result.success) {
@@ -150,6 +188,7 @@ export class BusinessWalletController {
       );
     }
 
+    await this.assertOwnsBusinessWallet(businessId, req.user);
     const result = await this.walletService.getBusinessWithdrawals(businessId);
 
     if (!result.success) {
@@ -177,6 +216,7 @@ export class BusinessWalletController {
       );
     }
 
+    await this.assertOwnsWalletById(walletId, req.user);
     const result = await this.walletService.getTransactionHistory(
       walletId,
       filters,
@@ -203,23 +243,26 @@ export class BusinessWalletController {
       );
     }
 
-    try {
-      const result = await this.walletService.deductFunds(body);
+    await this.assertOwnsBusinessWallet(body.transaction.businessId, req.user);
 
-      return {
-        success: true,
-        data: {
-          transaction: result.transaction,
-          withdrawal: result.withdrawal,
-        },
-        message: 'Business Wallet debited successfully',
-      };
-    } catch (error) {
-            return {
-        success: false,
-        error: error.message,
-        message: `Failed to debit business wallet: ${error.message}`,
-      };
-    }
+    // Errors (not enough money, no such payout account) are thrown as they are, so the caller
+    // gets a real error status and message instead of a "200 OK" that looks like it worked.
+    const result = await this.walletService.deductFunds(body);
+
+    return {
+      success: true,
+      data: {
+        transaction: result.transaction,
+        withdrawal: result.withdrawal,
+      },
+      message: 'Withdrawal requested',
+    };
+  }
+
+  // A salon takes back a withdrawal request that KHS hasn't started on. The amount goes back to the wallet.
+  @Patch('/withdrawals/:withdrawalId/cancel')
+  async cancelWithdrawal(@Request() req, @Param('withdrawalId') withdrawalId: string) {
+    const withdrawal = await this.walletService.cancelWithdrawal(withdrawalId, req.user);
+    return { success: true, data: withdrawal, message: 'Withdrawal request cancelled' };
   }
 }

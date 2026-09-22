@@ -49,10 +49,19 @@ export class PaymentController {
    */
   @ApiBearerAuth('access-token')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.Admin, Role.SuperAdmin, Role.Client)
+  @Roles(Role.Admin, Role.SuperAdmin)
   @Get('payment-methods')
   async paymentMethods() {
     return this.paymentService.getPaymentMethodStats();
+  }
+
+  // Must stay above the ':id' route below, which would otherwise take 'overview' as an id.
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.Admin, Role.SuperAdmin)
+  @Get('overview')
+  async overview() {
+    return this.paymentService.getPaymentsOverview();
   }
 
   @ApiBearerAuth('access-token')
@@ -103,7 +112,7 @@ export class PaymentController {
 
   @ApiBearerAuth('access-token')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.Admin, Role.SuperAdmin, Role.Client)
+  @Roles(Role.Admin, Role.SuperAdmin)
   @Get()
   findAll() {
     return this.paymentService.getAll();
@@ -111,7 +120,7 @@ export class PaymentController {
 
   @ApiBearerAuth('access-token')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.Admin, Role.SuperAdmin, Role.Client)
+  @Roles(Role.Admin, Role.SuperAdmin)
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.paymentService.getOne(id);
@@ -119,7 +128,7 @@ export class PaymentController {
 
   @ApiBearerAuth('access-token')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.Admin, Role.SuperAdmin, Role.Client)
+  @Roles(Role.Admin, Role.SuperAdmin)
   @Post('refund')
   refund(@Body() dto: RefundPaymentDto) {
     return this.paymentService.refund(dto);
@@ -127,7 +136,7 @@ export class PaymentController {
 
   @ApiBearerAuth('access-token')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.Admin, Role.SuperAdmin, Role.Client)
+  @Roles(Role.Admin, Role.SuperAdmin)
   @Get('disputes/all')
   getDisputes() {
     return this.paymentService.getDisputes();
@@ -154,13 +163,5 @@ export class PaymentController {
     @Body('reason') reason?: string,
   ) {
     return this.paymentService.refundStripeEscrow(orderId, reason);
-  }
-
-  @ApiBearerAuth('access-token')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.Admin, Role.SuperAdmin, Role.Client)
-  @Delete('delete-all')
-  async deleteAllPayments() {
-    return this.paymentService.deleteAllPayments();
   }
 }

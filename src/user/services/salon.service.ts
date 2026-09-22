@@ -19,6 +19,7 @@ import {
 } from 'src/business/entities/business.entity';
 import { ServiceType } from 'src/business/types/service-type.enum';
 import { Review } from 'src/business/entities/review.entity';
+import { toPublicBusiness, toPublicService } from './public-business';
 
 @Injectable()
 export class SalonService {
@@ -213,7 +214,7 @@ export class SalonService {
       }
     }
 
-    return { data, total, page, limit };
+    return { data: data.map(toPublicBusiness), total, page, limit };
   }
 
   async getServices(category?: string) {
@@ -236,7 +237,7 @@ export class SalonService {
       throw new NotFoundException('Business not found');
     }
 
-    return business;
+    return toPublicBusiness(business);
   }
 
   // Real reviews + a per-star breakdown for the salon detail page's review
@@ -271,6 +272,11 @@ export class SalonService {
   // jsonb string array (a business can have more than one), so this needs
   // an overlap check (`?|`), not `=` equality against the whole array.
   async getSimilarSalons(businessId: string, limit = 4): Promise<Business[]> {
+    const similar = await this.findSimilarSalons(businessId, limit);
+    return similar.map(toPublicBusiness);
+  }
+
+  private async findSimilarSalons(businessId: string, limit: number): Promise<Business[]> {
     const current = await this.businessRepository.findOne({
       where: { id: businessId },
     });
@@ -310,10 +316,11 @@ export class SalonService {
   }
 
   async getServicesByBusinessId(businessId: string) {
-    return this.serviceRepo.find({
+    const services = await this.serviceRepo.find({
       where: { business: { id: businessId } },
       relations: ['business'],
     });
+    return services.map(toPublicService);
   }
 
   async getServiceTypes(): Promise<{ value: string; label: string }[]> {

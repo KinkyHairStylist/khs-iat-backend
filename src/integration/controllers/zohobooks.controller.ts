@@ -1,15 +1,11 @@
-﻿import {
-  Body,
+import {
   Controller,
   Delete,
   Get,
-  HttpException,
-  HttpStatus,
   Param,
   Post,
   Query,
   Request,
-  Res,
   UseGuards,
 } from '@nestjs/common';
 import { ZohoBooksService } from '../services/zohobooks.service';
@@ -18,34 +14,27 @@ import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
 import { RolesGuard } from 'src/middleware/roles.guard';
 import { Role } from 'src/middleware/role.enum';
 import { Roles } from 'src/middleware/roles.decorator';
-import { UpdateBusinessOwnerSettingsDto } from 'src/business/dtos/requests/BusinessOwnerSettingsDto';
 
 @ApiTags('ZohoBooks')
 @ApiBearerAuth('access-token')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.Merchant, Role.Staff)
+@Roles(Role.Merchant)
 @Controller('zohobooks')
 export class ZohoBooksController {
   constructor(private readonly zohoBooksService: ZohoBooksService) {}
 
   /**
-   * GET /api/zohobooks/connect/:businessId
-   * Generate ZohoBooks authorization URL
+   * GET /zohobooks/connect/:businessId
+   * Returns the Zoho sign-in URL for the merchant to authorise.
    */
   @Get('connect/:businessId')
-  connectZohoBooks(@Request() req, @Param('businessId') businessId: string) {
+  async connectZohoBooks(
+    @Request() req,
+    @Param('businessId') businessId: string,
+  ) {
     try {
       const ownerId = req.user.id || req.user.sub;
-
-      if (!ownerId) {
-        throw new HttpException(
-          'User not authenticated',
-          HttpStatus.UNAUTHORIZED,
-        );
-      }
-
-      const authUrl = this.zohoBooksService.getAuthUrl(businessId);
-
+      const authUrl = await this.zohoBooksService.getAuthUrl(businessId, ownerId);
       return {
         success: true,
         data: authUrl,
@@ -61,41 +50,30 @@ export class ZohoBooksController {
   }
 
   /**
-   * POST /api/zohobooks/callback?code=xxx&state=businessId
-   * Handle OAuth callback from ZohoBooks
+   * POST /zohobooks/callback?code=xxx&state=xxx&accounts-server=https://accounts.zoho.eu
+   * Finish the OAuth hand-off. `state` is the signed value from the connect URL;
+   * `accounts-server` is the Zoho region Zoho reports on the redirect.
    */
   @Post('callback')
   async handleCallback(
     @Request() req,
     @Query('code') code: string,
-    @Query('state') businessId: string,
-    @Body() updateDto: UpdateBusinessOwnerSettingsDto,
+    @Query('state') state: string,
+    @Query('accounts-server') accountsServer?: string,
   ) {
     try {
       const ownerId = req.user.id || req.user.sub;
-
-      if (!ownerId) {
-        throw new HttpException(
-          'User not authenticated',
-          HttpStatus.UNAUTHORIZED,
-        );
-      }
-
-      const result = await this.zohoBooksService.handleOAuthCallback(
+      await this.zohoBooksService.handleOAuthCallback(
         code,
-        businessId,
+        state,
         ownerId,
-        updateDto,
+        accountsServer,
       );
-
       return {
         success: true,
-        data: result,
         message: 'Zohobooks connected successfully',
       };
     } catch (error) {
-      console.error('ZohoBooks OAuth error:', error);
-
       return {
         success: false,
         error: error.message,
@@ -105,97 +83,18 @@ export class ZohoBooksController {
   }
 
   /**
-   * GET /api/zohobooks/status/:businessId
-   * Check connection status
-   */
-  @Get('status/:businessId')
-  async getStatus(@Param('businessId') businessId: string) {
-    const isConnected = await this.zohoBooksService.isConnected(businessId);
-    return {
-      connected: isConnected,
-      service: 'zohobooks',
-    };
-  }
-
-  /**
-   * POST /api/zohobooks/invoice/:appointmentId
-   * Create invoice for appointment
-   */
-  @Post('invoice/:appointmentId')
-  async createInvoice(
-    @Request() req,
-    @Param('appointmentId') appointmentId: string,
-  ) {
-    try {
-      const ownerId = req.user.id || req.user.sub;
-
-      if (!ownerId) {
-        throw new HttpException(
-          'User not authenticated',
-          HttpStatus.UNAUTHORIZED,
-        );
-      }
-
-      const invoiceId =
-        await this.zohoBooksService.createInvoice(appointmentId);
-      return {
-        success: true,
-        data: invoiceId,
-        message: 'Invoice created in ZohoBooks',
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error.message,
-        message: error.message || 'Failed to create invoice',
-      };
-    }
-  }
-
-  /**
-   * POST /api/zohobooks/payment/:appointmentId/:invoiceId
-   * Record payment for invoice
-   */
-  @Post('payment/:appointmentId/:invoiceId')
-  async recordPayment(
-    @Param('appointmentId') appointmentId: string,
-    @Param('invoiceId') invoiceId: string,
-  ) {
-    await this.zohoBooksService.recordPayment(appointmentId, invoiceId);
-    return {
-      success: true,
-      message: 'Payment recorded in ZohoBooks',
-    };
-  }
-
-  /**
-   * DELETE /api/zohobooks/disconnect/:businessId
-   * Disconnect ZohoBooks integration
+   * DELETE /zohobooks/disconnect/:businessId
    */
   @Delete('disconnect/:businessId')
-  async disconnect(
-    @Request() req,
-    @Param('businessId') businessId: string,
-    @Body() updateDto: UpdateBusinessOwnerSettingsDto,
-  ) {
+  async disconnect(@Request() req, @Param('businessId') businessId: string) {
     try {
       const ownerId = req.user.id || req.user.sub;
-
-      if (!ownerId) {
-        throw new HttpException(
-          'User not authenticated',
-          HttpStatus.UNAUTHORIZED,
-        );
-      }
-
-      await this.zohoBooksService.disconnect(businessId, ownerId, updateDto);
+      await this.zohoBooksService.disconnect(ownerId, businessId);
       return {
         success: true,
         message: 'ZohoBooks disconnected successfully',
       };
     } catch (error) {
-      console.error('ZohoBooks OAuth error:', error);
-
       return {
         success: false,
         error: error.message,

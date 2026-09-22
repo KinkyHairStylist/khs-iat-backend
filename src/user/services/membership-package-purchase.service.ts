@@ -24,7 +24,8 @@ import { PurchaseMembershipPackageDto } from '../dtos/membership-package.dto';
 import { SlackService } from 'src/slack/slack.service';
 import { EmailService } from 'src/email/email.service';
 import { TemplateService } from 'src/email/template.service';
-import { Business } from 'src/business/entities/business.entity';
+import { Business, BusinessStatus } from 'src/business/entities/business.entity';
+import { escapeLike, toMarketplaceItem } from 'src/helpers/membership-marketplace.helper';
 
 @Injectable()
 export class MembershipPackagePurchaseService {
@@ -191,12 +192,46 @@ export class MembershipPackagePurchaseService {
     return { message: 'Membership purchase completed successfully', purchase };
   }
 
+  // The customer's memberships, with the salon's name so they can be shown and linked. The salon
+  // record itself is stripped out: it carries owner details a customer must never receive.
   async getOwnedPurchases(clientId: string) {
-    return this.purchaseRepo.find({
+    const purchases = await this.purchaseRepo.find({
       where: { clientId },
-      relations: ['package', 'package.service'],
+      relations: ['package', 'package.service', 'package.business'],
       order: { createdAt: 'DESC' },
     });
+    return purchases.map((purchase) => ({
+      ...purchase,
+      businessName: purchase.package?.business?.businessName ?? null,
+      package: purchase.package ? { ...purchase.package, business: undefined } : purchase.package,
+    }));
+  }
+
+  // Every active package from approved salons, for the customer marketplace. `search` matches the
+  // salon or the service; `businessId` narrows it to one salon.
+  async listMarketplace(filters: { search?: string; businessId?: string } = {}) {
+    const query = this.packageRepo
+      .createQueryBuilder('p')
+      .innerJoinAndSelect('p.business', 'b')
+      .innerJoinAndSelect('p.service', 's')
+      .where('p.isActive = :active', { active: true })
+      .andWhere('b.status = :approved', { approved: BusinessStatus.APPROVED });
+
+    if (filters.businessId) query.andWhere('b.id = :businessId', { businessId: filters.businessId });
+
+    const term = filters.search?.trim();
+    if (term) {
+      query.andWhere('(b.businessName ILIKE :term OR s.name ILIKE :term)', {
+        term: `%${escapeLike(term)}%`,
+      });
+    }
+
+    const packages = await query
+      .orderBy('b.businessName', 'ASC')
+      .addOrderBy('p.createdAt', 'DESC')
+      .take(300)
+      .getMany();
+    return packages.map(toMarketplaceItem);
   }
 
   async listPackagesForBusiness(businessId: string) {

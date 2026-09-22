@@ -470,6 +470,13 @@ export class AuthService {
     return this.userRepo.findOne({ where: { id } });
   }
 
+  async emailExists(email: string): Promise<boolean> {
+    return this.userRepo
+      .createQueryBuilder('u')
+      .where('LOWER(u.email) = :email', { email: email.trim().toLowerCase() })
+      .getExists();
+  }
+
   async findByEmail(email: string): Promise<User | null> {
     return this.userRepo.findOne({
       where: { email: email.toLowerCase() },

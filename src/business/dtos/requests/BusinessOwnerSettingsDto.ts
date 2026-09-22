@@ -1,5 +1,6 @@
 import {
   IsBoolean,
+  IsInt,
   IsNumber,
   IsString,
   IsArray,
@@ -63,8 +64,16 @@ export class BookingRulesDto {
   @IsOptional()
   minimumLeadTimeHours?: number;
 
-  @IsNumber()
+  // Minutes, so lead times under an hour (the sign-up wizard offers 30) survive.
+  @IsInt()
   @Min(0)
+  @Max(60 * 24 * 30)
+  @IsOptional()
+  minimumLeadTimeMinutes?: number;
+
+  @IsInt()
+  @Min(0)
+  @Max(24 * 60)
   @IsOptional()
   bufferTimeBetweenAppointmentsMinutes?: number;
 
@@ -186,6 +195,10 @@ export class PricingPoliciesDto {
   @IsBoolean()
   @IsOptional()
   acceptCashPayment?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  allowDepositPayment?: boolean;
 
   @IsString()
   @IsOptional()

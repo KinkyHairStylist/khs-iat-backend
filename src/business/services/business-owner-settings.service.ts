@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { assertCanManageBusiness } from '../utils/business-access';
 import {
   BookingRules,
   BusinessNotifications,
@@ -30,6 +31,7 @@ import { BusinessFirebaseService } from './business-firebase.service';
 import { User } from 'src/all_user_entities/user.entity';
 import { ApiResponse } from '../types/client.types';
 import { Business } from '../entities/business.entity';
+import { BookingPolicies } from '../entities/booking-policies.entity';
 
 @Injectable()
 export class BusinessOwnerSettingsService {
@@ -180,12 +182,29 @@ export class BusinessOwnerSettingsService {
       }
     }
 
+    // The client-facing booking_policies row (set during onboarding) holds the
+    // salon's cancellation window, lead time and buffer too; changes here are
+    // mirrored onto it so both stores agree and the booking flow reads one value.
+    const bookingPolicyUpdate: Partial<
+      Pick<BookingPolicies, 'cancellationWindow' | 'minimumLeadTime' | 'bufferTime'>
+    > = {};
+
     // Deep merge bookingRules
     if (updateDto.bookingRules) {
+      const { minimumLeadTimeMinutes, ...rules } = updateDto.bookingRules;
       settings.bookingRules = {
         ...settings.bookingRules,
-        ...updateDto.bookingRules,
+        ...rules,
       };
+      if (minimumLeadTimeMinutes != null) {
+        bookingPolicyUpdate.minimumLeadTime = minimumLeadTimeMinutes;
+        settings.bookingRules.minimumLeadTimeHours = Math.ceil(
+          minimumLeadTimeMinutes / 60,
+        );
+      }
+      if (rules.bufferTimeBetweenAppointmentsMinutes != null) {
+        bookingPolicyUpdate.bufferTime = rules.bufferTimeBetweenAppointmentsMinutes;
+      }
     }
 
     // Deep merge clientManagement
@@ -210,6 +229,19 @@ export class BusinessOwnerSettingsService {
         ...settings.pricingPolicies,
         ...updateDto.pricingPolicies,
       };
+    }
+
+    if (updateDto.pricingPolicies?.cancellationWindow != null) {
+      bookingPolicyUpdate.cancellationWindow =
+        updateDto.pricingPolicies.cancellationWindow;
+    }
+    if (Object.keys(bookingPolicyUpdate).length > 0) {
+      await this.businessOwnerSettingsRepository.manager
+        .createQueryBuilder()
+        .update(BookingPolicies)
+        .set(bookingPolicyUpdate)
+        .where('"businessId" = :businessId', { businessId })
+        .execute();
     }
 
     // Deep merge integrations
@@ -240,7 +272,9 @@ export class BusinessOwnerSettingsService {
     return await this.businessOwnerSettingsRepository.save(settings);
   }
 
-  async delete(businessId: string): Promise<void> {
+  async delete(businessId: string, user?: any): Promise<void> {
+    const business = await this.businessRepo.findOne({ where: { id: businessId } });
+    assertCanManageBusiness(user, business);
     const settings = await this.findByBusinessId(businessId);
     await this.businessOwnerSettingsRepository.remove(settings);
   }

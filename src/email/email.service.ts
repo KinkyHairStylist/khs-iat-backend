@@ -26,6 +26,11 @@ export class EmailService {
     return this.configService.get<string>('DELIVERY_TEAM_EMAIL');
   }
 
+  // The KHS team's mailbox, copied on booking emails. Undefined when unset.
+  get khsTeamEmail(): string | undefined {
+    return this.deliveryTeamEmail;
+  }
+
   sendEmail(
     to: string,
     subject: string,
@@ -33,6 +38,9 @@ export class EmailService {
     html?: string,
     cc?: string,
   ) {
+    // SendGrid rejects a message that lists the same address twice.
+    if (cc && cc.trim().toLowerCase() === to.trim().toLowerCase()) cc = undefined;
+
     const msg: any = {
       to,
       from: {
@@ -90,6 +98,31 @@ export class EmailService {
     const text = `Hello,\n\nYou have been invited to join Kinky Hairstylist as ${roleFormatted}.\n\nPlease click the following link to complete your registration:\n${inviteUrl}\n\nThis invitation link will expire in 30 minutes.`;
 
     return this.sendEmail(to, subject, text, html, this.deliveryTeamEmail);
+  }
+
+  // Sent when an admin adds a user (or turns an existing user into a merchant). `path` is where the
+  // button goes, relative to the site.
+  sendAccountCreatedByAdminEmail(
+    to: string,
+    details: {
+      name: string;
+      intro: string;
+      notes: string[];
+      actionLabel: string;
+      path: string;
+      footnote?: string;
+    },
+  ) {
+    const actionUrl = `${this.frontendUrl}${details.path}`;
+    const html = this.templateService.render('account-created', {
+      ...details,
+      footnote: details.footnote ?? '',
+      actionUrl,
+      frontendUrl: this.frontendUrl,
+      year: new Date().getFullYear(),
+    });
+    const text = `Hi ${details.name},\n\n${details.intro}\n\n${details.notes.join('\n')}\n\n${details.actionLabel}: ${actionUrl}\n\n${details.footnote ?? ''}`;
+    return this.sendEmail(to, 'Your Kinky Hairstylist account is ready', text, html, this.deliveryTeamEmail);
   }
 
   sendWelcomeEmail(to: string, name: string) {
@@ -445,6 +478,39 @@ export class EmailService {
     }
   }
 
+  // Tells the salon one of its gift cards was sold. The KHS team is copied.
+  sendMerchantGiftCardSoldEmail(
+    to: string,
+    merchantName: string,
+    businessName: string,
+    purchaserName: string,
+    giftCardTitle: string,
+    amount: number,
+  ) {
+    try {
+      const formattedAmount = `$${Number(amount).toFixed(2)}`;
+      const html = this.templateService.render('merchant-gift-card-sold', {
+        merchantName,
+        businessName,
+        purchaserName,
+        giftCardTitle,
+        amount: formattedAmount,
+        frontendUrl: this.frontendUrl,
+        year: new Date().getFullYear(),
+      });
+      const text = `Hi ${merchantName}, ${purchaserName} bought your gift card "${giftCardTitle}" from ${businessName} for ${formattedAmount}. The amount has been added to your wallet.`;
+      this.sendEmail(
+        to,
+        `Gift card sold (${formattedAmount}) – ${businessName}`,
+        text,
+        html,
+        this.deliveryTeamEmail,
+      );
+    } catch (err) {
+      this.logger.error(`Failed to send gift card sold email to ${to}:`, err);
+    }
+  }
+
   sendBookingConfirmationEmail(
     to: string,
     name: string,
@@ -489,6 +555,9 @@ export class EmailService {
     time: string,
     orderId: string,
     amountPaid: string | number,
+    // For bookings not paid by card (gift card, membership): replaces the
+    // "Amount Paid" line, e.g. "Membership session used".
+    paymentNote?: string,
   ) {
     const formattedAmount = `$${Number(amountPaid).toFixed(2)}`;
     const html = this.templateService.render('merchant-booking-notification', {
@@ -500,13 +569,52 @@ export class EmailService {
       time,
       orderId,
       amountPaid: formattedAmount,
+      paymentNote,
       frontendUrl: this.frontendUrl,
       year: new Date().getFullYear(),
     });
-    const text = `Hi ${merchantName}, ${customerName} has successfully booked and paid ${formattedAmount} for ${serviceName} on ${date} at ${time} (Order #${orderId}) at ${businessName}.`;
+    const text = paymentNote
+      ? `Hi ${merchantName}, ${customerName} has booked ${serviceName} on ${date} at ${time} (Order #${orderId}) at ${businessName}. ${paymentNote}.`
+      : `Hi ${merchantName}, ${customerName} has successfully booked and paid ${formattedAmount} for ${serviceName} on ${date} at ${time} (Order #${orderId}) at ${businessName}.`;
     this.sendEmail(
       to,
-      `New Booking & Payment Received (${formattedAmount}) – Order #${orderId}`,
+      paymentNote
+        ? `New Booking Confirmed – Order #${orderId}`
+        : `New Booking & Payment Received (${formattedAmount}) – Order #${orderId}`,
+      text,
+      html,
+      this.deliveryTeamEmail,
+    );
+  }
+
+  // Tells the salon a client cancelled. The KHS team is copied.
+  sendMerchantCancellationNotificationEmail(
+    to: string,
+    merchantName: string,
+    customerName: string,
+    businessName: string,
+    serviceName: string,
+    date: string,
+    time: string,
+    orderId: string,
+    moneyNote?: string,
+  ) {
+    const html = this.templateService.render('merchant-cancellation-notification', {
+      merchantName,
+      customerName,
+      businessName,
+      serviceName,
+      date,
+      time,
+      orderId,
+      moneyNote,
+      frontendUrl: this.frontendUrl,
+      year: new Date().getFullYear(),
+    });
+    const text = `Hi ${merchantName}, ${customerName} has cancelled ${serviceName} on ${date} at ${time} (Order #${orderId}) at ${businessName}.${moneyNote ? ` ${moneyNote}` : ''}`;
+    this.sendEmail(
+      to,
+      `Booking Cancelled – Order #${orderId}`,
       text,
       html,
       this.deliveryTeamEmail,
