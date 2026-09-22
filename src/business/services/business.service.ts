@@ -70,6 +70,7 @@ import { Review } from '../entities/review.entity';
 import { merchantPayout } from 'src/user/services/booking-fees';
 import { assertCanManageBusiness } from '../utils/business-access';
 import { summarizeStaffAppointments, weekBounds } from '../utils/staff-stats';
+import { computeDisplayStatus } from '../utils/appointment-display-status';
 
 @Injectable()
 export class BusinessService {
@@ -284,7 +285,7 @@ export class BusinessService {
     });
   }
 
-  return { ...appointment, review };
+  return { ...appointment, review, displayStatus: computeDisplayStatus(appointment) };
 }
 
   async completeBooking(id: string, user: User) {
@@ -336,10 +337,109 @@ export class BusinessService {
     }
 
     await this.appointmentRepo.save(appointment);
+    await this.releaseEscrowAndSyncIntegrations(id, appointment);
+    return appointment;
+  }
 
-    // Release any Stripe escrow held for this booking now that the
-    // appointment is done — a no-op for Paystack/gift-card/cash bookings,
-    // which have no StripePaymentIntent row at all.
+  // Mark a past Confirmed/Rescheduled appointment as a no-show — the client
+  // never turned up. Money-wise this is treated the same as a completed
+  // booking: the merchant already held the slot and, for a Stripe booking,
+  // already has the customer's payment sitting in escrow (see
+  // completeBooking above) which would otherwise never be released, since
+  // marking a no-show client's booking "Completed" to unlock it would be a
+  // lie about what happened. Shares the exact same escrow-release path as
+  // completeBooking via releaseEscrowAndSyncIntegrations so the two can't
+  // drift on how a merchant actually gets paid.
+  async markNoShow(id: string, user: User) {
+    await this.assertCanActOnAppointment(id, user);
+    const appointment = await this.appointmentRepo.findOne({
+      where: { id },
+      relations: ['business', 'client', 'businessClient'],
+    });
+    if (!appointment) {
+      throw new NotFoundException('Appointment Not Found');
+    }
+
+    if (
+      appointment.status !== AppointmentStatus.CONFIRMED &&
+      appointment.status !== AppointmentStatus.RESCHEDULED
+    ) {
+      throw new BadRequestException(
+        `Cannot mark a ${appointment.status} appointment as a no-show`,
+      );
+    }
+
+    const start = this.parseApptStart(appointment.date, appointment.time);
+    if (!isNaN(start.getTime()) && start.getTime() > Date.now()) {
+      throw new BadRequestException(
+        'Cannot mark a future appointment as a no-show yet',
+      );
+    }
+
+    const recipientEmail =
+      appointment.client?.email ?? appointment.businessClient?.email;
+
+    if (recipientEmail) {
+      await this.emailService.sendEmail(
+        recipientEmail,
+        `Missed appointment with ${appointment.business.businessName}`,
+        `you were marked as a no-show for your appointment on ${appointment.date}. If this is a mistake, please contact the salon.`,
+        '',
+      );
+    }
+
+    appointment.status = AppointmentStatus.NO_SHOW;
+    appointment.paymentStatus = PaymentStatus.PAID;
+
+    if (appointment.client?.id) {
+      try {
+        await this.notificationService.create({
+          userId: appointment.client.id,
+          type: NotificationType.SYSTEM,
+          title: 'Marked as No-Show',
+          message: `You were marked as a no-show for your appointment at ${appointment.business?.businessName || 'the salon'} for ${appointment.serviceName}.`,
+          link: '/customer/appointment',
+          metadata: {
+            appointmentId: appointment.id,
+            salonId: appointment.business?.id,
+            salonName: appointment.business?.businessName,
+          },
+        });
+      } catch (err) {
+        console.error('Failed to create in-app notification for markNoShow:', err);
+      }
+    }
+
+    await this.appointmentRepo.save(appointment);
+    await this.releaseEscrowAndSyncIntegrations(id, appointment);
+    return appointment;
+  }
+
+  // date/time parsing for the no-show future-appointment guard — mirrors
+  // the equivalent helper in booking.service.ts and
+  // appointment-display-status.ts (this codebase stores them as separate
+  // display strings, e.g. date "2026-09-22", time "2:00 PM").
+  private parseApptStart(date: string, time: string): Date {
+    const [timePart, meridiem] = (time || '').split(' ');
+    const [hoursRaw, minutes] = (timePart || '0:0').split(':').map(Number);
+    let hours = hoursRaw || 0;
+    if (meridiem === 'PM' && hours !== 12) hours += 12;
+    else if (meridiem === 'AM' && hours === 12) hours = 0;
+    const dt = new Date(date);
+    dt.setHours(hours, minutes || 0, 0, 0);
+    return dt;
+  }
+
+  // Shared by completeBooking and markNoShow: release any Stripe escrow
+  // held for this booking now that it's over (a no-op for
+  // Paystack/gift-card/cash bookings, which have no StripePaymentIntent row
+  // at all), then sync the merchant's connected integrations. Both callers
+  // have already set the appointment's final status/paymentStatus and
+  // saved it before calling this.
+  private async releaseEscrowAndSyncIntegrations(
+    id: string,
+    appointment: Appointment,
+  ): Promise<void> {
     try {
       const heldPaymentIntents = await this.stripePaymentIntentRepo.find({
         where: {
@@ -532,8 +632,6 @@ export class BusinessService {
         console.error('Failed to sync with ZohoBooks:', error);
       }
     }
-
-    return appointment;
   }
 
   async createBooking(
@@ -1746,7 +1844,7 @@ export class BusinessService {
       throw new NotFoundException('Business does not exist');
     }
 
-    return await this.appointmentRepo.find({
+    const appointments = await this.appointmentRepo.find({
       where: {
         business: { id: business.id },
         status: AppointmentStatus.RESCHEDULED,
@@ -1756,6 +1854,7 @@ export class BusinessService {
         createdAt: 'DESC',
       },
     });
+    return appointments.map((a) => ({ ...a, displayStatus: computeDisplayStatus(a) }));
   }
 
   async getBookings(userId: string, date?: string) {
@@ -1776,7 +1875,7 @@ export class BusinessService {
       throw new NotFoundException('Business does not exist');
     }
 
-    return await this.appointmentRepo.find({
+    const appointments = await this.appointmentRepo.find({
       where: {
         business: { id: business.id },
         ...(date ? { date } : {}),
@@ -1786,6 +1885,7 @@ export class BusinessService {
         createdAt: 'DESC',
       },
     });
+    return appointments.map((a) => ({ ...a, displayStatus: computeDisplayStatus(a) }));
   }
 
   getServices(): BusinessServiceData[] {
