@@ -849,8 +849,13 @@ export class BusinessService {
     }
 
     // Create staff profile
+    // Addresses, emergency contacts and services are saved below. Passing them here as well saved every
+    // address and contact twice.
     const staff = this.staffRepo.create({
       ...createStaffDto,
+      addresses: [],
+      emergencyContacts: [],
+      servicesAssigned: [],
       email: staffEmail,
       business,
       settings: settings || undefined,
@@ -876,10 +881,10 @@ export class BusinessService {
       staff.addresses = await this.addressRepo.save(cleanAddresses);
     }
 
-    // Handle assigned services
-    if (selectedServices?.length) {
-      staff.services = await this.serviceRepo.findByIds(selectedServices);
-      await this.staffRepo.save(staff);
+    // Handle assigned services. The form sends servicesAssigned; selectedServices is the older name.
+    const serviceIds = [...new Set([...(createStaffDto.servicesAssigned ?? []), ...(selectedServices ?? [])])];
+    if (serviceIds.length) {
+      await this.applyStaffServices(staff, business.id, serviceIds);
     }
 
     return staff;
@@ -889,11 +894,21 @@ export class BusinessService {
     await this.assertCanActOnStaffMember(staffId, user);
     const staff = await this.staffRepo.findOne({
       where: { id: staffId },
-      relations: ['addresses', 'emergencyContacts'],
+      relations: ['addresses', 'emergencyContacts', 'business'],
     });
 
     if (!staff) {
       throw new Error('Staff not found');
+    }
+
+    if (editStaffDto.email) {
+      editStaffDto.email = editStaffDto.email.toLowerCase().trim();
+      if (editStaffDto.email !== (staff.email ?? '').toLowerCase()) {
+        const taken = await this.staffRepo.findOne({ where: { email: editStaffDto.email } });
+        if (taken && taken.id !== staff.id) {
+          throw new BadRequestException('Another staff member already uses this email');
+        }
+      }
     }
 
     // Ensure user record stays as merchant when staff is edited
@@ -934,14 +949,12 @@ export class BusinessService {
       staff.settings = editStaffDto.settings;
     }
 
+    await this.staffRepo.save(staff);
+
     if (editStaffDto.servicesAssigned) {
-      const services = await this.serviceRepo.findByIds(
-        editStaffDto.servicesAssigned,
-      );
-      staff.services = services;
+      await this.applyStaffServices(staff, staff.business.id, editStaffDto.servicesAssigned);
     }
 
-    await this.staffRepo.save(staff);
     return staff;
   }
 
@@ -1334,6 +1347,7 @@ export class BusinessService {
       commissionEarnedThisWeek: commissionMap.get(s.id) ?? 0,
       rating: ratingMap.get(s.id)?.rating ?? 0,
       reviews: ratingMap.get(s.id)?.reviews ?? 0,
+      servicesAssigned: (s.services ?? []).map((service) => service.id),
       ...summarizeStaffAppointments(rowsByStaff.get(s.id) ?? [], week),
     }));
   }
@@ -1588,16 +1602,30 @@ export class BusinessService {
       throw new NotFoundException('Staff member not found');
     }
 
+    await this.applyStaffServices(staffMember, staffMember.business.id, serviceIds);
+
+    return {
+      message: 'Staff services updated successfully',
+      staffId,
+      serviceIds,
+    };
+  }
+
+  // Makes these the services this staff member does. Customers pick a stylist from each service's own list of
+  // staff (Service.assignedStaff), so that list is what gets changed here. Only services of this business are
+  // used, and the staff member's own copy of the list is set to match what was really linked.
+  private async applyStaffServices(staffMember: Staff, businessId: string, serviceIds: string[]) {
+    const staffId = staffMember.id;
     const [currentlyAssigned, toAssign] = await Promise.all([
       this.serviceRepo
         .createQueryBuilder('service')
         .innerJoin('service.assignedStaff', 'staff', 'staff.id = :staffId', { staffId })
         .leftJoinAndSelect('service.assignedStaff', 'allStaff')
-        .where('service.businessId = :businessId', { businessId: staffMember.business.id })
+        .where('service.businessId = :businessId', { businessId: businessId })
         .getMany(),
       serviceIds.length
         ? this.serviceRepo.find({
-            where: { id: In(serviceIds), business: { id: staffMember.business.id } },
+            where: { id: In(serviceIds), business: { id: businessId } },
             relations: ['assignedStaff'],
           })
         : Promise.resolve([]),
@@ -1621,14 +1649,8 @@ export class BusinessService {
       await this.serviceRepo.save(service);
     }
 
-    staffMember.servicesAssigned = serviceIds;
+    staffMember.servicesAssigned = toAssign.map((service) => service.id);
     await this.staffRepo.save(staffMember);
-
-    return {
-      message: 'Staff services updated successfully',
-      staffId,
-      serviceIds,
-    };
   }
 
   async assignStaffToAppointment(dto: AssignStaffToBookingDto, user: User) {
