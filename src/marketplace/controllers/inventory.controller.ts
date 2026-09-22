@@ -145,7 +145,7 @@ export class InventoryController {
         );
       }
 
-      const result = await this.inventoryService.getCategoriesList();
+      const result = await this.inventoryService.getCategoriesList(ownerId);
 
       return {
         success: true,
