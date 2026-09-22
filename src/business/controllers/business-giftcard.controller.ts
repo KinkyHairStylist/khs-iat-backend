@@ -15,6 +15,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { describeActor } from '../utils/gift-card-deactivation';
+import { redactGiftCardCode, redactGiftCardCodes } from '../utils/gift-card-redact';
 import {
   ApiTags,
   ApiOperation,
@@ -85,7 +86,7 @@ export class BusinessGiftCardsController {
 
       return {
         success: true,
-        data: result,
+        data: redactGiftCardCode(result),
         message: 'Gift Card Created',
       };
     } catch (error) {
@@ -184,7 +185,7 @@ export class BusinessGiftCardsController {
 
       return {
         success: true,
-        data: result,
+        data: { ...result, giftCards: redactGiftCardCodes(result.giftCards) },
         message: 'Gift Cards List fetched',
       };
     } catch (error) {
@@ -214,7 +215,7 @@ export class BusinessGiftCardsController {
 
       return {
         success: true,
-        data: result,
+        data: redactGiftCardCode(result),
         message: 'Gift card deactivated successfully',
       };
     } catch (error) {
@@ -244,7 +245,7 @@ export class BusinessGiftCardsController {
 
       return {
         success: true,
-        data: result,
+        data: redactGiftCardCode(result),
         message: 'Gift card deleted',
       };
     } catch (error) {
@@ -261,7 +262,7 @@ export class BusinessGiftCardsController {
   @ApiResponse({ status: 200, description: 'Gift card found' })
   @ApiResponse({ status: 404, description: 'Gift card not found' })
   async findOne(@Request() req, @Param('id') id: string) {
-    return this.assertCanManageCard(id, req.user);
+    return redactGiftCardCode(await this.assertCanManageCard(id, req.user));
   }
 
   @Get('code/:code')
@@ -286,7 +287,7 @@ export class BusinessGiftCardsController {
       const result = await this.giftCardsService.update(id, updateGiftCardDto);
       return {
         success: true,
-        data: result,
+        data: redactGiftCardCode(result),
         message: 'Gift Card Updated',
       };
     } catch (error) {
@@ -314,14 +315,14 @@ export class BusinessGiftCardsController {
   @ApiOperation({ summary: 'Mark gift card as sent' })
   async markAsSent(@Request() req, @Param('id') id: string) {
     await this.assertCanManageCard(id, req.user);
-    return this.giftCardsService.markAsSent(id);
+    return redactGiftCardCode(await this.giftCardsService.markAsSent(id));
   }
 
   @Patch(':id/mark-delivered')
   @ApiOperation({ summary: 'Mark gift card as delivered' })
   async markAsDelivered(@Request() req, @Param('id') id: string) {
     await this.assertCanManageCard(id, req.user);
-    return this.giftCardsService.markAsDelivered(id);
+    return redactGiftCardCode(await this.giftCardsService.markAsDelivered(id));
   }
 
   @Patch(':id/cancel')
@@ -330,7 +331,7 @@ export class BusinessGiftCardsController {
   @ApiResponse({ status: 400, description: 'Cannot cancel redeemed gift card' })
   async cancel(@Request() req, @Param('id') id: string) {
     await this.assertCanManageCard(id, req.user);
-    return this.giftCardsService.cancel(id, describeActor(req.user));
+    return redactGiftCardCode(await this.giftCardsService.cancel(id, describeActor(req.user)));
   }
 
   @Patch(':id/reactivate')
@@ -339,7 +340,7 @@ export class BusinessGiftCardsController {
   @ApiResponse({ status: 403, description: 'KHS deactivated this card, so only KHS can reactivate it' })
   async reactivate(@Request() req, @Param('id') id: string) {
     await this.assertCanManageCard(id, req.user);
-    return this.giftCardsService.reactivate(id, describeActor(req.user));
+    return redactGiftCardCode(await this.giftCardsService.reactivate(id, describeActor(req.user)));
   }
 
   @Delete(':id')
