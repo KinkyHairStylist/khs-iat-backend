@@ -8,7 +8,9 @@ async function run() {
     user: process.env.DB_USERNAME || 'postgres',
     password: process.env.DB_PASSWORD,
     database: process.env.DB_DATABASE || 'khs',
-    ssl: false,
+    // The managed Postgres instance refuses an unencrypted connection
+    // ("no pg_hba.conf entry... no encryption") without this.
+    ssl: process.env.DB_SSL === 'require' ? { rejectUnauthorized: false } : false,
   });
 
   await client.connect();
