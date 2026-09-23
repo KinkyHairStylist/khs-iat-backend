@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, Repository } from 'typeorm';
 import {
@@ -299,7 +299,16 @@ export class MerchantSubscriptionService {
   async createSetupIntentForBusiness(businessId: string) {
     const sub = await this.merchantSubscriptionRepo.findOne({ where: { businessId } });
     if (!sub?.stripeCustomerId) {
-      throw new Error('No Stripe customer on file for this business — approval must run first.');
+      // A plain Error here used to reach the merchant as a bare, sanitized
+      // "Internal server error" 500 — NestJS's global exception filter only
+      // recognizes HttpException subclasses as expected rejections; anything
+      // else looks like a genuine crash and gets its real message stripped.
+      // This is an expected, common state (any merchant who hasn't been
+      // through admin approval yet), not a bug, so it needs to reach the
+      // frontend as a real 400 with an explanation.
+      throw new BadRequestException(
+        "Your business hasn't been approved for billing yet — contact support to get set up.",
+      );
     }
     return this.stripeService.createSetupIntent(sub.stripeCustomerId);
   }
@@ -315,7 +324,11 @@ export class MerchantSubscriptionService {
   ): Promise<MerchantSubscription> {
     const sub = await this.merchantSubscriptionRepo.findOne({ where: { businessId } });
     if (!sub?.stripeCustomerId) {
-      throw new Error('No Stripe customer on file for this business — approval must run first.');
+      // Same fix as createSetupIntentForBusiness above — a real,
+      // expected rejection, not a crash, so it needs a real HTTP status.
+      throw new BadRequestException(
+        "Your business hasn't been approved for billing yet — contact support to get set up.",
+      );
     }
 
     await this.stripeService.attachPaymentMethodAsDefault(sub.stripeCustomerId, paymentMethodId);
