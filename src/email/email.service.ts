@@ -370,6 +370,35 @@ export class EmailService {
     );
   }
 
+  // Advance warning before sweepExpiredTrials would otherwise suspend this
+  // business with no notice — see MerchantSubscriptionCronService.
+  sendMerchantTrialEndingSoonEmail(
+    to: string,
+    businessName: string,
+    daysLeft: number,
+    trialEndsAt: Date,
+  ) {
+    const trialEndDate = trialEndsAt.toLocaleDateString('en-US', {
+      dateStyle: 'long',
+    });
+    const html = this.templateService.render('merchant-trial-ending-soon', {
+      businessName,
+      daysLeft,
+      trialEndDate,
+      frontendUrl: this.frontendUrl,
+      year: new Date().getFullYear(),
+    });
+    const dayWord = daysLeft === 1 ? 'day' : 'days';
+    const text = `Hi ${businessName}, your free trial on Kinky Hairstylist ends in ${daysLeft} ${dayWord} (${trialEndDate}). Add a payment method before then to avoid your storefront being suspended.`;
+    this.sendEmail(
+      to,
+      `Your free trial ends in ${daysLeft} ${dayWord}`,
+      text,
+      html,
+      this.deliveryTeamEmail,
+    );
+  }
+
   sendLoginNotificationEmail(to: string, userName: string, timestamp?: string) {
     const now =
       timestamp ||
