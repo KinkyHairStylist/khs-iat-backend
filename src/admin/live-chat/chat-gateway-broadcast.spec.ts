@@ -8,7 +8,8 @@ import { ChatGateway } from './chat.gateway';
 
 function setup(onlineUsers: Record<string, string>, staffIds: string[]) {
   const chatService: any = { getAllStaffIds: jest.fn().mockResolvedValue(staffIds) };
-  const gateway = new ChatGateway(chatService);
+  const jwtService: any = { verify: jest.fn() };
+  const gateway = new ChatGateway(chatService, jwtService);
   const emitted: Array<{ socketId: string; event: string; payload: any }> = [];
   const server = {
     to: (socketId: string) => ({
