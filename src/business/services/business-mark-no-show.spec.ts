@@ -15,6 +15,17 @@ function setup(overrides: Partial<Record<string, any>> = {}) {
   service.emailService = { sendEmail: jest.fn() };
   service.notificationService = { create: jest.fn() };
   service.appointmentRepo = { findOne: jest.fn(), save: jest.fn(async (a: any) => a) };
+  // claimAppointmentForTerminalTransition runs its locked read/write through
+  // appointmentRepo.manager.transaction — delegate the manager's findOne/save
+  // back to the same mocks above so existing per-test setups keep working.
+  service.appointmentRepo.manager = {
+    transaction: jest.fn(async (fn: any) =>
+      fn({
+        findOne: (_entity: any, opts: any) => service.appointmentRepo.findOne(opts),
+        save: (_entity: any, data: any) => service.appointmentRepo.save(data),
+      }),
+    ),
+  };
   service.stripePaymentIntentRepo = { find: jest.fn().mockResolvedValue([]), save: jest.fn() };
   service.businessOwnerSettingsService = {
     findByBusinessId: jest.fn().mockResolvedValue({ integrations: {} }),

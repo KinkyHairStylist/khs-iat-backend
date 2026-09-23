@@ -290,12 +290,24 @@ export class BusinessService {
 
   async completeBooking(id: string, user: User) {
     await this.assertCanActOnAppointment(id, user);
-    const appointment = await this.appointmentRepo.findOne({
-      where: { id },
-      relations: ['business', 'client', 'businessClient'],
-    });
+
+    // Atomically checked-and-flipped under a row lock, so two concurrent
+    // completions of the same booking (a double-click, two staff members
+    // both hitting Complete) can't both see it as still Confirmed and each
+    // run the wallet-crediting escrow release below. Found live: one real
+    // booking's Stripe escrow was released three times, crediting the
+    // merchant's wallet three times for a single completion, all within
+    // six seconds — no lock existed here at all before this.
+    const appointment = await this.claimAppointmentForTerminalTransition(
+      id,
+      AppointmentStatus.COMPLETED,
+    );
     if (!appointment) {
-      throw new NotFoundException('Appointment Not Found');
+      const existing = await this.appointmentRepo.findOne({ where: { id } });
+      if (!existing) throw new NotFoundException('Appointment Not Found');
+      throw new BadRequestException(
+        `This booking is already ${existing.status} and can't be completed again.`,
+      );
     }
 
     const recipientEmail =
@@ -309,13 +321,6 @@ export class BusinessService {
         '',
       );
     }
-
-    appointment.status = AppointmentStatus.COMPLETED;
-    // Completing a service means it was paid for one way or another,
-    // regardless of which payment method was used (cash/walk-in bookings
-    // previously stayed stuck at Unpaid forever since nothing else here
-    // sets this for non-Stripe payment methods).
-    appointment.paymentStatus = PaymentStatus.PAID;
 
     if (appointment.client?.id) {
       try {
@@ -336,9 +341,44 @@ export class BusinessService {
       }
     }
 
-    await this.appointmentRepo.save(appointment);
     await this.releaseEscrowAndSyncIntegrations(id, appointment);
     return appointment;
+  }
+
+  // Locks the appointment row for the duration of this check-and-flip, so a
+  // second call racing the first (rather than reading a stale
+  // Confirmed/Rescheduled status before either commits) blocks until the
+  // first transaction finishes and then correctly sees the new terminal
+  // status and refuses. Shared by completeBooking and markNoShow, whose
+  // wallet-crediting side effects (releaseEscrowAndSyncIntegrations) must
+  // only ever run once per booking.
+  private async claimAppointmentForTerminalTransition(
+    id: string,
+    newStatus: AppointmentStatus.COMPLETED | AppointmentStatus.NO_SHOW,
+  ): Promise<Appointment | null> {
+    return this.appointmentRepo.manager.transaction(async (manager) => {
+      const appointment = await manager.findOne(Appointment, {
+        where: { id },
+        relations: ['business', 'client', 'businessClient'],
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!appointment) return null;
+      if (
+        appointment.status !== AppointmentStatus.CONFIRMED &&
+        appointment.status !== AppointmentStatus.RESCHEDULED
+      ) {
+        return null;
+      }
+
+      appointment.status = newStatus;
+      // Completing (or settling) a service means it was paid for one way or
+      // another, regardless of which payment method was used (cash/walk-in
+      // bookings previously stayed stuck at Unpaid forever since nothing
+      // else here sets this for non-Stripe payment methods).
+      appointment.paymentStatus = PaymentStatus.PAID;
+      await manager.save(Appointment, appointment);
+      return appointment;
+    });
   }
 
   // Mark a past Confirmed/Rescheduled appointment as a no-show — the client
@@ -352,27 +392,42 @@ export class BusinessService {
   // drift on how a merchant actually gets paid.
   async markNoShow(id: string, user: User) {
     await this.assertCanActOnAppointment(id, user);
-    const appointment = await this.appointmentRepo.findOne({
-      where: { id },
-      relations: ['business', 'client', 'businessClient'],
-    });
-    if (!appointment) {
+
+    // Read (unlocked) just to give a precise error for the common,
+    // non-racy rejections below — date/time don't change concurrently, so
+    // there's no TOCTOU risk in checking them here. The actual status
+    // transition is still claimed atomically further down.
+    const precheck = await this.appointmentRepo.findOne({ where: { id } });
+    if (!precheck) {
       throw new NotFoundException('Appointment Not Found');
     }
 
     if (
-      appointment.status !== AppointmentStatus.CONFIRMED &&
-      appointment.status !== AppointmentStatus.RESCHEDULED
+      precheck.status !== AppointmentStatus.CONFIRMED &&
+      precheck.status !== AppointmentStatus.RESCHEDULED
     ) {
       throw new BadRequestException(
-        `Cannot mark a ${appointment.status} appointment as a no-show`,
+        `Cannot mark a ${precheck.status} appointment as a no-show`,
       );
     }
 
-    const start = this.parseApptStart(appointment.date, appointment.time);
+    const start = this.parseApptStart(precheck.date, precheck.time);
     if (!isNaN(start.getTime()) && start.getTime() > Date.now()) {
       throw new BadRequestException(
         'Cannot mark a future appointment as a no-show yet',
+      );
+    }
+
+    // Same race this closes for completeBooking: two concurrent calls (here,
+    // or one of each) must not both see Confirmed/Rescheduled and each run
+    // the wallet-crediting escrow release below.
+    const appointment = await this.claimAppointmentForTerminalTransition(
+      id,
+      AppointmentStatus.NO_SHOW,
+    );
+    if (!appointment) {
+      throw new BadRequestException(
+        'This booking was just updated by someone else — please refresh and try again.',
       );
     }
 
@@ -387,9 +442,6 @@ export class BusinessService {
         '',
       );
     }
-
-    appointment.status = AppointmentStatus.NO_SHOW;
-    appointment.paymentStatus = PaymentStatus.PAID;
 
     if (appointment.client?.id) {
       try {
@@ -410,7 +462,6 @@ export class BusinessService {
       }
     }
 
-    await this.appointmentRepo.save(appointment);
     await this.releaseEscrowAndSyncIntegrations(id, appointment);
     return appointment;
   }
