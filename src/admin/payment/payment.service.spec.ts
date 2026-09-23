@@ -5,6 +5,12 @@ import { Payment } from './entities/payment.entity';
 import { Business } from 'src/business/entities/business.entity';
 import { Transaction } from 'src/business/entities/transaction.entity';
 import { BusinessWalletService } from 'src/business/services/wallet.service';
+import { StripePaymentIntent } from 'src/payment/entities/stripe-payment-intent.entity';
+import { Appointment } from 'src/business/entities/appointment.entity';
+import { Refund } from 'src/user/user_entities/refund.entity';
+import { StripeService } from 'src/payment/stripe.service';
+import { EmailService } from 'src/email/email.service';
+import { TemplateService } from 'src/email/template.service';
 import {
   BadRequestException,
   InternalServerErrorException,
@@ -24,7 +30,6 @@ describe('PaymentService', () => {
     create: jest.fn(),
     save: jest.fn(),
     update: jest.fn(),
-    clear: jest.fn(),
   };
 
   const mockBusinessRepo = {
@@ -70,6 +75,15 @@ describe('PaymentService', () => {
           provide: BusinessWalletService,
           useValue: mockWalletService,
         },
+        // The constructor grew several more dependencies over time that
+        // this test module was never updated to match, so it failed to
+        // compile with a DI resolution error before a single test ran.
+        { provide: getRepositoryToken(StripePaymentIntent), useValue: {} },
+        { provide: getRepositoryToken(Appointment), useValue: {} },
+        { provide: getRepositoryToken(Refund), useValue: {} },
+        { provide: StripeService, useValue: {} },
+        { provide: EmailService, useValue: {} },
+        { provide: TemplateService, useValue: {} },
       ],
     }).compile();
 
@@ -225,7 +239,9 @@ describe('PaymentService', () => {
 
       const result = await service.verifyPaystackPayment(reference);
 
-      expect(result.success).toBe(true);
+      // Return type is { payment, message } -- there's no `success` field,
+      // and never has been (confirmed by reading the current code).
+      expect(result.payment.status).toBe('successful');
       expect(result.message).toBe('Payment already verified');
       expect(mockedAxios.get).not.toHaveBeenCalled();
     });
@@ -253,7 +269,7 @@ describe('PaymentService', () => {
         }),
       );
       expect(mockWalletService.addFunds).toHaveBeenCalled();
-      expect(result.success).toBe(true);
+      expect(result.payment.status).toBe('successful');
     });
 
     it('marks payment as failed when Paystack returns status false', async () => {
@@ -289,12 +305,7 @@ describe('PaymentService', () => {
     });
   });
 
-  describe('deleteAllPayments', () => {
-    it('clears the payment table', async () => {
-      mockPaymentRepo.clear.mockResolvedValue(undefined);
-      const result = await service.deleteAllPayments();
-      expect(mockPaymentRepo.clear).toHaveBeenCalled();
-      expect(result.message).toBe('All payments deleted.');
-    });
-  });
+  // deleteAllPayments (an unscoped bulk-delete of the whole payment table)
+  // no longer exists on the service at all -- confirmed by reading the
+  // current code. Nothing left here to test.
 });
