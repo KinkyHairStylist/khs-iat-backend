@@ -385,6 +385,10 @@ async getAllBusinesses() {
     const businesses = await this.businessRepo
       .createQueryBuilder('business')
       .leftJoinAndSelect('business.staff', 'staff')
+      // Admin had no way to see what a business actually offers or charges
+      // for it at all -- Business Details only ever showed the flat,
+      // business-level category tags, never the underlying services.
+      .leftJoinAndSelect('business.serviceList', 'serviceList')
       .orderBy('business.createdAt', 'DESC')
       .getMany();
 

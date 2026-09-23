@@ -9,6 +9,7 @@ import {
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { Role } from '../../middleware/role.enum';
+import { Gender } from '../../business/types/constants';
 
 /**
  * @description DTO for initiating signup or verification process.
@@ -120,10 +121,13 @@ export class SignUpDto {
   phoneNumber: string;
 
   @ApiProperty({
-    example: 'Female',
-    description: 'Gender of the user (e.g. Male, Female, Other)',
+    example: 'FEMALE',
+    description: 'Gender of the user',
+    enum: Gender,
   })
-  @IsString()
+  @IsEnum(Gender, {
+    message: 'Gender must be one of: MALE, FEMALE, CUSTOM, PREFER_NOT_TO_SAY, OTHER.',
+  })
   @IsNotEmpty()
   gender: string;
 
@@ -285,7 +289,7 @@ export class AuthResponseDto {
       firstName: 'Jane',
       surname: 'Doe',
       phoneNumber: '+2348123456789',
-      gender: 'Female',
+      gender: 'FEMALE',
       isVerified: true,
     },
     required: false,

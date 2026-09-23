@@ -53,6 +53,13 @@ export class GiftcardService {
         `COALESCE(SUM(g.remainingAmount) FILTER (WHERE ${sold} AND g.status = :active), 0)`,
         'balanceHeld',
       )
+      // How much has actually been spent off sold cards, whatever their
+      // current status. This used to exclude Expired cards from the
+      // spendable set — but expiring a card doesn't undo money a customer
+      // already redeemed off it beforehand (its remainingAmount reflects
+      // that spend either way), so a partially-used card that later
+      // expired had its already-redeemed portion silently dropped from
+      // this total, undercounting the real redeemed value platform-wide.
       .addSelect(
         `COALESCE(SUM(g.amount - g.remainingAmount) FILTER (WHERE ${sold} AND g.status IN (:...spendable)), 0)`,
         'redeemedValue',
@@ -72,6 +79,7 @@ export class GiftcardService {
           BusinessGiftCardStatus.ACTIVE,
           BusinessGiftCardStatus.INACTIVE,
           BusinessGiftCardStatus.USED,
+          BusinessGiftCardStatus.EXPIRED,
         ],
       })
       .getRawOne();
