@@ -42,10 +42,30 @@ export class ChatGateway {
     this.server.emit('user_status', { userId, isOnline: false });
   }
 
-  async sendMessageToReceiver(message) {
+  // The Team Inbox is a shared view across every staff member, not just
+  // whichever specific one a customer originally addressed their message
+  // to — but this only ever pushed the live update to that one exact
+  // receiver's socket. Any other admin looking at the same shared inbox
+  // never got the socket event at all and had to refresh to see a new
+  // message land. When a customer/merchant is the one sending (the
+  // message is going TO staff), also push it to every other currently
+  // online staff member so the whole team's inbox updates live, the same
+  // way notifyTicketClosed/notifyTicketCreated already broadcast rather
+  // than target a single socket. A staff reply going TO a customer still
+  // only ever needs to reach that one customer.
+  async sendMessageToReceiver(message, senderIsStaff = true) {
     const receiverSocketId = this.onlineUsers.get(message.receiver.id);
     if (receiverSocketId) {
       this.server.to(receiverSocketId).emit('receive_message', message);
+    }
+
+    if (!senderIsStaff) {
+      const staffIds = await this.chatService.getAllStaffIds();
+      for (const staffId of staffIds) {
+        if (staffId === message.receiver.id) continue; // already sent above
+        const socketId = this.onlineUsers.get(staffId);
+        if (socketId) this.server.to(socketId).emit('receive_message', message);
+      }
     }
   }
 
