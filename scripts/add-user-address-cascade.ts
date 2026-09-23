@@ -11,7 +11,9 @@ async function run() {
     user: process.env.DB_USERNAME,
     password: process.env.DB_PASSWORD,
     database: process.env.DB_DATABASE,
-    // ssl: { rejectUnauthorized: false },
+    // The managed Postgres instance refuses an unencrypted connection
+    // ("no pg_hba.conf entry... no encryption") without this.
+    ssl: { rejectUnauthorized: false },
   });
   await client.connect();
   console.log('Connected to database.');
