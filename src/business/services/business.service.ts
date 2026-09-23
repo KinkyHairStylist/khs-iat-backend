@@ -357,18 +357,40 @@ export class BusinessService {
     newStatus: AppointmentStatus.COMPLETED | AppointmentStatus.NO_SHOW,
   ): Promise<Appointment | null> {
     return this.appointmentRepo.manager.transaction(async (manager) => {
-      const appointment = await manager.findOne(Appointment, {
-        where: { id },
-        relations: ['business', 'client', 'businessClient'],
-        lock: { mode: 'pessimistic_write' },
-      });
-      if (!appointment) return null;
+      // `staff` (many-to-many), `business` and `service` are all eager:true
+      // on Appointment -- which means ANY read of this entity through the
+      // ORM (findOne, QueryBuilder, with or without an explicit `relations`
+      // option) joins them automatically, no way to opt out per-call.
+      // `staff` is nullable (an appointment can have no assigned stylist --
+      // "any available"), so that's an outer join, and Postgres flatly
+      // refuses FOR UPDATE on the nullable side of one ("FOR UPDATE cannot
+      // be applied to the nullable side of an outer join"). Passed unit
+      // tests fine (the mocked transaction manager never runs real SQL) but
+      // broke immediately against the real database -- confirmed live, even
+      // after first trying to drop the `relations` option below (still
+      // failed the same way, since the eager joins aren't optional). A raw
+      // locking query against the bare table sidesteps the ORM's automatic
+      // eager joins entirely; the entity read that follows doesn't need its
+      // own lock, since this row lock is already held for the rest of the
+      // transaction.
+      const rows: Array<{ id: string; status: string }> = await manager.query(
+        `SELECT id, status FROM appointments WHERE id = $1 FOR UPDATE`,
+        [id],
+      );
+      const locked = rows[0];
+      if (!locked) return null;
       if (
-        appointment.status !== AppointmentStatus.CONFIRMED &&
-        appointment.status !== AppointmentStatus.RESCHEDULED
+        locked.status !== AppointmentStatus.CONFIRMED &&
+        locked.status !== AppointmentStatus.RESCHEDULED
       ) {
         return null;
       }
+
+      const appointment = await manager.findOne(Appointment, {
+        where: { id },
+        relations: ['business', 'client', 'businessClient'],
+      });
+      if (!appointment) return null;
 
       appointment.status = newStatus;
       // Completing (or settling) a service means it was paid for one way or

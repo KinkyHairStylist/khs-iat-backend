@@ -21,6 +21,14 @@ function setup(overrides: Partial<Record<string, any>> = {}) {
   service.appointmentRepo.manager = {
     transaction: jest.fn(async (fn: any) =>
       fn({
+        // The real implementation locks via a raw query (see
+        // claimAppointmentForTerminalTransition's comment for why) before
+        // ever loading the entity — derive its {id, status} row from the
+        // same findOne mock every other call in this test already relies on.
+        query: async () => {
+          const appt = await service.appointmentRepo.findOne();
+          return appt ? [{ id: appt.id, status: appt.status }] : [];
+        },
         findOne: (_entity: any, opts: any) => service.appointmentRepo.findOne(opts),
         save: (_entity: any, data: any) => service.appointmentRepo.save(data),
       }),

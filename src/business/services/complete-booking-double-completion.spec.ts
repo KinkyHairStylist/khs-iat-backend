@@ -34,6 +34,12 @@ function setup() {
     manager: {
       transaction: jest.fn(async (fn: any) =>
         fn({
+          // The real implementation locks via a raw query against the bare
+          // row before ever loading the entity (see
+          // claimAppointmentForTerminalTransition's comment) — read the same
+          // shared record so a second racing call sees whatever the first
+          // one already wrote, same as the findOne/save mocks below.
+          query: async () => [{ id: record.id, status: record.status }],
           findOne: async () => record, // the *same* object — mutations below are visible to the next call
           save: async (_entity: any, data: any) => Object.assign(record, data),
         }),
