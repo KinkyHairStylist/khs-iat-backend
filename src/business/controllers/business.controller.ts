@@ -92,6 +92,15 @@ export class BusinessController {
   @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
   @Roles(Role.Merchant, Role.Staff, Role.BusinessStaff)
   @RequirePermission(Permission.MANAGE_BOOKINGS)
+  @Post('markNoShow/:id')
+  async markNoShow(@Req() req: RequestWithUser, @Param('id') id: string) {
+    return this.businessService.markNoShow(id, req.user);
+  }
+
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @Roles(Role.Merchant, Role.Staff, Role.BusinessStaff)
+  @RequirePermission(Permission.MANAGE_BOOKINGS)
   @Post('assign-staff-to-booking')
   async assignStaffToBooking(@Req() req: RequestWithUser, @Body() body: AssignStaffToBookingDto) {
     return this.businessService.assignStaffToAppointment(body, req.user);

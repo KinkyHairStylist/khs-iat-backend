@@ -379,12 +379,27 @@ export class ClientService {
         return { savedClient, newUser, generatedPassword };
       });
 
-      // STEP 5: EMAIL — after transaction commits so we never send on rollback
-      await this.sendWelcomeClientAccountEmail(
-        result.newUser.email,
-        `${result.newUser.firstName} ${result.newUser.surname}`,
-        result.generatedPassword,
-      );
+      // STEP 5: EMAIL — after transaction commits so we never send on rollback.
+      // The client and their login account are already committed at this
+      // point, so a failure here (SendGrid down, bad address, etc.) must
+      // never turn into "Failed to create client" — that used to happen
+      // because this call wasn't guarded, so its exception fell through to
+      // the outer catch below and reported success: false even though the
+      // client (and a real, working login) had already been created. A
+      // merchant seeing that error would retry with the same email and hit
+      // a confusing "Client already exists" instead.
+      try {
+        await this.sendWelcomeClientAccountEmail(
+          result.newUser.email,
+          `${result.newUser.firstName} ${result.newUser.surname}`,
+          result.generatedPassword,
+        );
+      } catch (emailError) {
+        console.error(
+          `Failed to send welcome email to new client ${result.newUser.email}:`,
+          emailError,
+        );
+      }
 
       const populatedClient = await this.getClientWithRelations(
         result.savedClient.id,

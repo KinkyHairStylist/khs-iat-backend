@@ -387,6 +387,14 @@ Ticket closed: *${ticket.ticketNumber}*
     });
   }
 
+  // Just the ids — used by ChatGateway to broadcast a customer's message to
+  // every online staff member, not just whichever one they originally
+  // addressed it to (see sendMessageToReceiver).
+  async getAllStaffIds(): Promise<string[]> {
+    const staff = await this.userRepo.find({ where: { isStaff: true }, select: ['id'] });
+    return staff.map((s) => s.id);
+  }
+
   // Staff a customer can start a new conversation with — separate from
   // getChatList, which only shows conversations that already have messages.
   async getAllStaffContacts(): Promise<StaffContactDto[]> {

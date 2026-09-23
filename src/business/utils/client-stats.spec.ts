@@ -60,7 +60,26 @@ describe('what a client card shows', () => {
   });
 
   it('has nothing to show for a client with no appointments', () => {
-    expect(summarizeClientAppointments([], TODAY)).toEqual({ visits: 0, lifetimeValue: 0, nextAppointment: null });
+    expect(summarizeClientAppointments([], TODAY)).toEqual({
+      visits: 0,
+      lifetimeValue: 0,
+      nextAppointment: null,
+      noShows: 0,
+    });
+  });
+
+  it('counts no-show appointments separately from cancellations and visits', () => {
+    const s = summarizeClientAppointments(
+      [
+        appt('1', AppointmentStatus.NO_SHOW, '2026-08-01'),
+        appt('2', AppointmentStatus.NO_SHOW, '2026-08-10'),
+        appt('3', AppointmentStatus.CANCELLED, '2026-08-15'),
+        appt('4', AppointmentStatus.COMPLETED, '2026-08-20'),
+      ],
+      TODAY,
+    );
+    expect(s.noShows).toBe(2);
+    expect(s.visits).toBe(1);
   });
 });
 

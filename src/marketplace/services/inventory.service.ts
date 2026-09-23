@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Product } from '../entity/product.entity';
 import { PlatformInventory } from '../entity/inventory.entity';
+import { Business } from '../../business/entities/business.entity';
 
 @Injectable()
 export class InventoryService {
@@ -11,6 +12,8 @@ export class InventoryService {
     private productRepository: Repository<Product>,
     @InjectRepository(PlatformInventory)
     private platformInventoryRepository: Repository<PlatformInventory>,
+    @InjectRepository(Business)
+    private businessRepository: Repository<Business>,
   ) {}
 
   /**
@@ -314,16 +317,34 @@ export class InventoryService {
     };
   }
 
-  async getCategoriesList() {
+  // The category value list itself (categoriesList below) is a shared,
+  // admin-managed taxonomy, correctly the same for everyone. The COUNTS
+  // against each category are not — this is called from a merchant's own
+  // Inventory dashboard, so they need to reflect that merchant's products
+  // only. Previously counted every active product on the whole platform
+  // regardless of which business owned it, so every merchant saw the same
+  // (much larger) numbers, unrelated to their own inventory.
+  async getCategoriesList(ownerId?: string) {
     const platformInventory = await this.ensureInventoryExists();
 
-    const productCounts = await this.productRepository
+    const countQuery = this.productRepository
       .createQueryBuilder('product')
       .select('product.category', 'category')
       .addSelect('COUNT(*)', 'count')
       .where('product.isActive = :active', { active: true })
-      .groupBy('product.category')
-      .getRawMany();
+      .groupBy('product.category');
+
+    if (ownerId) {
+      const business = await this.businessRepository.findOne({ where: { ownerId } });
+      if (business) {
+        countQuery.andWhere('product.businessId = :businessId', { businessId: business.id });
+      } else {
+        // No business for this user — nothing is theirs to count.
+        countQuery.andWhere('1 = 0');
+      }
+    }
+
+    const productCounts = await countQuery.getRawMany();
 
     const categories = platformInventory.categoriesList.map((catValue) => {
       const found = productCounts.find((p) => p.category === catValue);

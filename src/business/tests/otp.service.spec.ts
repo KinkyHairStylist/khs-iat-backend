@@ -2,12 +2,23 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
+import * as crypto from 'crypto';
 
 import { OtpService } from '../services/otp.service';
 import { EmailVerification } from '../entities/email-verification.entity';
 import { PhoneVerification } from '../entities/phone-verification.entity';
 import { EmailService } from '../../email/email.service';
 import { AuthService } from '../services/auth.service';
+
+// The real service hashes the OTP before storing it and compares hashes
+// (timingSafeEqual(stored, hashOtp(provided))) to verify -- good, secure
+// behavior -- but this test's fixture stored the OTP as plaintext, which
+// never equals its own hash. Mirrors the service's private hashOtp
+// exactly (sha256 hex digest) so the fixture matches what real storage
+// actually looks like.
+function hashOtp(otp: string): string {
+  return crypto.createHash('sha256').update(otp).digest('hex');
+}
 
 describe('OtpService phone OTP persistence', () => {
   let service: OtpService;
@@ -58,7 +69,7 @@ describe('OtpService phone OTP persistence', () => {
     const phone = '+1234567890';
     const createdRecord = {
       phoneNumber: phone,
-      otp: '123456',
+      otp: hashOtp('123456'),
       expiresAt: new Date(Date.now() + 15 * 60 * 1000),
       trials: 0,
       maxTrials: 5,

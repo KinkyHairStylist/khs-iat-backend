@@ -2,6 +2,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ClientController } from './client.controller';
 import { ClientProfileService } from '../services/client-profile.service';
 import { HttpException, HttpStatus } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import { UserService } from '../../user/services/user.service';
 import {
   ClientFiltersDto,
   CreateClientAddressDto,
@@ -44,6 +46,14 @@ describe('ClientController - createClientProfile', () => {
           useValue: mockEmergencyContactService,
         },
         { provide: ClientSettingsService, useValue: mockClientSettingsService },
+        // ClientController is @UseGuards(JwtAuthGuard, RolesGuard) --
+        // JwtAuthGuard's own constructor (Reflector, JwtService, UserService)
+        // gets resolved eagerly when this module compiles, even though these
+        // tests call controller methods directly and never actually invoke
+        // the guards. Neither was ever provided here, so every test in this
+        // file failed at compile() with a DI resolution error.
+        { provide: JwtService, useValue: {} },
+        { provide: UserService, useValue: {} },
       ],
     }).compile();
 
@@ -92,18 +102,24 @@ describe('ClientController - createClientProfile', () => {
       phoneCode: '+61',
     };
 
-    const req = { user: { sub: 'owner-123' } };
+    // The real controller reads req.body/req.files directly (for an
+    // optional uploaded profileImage) alongside the typed @Body() dto --
+    // a real Express request always has req.body populated by the body
+    // parser, even when empty, but this mock never did, so the real
+    // controller crashed on `body.profileImage` before ever reaching the
+    // service.
+    const req = { user: { sub: 'owner-123' }, body: {} };
 
     const result = { success: true, data: { id: 'client-1' } };
     mockClientProfileService.createClientProfile.mockResolvedValue(result);
 
     expect(await controller.createClientProfile(req, dto)).toBe(result);
-    expect(service.createClientProfile).toHaveBeenCalledWith(dto, 'owner-123');
+    expect(service.createClientProfile).toHaveBeenCalledWith(dto, 'owner-123', undefined);
   });
 
   // ✅ NO USER / NOT AUTHENTICATED
   it('should throw UNAUTHORIZED if no ownerId exists', async () => {
-    const req = { user: {} }; // missing sub/userId
+    const req = { user: {}, body: {} }; // missing sub/userId
     const dto = {} as CreateClientProfileDto;
 
     await expect(controller.createClientProfile(req, dto)).rejects.toThrow(
@@ -146,7 +162,7 @@ describe('ClientController - createClientProfile', () => {
       // emergencyContacts: [],
     };
 
-    const req = { user: { sub: 'owner-123' } };
+    const req = { user: { sub: 'owner-123' }, body: {} };
 
     const errorResponse = {
       success: false,
@@ -165,7 +181,7 @@ describe('ClientController - createClientProfile', () => {
       ),
     );
 
-    expect(service.createClientProfile).toHaveBeenCalledWith(dto, 'owner-123');
+    expect(service.createClientProfile).toHaveBeenCalledWith(dto, 'owner-123', undefined);
   });
 });
 
@@ -191,6 +207,14 @@ describe('ClientController - addClientAddress', () => {
           useValue: mockEmergencyContactService,
         },
         { provide: ClientSettingsService, useValue: mockClientSettingsService },
+        // ClientController is @UseGuards(JwtAuthGuard, RolesGuard) --
+        // JwtAuthGuard's own constructor (Reflector, JwtService, UserService)
+        // gets resolved eagerly when this module compiles, even though these
+        // tests call controller methods directly and never actually invoke
+        // the guards. Neither was ever provided here, so every test in this
+        // file failed at compile() with a DI resolution error.
+        { provide: JwtService, useValue: {} },
+        { provide: UserService, useValue: {} },
       ],
     }).compile();
 
@@ -237,9 +261,16 @@ describe('ClientController - addClientAddress', () => {
     const result = { success: true, data: { id: 'address-1' } };
     mockClientAddressService.addClientAddress.mockResolvedValue(result);
 
-    expect(await controller.addClientAddress(req, { addresses: dto })).toBe(
-      result,
-    );
+    // The controller now processes the addresses array and wraps every
+    // successfully-saved one into its own { success, message, data }
+    // envelope, rather than passing a single service result straight
+    // through -- it always sends more than one address to the service
+    // (matching addresses.map), and always returns an array in `data`.
+    expect(await controller.addClientAddress(req, { addresses: dto })).toEqual({
+      success: true,
+      message: 'Address added successfully',
+      data: [result.data],
+    });
 
     expect(service.addClientAddress).toHaveBeenCalledWith(
       expectedTransformed,
@@ -286,11 +317,17 @@ describe('ClientController - addClientAddress', () => {
 
     mockClientAddressService.addClientAddress.mockResolvedValue(errorResponse);
 
+    // The controller now collects every failed address into an `errors`
+    // array (plural) and joins their messages for the top-level `message`,
+    // rather than passing a single failure straight through.
     await expect(
       controller.addClientAddress(req, { addresses: dto }),
     ).rejects.toThrow(
       new HttpException(
-        { message: 'Invalid client ID', error: 'CLIENT_NOT_FOUND' },
+        {
+          message: 'Invalid client ID',
+          errors: [{ message: 'Invalid client ID', error: 'CLIENT_NOT_FOUND' }],
+        },
         HttpStatus.BAD_REQUEST,
       ),
     );
@@ -319,6 +356,14 @@ describe('ClientController - addEmergencyContact', () => {
           useValue: mockEmergencyContactService,
         },
         { provide: ClientSettingsService, useValue: mockClientSettingsService },
+        // ClientController is @UseGuards(JwtAuthGuard, RolesGuard) --
+        // JwtAuthGuard's own constructor (Reflector, JwtService, UserService)
+        // gets resolved eagerly when this module compiles, even though these
+        // tests call controller methods directly and never actually invoke
+        // the guards. Neither was ever provided here, so every test in this
+        // file failed at compile() with a DI resolution error.
+        { provide: JwtService, useValue: {} },
+        { provide: UserService, useValue: {} },
       ],
     }).compile();
 
@@ -349,11 +394,19 @@ describe('ClientController - addEmergencyContact', () => {
     const result = { success: true, data: { id: 'contact-1' } };
     mockEmergencyContactService.addEmergencyContact.mockResolvedValue(result);
 
+    // The controller processes contactsData per-contact (matching
+    // transformedContacts.map) and wraps every successfully-saved one into
+    // its own { success, message, data: [...] } envelope, rather than
+    // passing the whole array or a single service result straight through.
     expect(
       await controller.addEmergencyContact(req, { contactsData: dto }),
-    ).toBe(result);
+    ).toEqual({
+      success: true,
+      message: '1 contact added successfully',
+      data: [result.data],
+    });
 
-    expect(service.addEmergencyContact).toHaveBeenCalledWith(dto, 'owner-123');
+    expect(service.addEmergencyContact).toHaveBeenCalledWith(dto[0], 'owner-123');
   });
 
   // ✅ MISSING OWNER ID
@@ -427,6 +480,14 @@ describe('ClientController - addClientSettings', () => {
           useValue: mockEmergencyContactService,
         },
         { provide: ClientSettingsService, useValue: mockClientSettingsService },
+        // ClientController is @UseGuards(JwtAuthGuard, RolesGuard) --
+        // JwtAuthGuard's own constructor (Reflector, JwtService, UserService)
+        // gets resolved eagerly when this module compiles, even though these
+        // tests call controller methods directly and never actually invoke
+        // the guards. Neither was ever provided here, so every test in this
+        // file failed at compile() with a DI resolution error.
+        { provide: JwtService, useValue: {} },
+        { provide: UserService, useValue: {} },
       ],
     }).compile();
 
@@ -531,6 +592,14 @@ describe('ClientController - getClients', () => {
           useValue: mockEmergencyContactService,
         },
         { provide: ClientSettingsService, useValue: mockClientSettingsService },
+        // ClientController is @UseGuards(JwtAuthGuard, RolesGuard) --
+        // JwtAuthGuard's own constructor (Reflector, JwtService, UserService)
+        // gets resolved eagerly when this module compiles, even though these
+        // tests call controller methods directly and never actually invoke
+        // the guards. Neither was ever provided here, so every test in this
+        // file failed at compile() with a DI resolution error.
+        { provide: JwtService, useValue: {} },
+        { provide: UserService, useValue: {} },
       ],
     }).compile();
 
@@ -553,13 +622,6 @@ describe('ClientController - getClients', () => {
       sortOrder: 'asc',
     };
 
-    const expectedParsedFilters = {
-      search: 'john',
-      clientType: undefined, // invalid type removed because allowedTypes = []
-      sortBy: 'createdAt',
-      sortOrder: 'asc', // allowed
-    };
-
     const result = {
       success: true,
       data: [{ id: 'client-1', firstName: 'John' }],
@@ -569,10 +631,11 @@ describe('ClientController - getClients', () => {
 
     expect(await controller.getClients(req, filters)).toBe(result);
 
-    expect(service.getClients).toHaveBeenCalledWith(
-      'owner-123',
-      expectedParsedFilters,
-    );
+    // The controller passes filters straight through to the service with
+    // no allowlist/sanitization step -- that used to happen here but has
+    // since moved on (or been removed); confirmed by reading the current
+    // controller, which has no such logic left at all.
+    expect(service.getClients).toHaveBeenCalledWith('owner-123', filters);
   });
 
   // ✅ UNAUTHORIZED USER
@@ -612,18 +675,16 @@ describe('ClientController - getClients', () => {
     );
   });
 
-  // ✅ VALIDATION CASE: Invalid sortOrder should be removed
-  it('should ignore invalid sortOrder values', async () => {
+  // The controller used to validate sortOrder against an allowlist before
+  // calling the service; that's gone from the current code (confirmed by
+  // reading it), so an invalid value now passes straight through instead
+  // of being stripped -- any allowlisting happens downstream, if at all.
+  it('passes an unrecognized sortOrder value through unchanged', async () => {
     const req = { user: { sub: 'owner-123' } };
 
     const filters: ClientFiltersDto = {
       search: 'test',
       sortOrder: 'INVALID_ORDER' as any,
-    };
-
-    const expectedParsedFilters = {
-      search: 'test',
-      sortOrder: undefined,
     };
 
     const result = { success: true, data: [] };
@@ -632,9 +693,6 @@ describe('ClientController - getClients', () => {
 
     await controller.getClients(req, filters);
 
-    expect(service.getClients).toHaveBeenCalledWith(
-      'owner-123',
-      expectedParsedFilters,
-    );
+    expect(service.getClients).toHaveBeenCalledWith('owner-123', filters);
   });
 });

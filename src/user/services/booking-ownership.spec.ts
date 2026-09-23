@@ -60,6 +60,45 @@ describe("changing someone else's booking", () => {
   });
 });
 
+// A merchant creating a booking on behalf of a Client Management record never sets `client` at all
+// (see BusinessService.createBooking) — only `businessClient`. A customer who is also that same real
+// person, matched by email, still owns the booking even though `client` is empty.
+function setupMerchantCreatedBooking() {
+  const appointment: any = {
+    id: 'a2',
+    orderId: 'BKID-2',
+    client: null,
+    businessClient: { email: 'Real.Customer@Example.com' },
+    business: { id: 'biz-1', owner: { id: 'owner-1' } },
+  };
+  const bookingRepository = { find: jest.fn().mockResolvedValue([appointment]), findOne: jest.fn().mockResolvedValue(appointment) };
+  const noop: any = {};
+  const service = new BookingService(
+    bookingRepository as any,
+    noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop,
+    { getReviewedOrderIds: jest.fn().mockResolvedValue(new Set()) } as any,
+    noop, noop, noop, noop, noop, noop, noop, noop, noop, noop, noop,
+  );
+  return { service };
+}
+
+describe('a booking a merchant created directly (no client account linked)', () => {
+  it('is readable by the real customer it was made for, matched by email', async () => {
+    const { service } = setupMerchantCreatedBooking();
+    const realCustomer: any = { id: 'cust-9', email: 'real.customer@example.com' }; // different case, same address
+
+    const [booking]: any[] = await service.getBookingById('BKID-2', realCustomer);
+    expect(booking.id).toBe('a2');
+  });
+
+  it("is still refused for someone else entirely", async () => {
+    const { service } = setupMerchantCreatedBooking();
+    const someoneElse: any = { id: 'cust-10', email: 'nobody@example.com' };
+
+    await expect(service.getBookingById('BKID-2', someoneElse)).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
 describe('the user controller', () => {
   it('has no route that rewrites an account by id', () => {
     expect((UserController.prototype as any).updateUser).toBeUndefined();

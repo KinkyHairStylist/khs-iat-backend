@@ -83,6 +83,17 @@ export class MerchantSubscription {
   @Column({ type: 'varchar', nullable: true })
   cancelReason: string | null;
 
+  // Set once each advance reminder has actually been sent, so the daily
+  // cron never sends the same one twice. Added by
+  // scripts/add-trial-reminder-columns.ts. Only meaningful while
+  // status is TRIALING and trialEndsAt is set — see
+  // MerchantSubscriptionCronService.sweepTrialReminders.
+  @Column({ type: 'timestamptz', nullable: true })
+  trialReminder5DaySentAt: Date | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  trialReminder1DaySentAt: Date | null;
+
   @CreateDateColumn()
   createdAt: Date;
 
