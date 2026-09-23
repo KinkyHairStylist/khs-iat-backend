@@ -12,6 +12,7 @@ export interface ClientStats {
   visits: number;
   lifetimeValue: number;
   nextAppointment: { date: string; time: string | null } | null;
+  noShows: number;
 }
 
 // "10:00 AM", "2:30 pm" and "14:30" all turn into minutes past midnight, so times on the same day
@@ -42,12 +43,15 @@ export function summarizeClientAppointments(
 ): ClientStats {
   let visits = 0;
   let cents = 0;
+  let noShows = 0;
   let next: ClientAppointmentRow | null = null;
 
   for (const a of appointments) {
     if (a.status === AppointmentStatus.COMPLETED) {
       visits += 1;
       cents += Math.round((Number(a.amount) || 0) * 100);
+    } else if (a.status === AppointmentStatus.NO_SHOW) {
+      noShows += 1;
     } else if (UPCOMING.has(a.status as string) && a.date >= today) {
       const sooner =
         !next ||
@@ -61,6 +65,7 @@ export function summarizeClientAppointments(
     visits,
     lifetimeValue: cents / 100,
     nextAppointment: next ? { date: next.date, time: next.time ?? null } : null,
+    noShows,
   };
 }
 

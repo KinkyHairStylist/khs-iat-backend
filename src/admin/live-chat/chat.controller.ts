@@ -1,4 +1,4 @@
-import { Controller, Post, Patch, Body, Get, Query, UseGuards, Param, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Patch, Body, Get, Query, UseGuards, Param, BadRequestException, NotFoundException } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
 import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
@@ -44,6 +44,18 @@ export class ChatController {
     if (!ticket) {
       throw new BadRequestException('Ticket not found');
     }
+    // A ticket always belongs to one customer (see the comment above) — a
+    // customer/merchant supplying someone else's ticketId, or staff
+    // supplying a receiverId that doesn't match who the ticket actually
+    // belongs to, must never be able to write into it. Previously nothing
+    // checked this at all: any authenticated user could post into any
+    // ticket by ID, appearing to staff as a message from an unrelated
+    // person suddenly joining someone else's conversation. Reported as
+    // not found rather than forbidden, so a guessed ticket ID doesn't even
+    // confirm it exists.
+    if (ticket.customerId !== customerId) {
+      throw new BadRequestException('Ticket not found');
+    }
     if (ticket.status === TicketStatus.CLOSED) {
       throw new BadRequestException(
         'This ticket is closed. Start a new conversation instead.',
@@ -85,7 +97,7 @@ export class ChatController {
       receiver: { id: data.receiverId },
     };
 
-    await this.chatGateway.sendMessageToReceiver(safeMessage);
+    await this.chatGateway.sendMessageToReceiver(safeMessage, user.isStaff);
 
     return safeMessage;
   }
@@ -175,18 +187,51 @@ export class ChatController {
 
   // Ticket-scoped message history — the real boundary a closed ticket
   // needs, so reopening a conversation never blends old and new tickets.
+  //
+  // This had no ownership check at all: any authenticated customer or
+  // merchant could read any ticket's full message history just by knowing
+  // (or guessing) its id — a stale ticket id left over in the widget's
+  // state after switching accounts in the same browser was enough.
+  // Confirmed live: a second, unrelated account successfully fetched a
+  // first account's private support conversation, including their name,
+  // email and phone number. Staff can still view any ticket (that's their
+  // job) — only a customer/merchant is now checked against the ticket's
+  // own customerId, reported as not found rather than forbidden so a
+  // guessed id doesn't even confirm it exists.
   @Get('tickets/:id/messages')
-  async getMessagesByTicket(@Param('id') id: string): Promise<ChatMessageResponseDto[]> {
+  async getMessagesByTicket(
+    @GetUser() user: User,
+    @Param('id') id: string,
+  ): Promise<ChatMessageResponseDto[]> {
+    if (!user.isStaff) {
+      const ticket = await this.chatService.getTicketById(id);
+      if (!ticket || ticket.customerId !== user.id) {
+        throw new NotFoundException('Ticket not found');
+      }
+    }
     return this.chatService.getMessagesByTicket(id);
   }
 
   // Any staff member viewing a ticket can close it — no assignment/
-  // ownership restriction.
+  // ownership restriction (intentional; that's separate from this check).
+  //
+  // This had the same missing check as getMessagesByTicket above: any
+  // authenticated customer/merchant could close *any other* ticket by id,
+  // not just their own — confirmed live, a second unrelated account
+  // successfully closed a first account's active support conversation.
+  // Staff still close any ticket; a customer/merchant is now restricted to
+  // their own.
   @Patch('tickets/:id/close')
   async closeTicket(
     @GetUser() user: User,
     @Param('id') id: string,
   ) {
+    if (!user.isStaff) {
+      const existing = await this.chatService.getTicketById(id);
+      if (!existing || existing.customerId !== user.id) {
+        throw new NotFoundException('Ticket not found');
+      }
+    }
     const ticket = await this.chatService.closeTicket(id, user.id);
     this.chatGateway.notifyTicketClosed(ticket);
     return ticket;

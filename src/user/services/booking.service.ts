@@ -1679,13 +1679,23 @@ export class BookingService {
         });
         if (!user) throw new NotFoundException('User not found');
 
-        // Handle gift card portion if any
-        if (meta.giftCard && giftCardAmount > 0) {
+        // Handle gift card portion if any. This callback can genuinely run more than once for the
+        // same payment (page refresh, a retried request, two tabs) — alreadyConfirmed above only
+        // guards re-sending notification emails further down, not this. Without a lock and a real
+        // balance check here, a second run (or two concurrent bookings citing the same card before
+        // either commits) could each spend the same balance — the gift card version of double-
+        // spending. Locked and re-checked the same way the full-gift-card-payment branch above
+        // already does it.
+        if (meta.giftCard && giftCardAmount > 0 && !alreadyConfirmed) {
           const gift = await manager.findOne(BusinessGiftCard, {
             where: { code: meta.giftCard },
+            lock: { mode: 'pessimistic_write' },
           });
 
           if (!gift) throw new BadRequestException('Gift card not found');
+          if (Number(gift.remainingAmount) < giftCardAmount) {
+            throw new BadRequestException('Insufficient gift card balance');
+          }
 
           gift.remainingAmount = Number(gift.remainingAmount) - giftCardAmount;
           if (gift.remainingAmount === 0) {
@@ -2198,13 +2208,40 @@ export class BookingService {
     return copy;
   }
 
+  // An appointment belongs to a customer one of two ways: it was booked
+  // through their own account (client), or a merchant created it directly
+  // against a Client Management record (businessClient) for the same
+  // person, matched by email. A merchant-created booking never sets
+  // `client` at all (see BusinessService.createBooking), so checking only
+  // `client.id` misses every one of those — a customer who's also a real
+  // registered platform user would never see a booking their salon made
+  // for them, and would get a false "not found" clicking into it even if
+  // they somehow had the link. Mirrors the equivalent matching already
+  // used on the merchant side (see groupAppointmentsByClient in
+  // business/utils/client-stats.ts).
+  private appointmentBelongsToUser(
+    appointment: { client?: { id?: string } | null; businessClient?: { email?: string | null } | null },
+    user: User,
+  ): boolean {
+    if (appointment.client?.id && appointment.client.id === user?.id) return true;
+    const clientEmail = appointment.businessClient?.email?.trim().toLowerCase();
+    const userEmail = user?.email?.trim().toLowerCase();
+    return !!clientEmail && !!userEmail && clientEmail === userEmail;
+  }
+
   // A booking can only be read or changed by the customer who made it. A booking that isn't theirs
   // is reported as not found, so its existence isn't given away. If there is no such booking at all
   // the caller's own "not found" handling applies.
   private async assertOwnsOrder(orderId: string, user: User): Promise<void> {
     const where = this.isUuid(orderId) ? { id: orderId } : { orderId };
-    const appointments = await this.bookingRepository.find({ where, relations: ['client'] });
-    if (appointments.length > 0 && !appointments.some((a) => a.client?.id === user?.id)) {
+    const appointments = await this.bookingRepository.find({
+      where,
+      relations: ['client', 'businessClient'],
+    });
+    if (
+      appointments.length > 0 &&
+      !appointments.some((a) => this.appointmentBelongsToUser(a, user))
+    ) {
       throw new NotFoundException('No appointments found for this order ID');
     }
   }
@@ -2212,10 +2249,23 @@ export class BookingService {
   async getUserBookings(userId: string): Promise<Appointment[]> {
     await this.expireStalePendingBookings(userId);
 
-    const appointments = await this.bookingRepository.find({
-      where: { client: { id: userId } },
-      relations: ['business', 'service', 'staff'],
-    });
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    const userEmail = user?.email?.trim().toLowerCase();
+
+    const queryBuilder = this.bookingRepository
+      .createQueryBuilder('appointment')
+      .leftJoinAndSelect('appointment.business', 'business')
+      .leftJoinAndSelect('appointment.service', 'service')
+      .leftJoinAndSelect('appointment.staff', 'staff')
+      .leftJoinAndSelect('appointment.client', 'client')
+      .leftJoinAndSelect('appointment.businessClient', 'businessClient')
+      .where('client.id = :userId', { userId });
+
+    if (userEmail) {
+      queryBuilder.orWhere('LOWER(businessClient.email) = :userEmail', { userEmail });
+    }
+
+    const appointments = await queryBuilder.getMany();
 
     const orderIds = [...new Set(appointments.map((a) => a.orderId))];
     const reviewedOrderIds = await this.reviewService.getReviewedOrderIds(orderIds);

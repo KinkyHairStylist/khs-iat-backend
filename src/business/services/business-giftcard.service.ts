@@ -24,6 +24,7 @@ import {
   BusinessGiftCardStatus,
   BusinessSentStatus,
 } from '../enum/gift-card.enum';
+import { summarizeGiftCards } from '../utils/gift-card-summary';
 import { Business } from '../entities/business.entity';
 import {
   Transaction,
@@ -72,36 +73,45 @@ export class BusinessGiftCardsService {
       throw new BadRequestException(`No business found for this user`);
     }
 
-    // Validate the gift card code format
-    if (!this.isValidCodeFormat(createGiftCardDto.code)) {
-      throw new BadRequestException('Invalid gift card code format');
-    }
-
-    // Check if code already exists
-    const existingCard = await this.giftCardRepository.findOne({
-      where: {
-        code: createGiftCardDto.code,
-        status: Not(BusinessGiftCardStatus.DELETED),
-      },
-    });
-
-    if (existingCard) {
-      throw new ConflictException(
-        'Gift card code already exists. Please generate a new code.',
-      );
-    }
+    // The code is generated here, server-side — never taken from the request. It used to be
+    // generated in the browser and submitted as plain input, which meant the merchant creating
+    // the card already knew its redeemable code before it was ever "sold" to anyone, and the
+    // server only checked its format. A merchant who knows a card's code can redeem it themselves
+    // (see redeem(), below) with nothing to connect that to a real paying customer.
+    const code = await this.generateUniqueCode();
 
     // Calculate expiry date based on expiryInDays
     const expiryInDays = createGiftCardDto.expiryInDays || 365;
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + expiryInDays);
 
-    const giftCard = this.giftCardRepository.create({
-      ...createGiftCardDto,
+    const { code: _ignoredClientCode, ...rest } = createGiftCardDto as any;
+    const giftCard: BusinessGiftCard = this.giftCardRepository.create({
+      ...rest,
+      code,
       expiresAt,
       businessId: business.id,
-    });
+    } as Partial<BusinessGiftCard>);
     return await this.giftCardRepository.save(giftCard);
+  }
+
+  // KSH + 5 random characters (excludes I/O/0/1 — easy to misread aloud when a customer reads a
+  // code out at the counter), regenerated on the rare collision instead of trusting the caller's
+  // uniqueness.
+  private async generateUniqueCode(): Promise<string> {
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    for (let attempt = 0; attempt < 10; attempt++) {
+      let suffix = '';
+      for (let i = 0; i < 5; i++) {
+        suffix += alphabet[Math.floor(Math.random() * alphabet.length)];
+      }
+      const code = `KSH${suffix}`;
+      const existing = await this.giftCardRepository.findOne({
+        where: { code, status: Not(BusinessGiftCardStatus.DELETED) },
+      });
+      if (!existing) return code;
+    }
+    throw new Error('Could not generate a unique gift card code — try again.');
   }
 
   async getBusinessSummary(ownerId: string): Promise<any> {
@@ -122,68 +132,7 @@ export class BusinessGiftCardsService {
       })
       .getMany();
 
-    const now = new Date();
-
-    // Calculate total cards that have not expired yet
-    const activeCards = allCards.filter((card) => card.expiresAt > now);
-    const totalCards = activeCards.length;
-
-    // Calculate total value (sum of all amounts)
-    const totalValue = allCards.reduce((sum, card) => {
-      return sum + parseFloat(card.amount.toString());
-    }, 0);
-
-    // Calculate total remaining value
-    const totalRemainingValue = allCards.reduce((sum, card) => {
-      return sum + parseFloat(card.remainingAmount.toString());
-    }, 0);
-
-    // Calculate total redeemed value
-    const totalRedeemedValue = totalValue - totalRemainingValue;
-
-    // Count redeemed cards
-    const totalRedeemedCards = allCards.filter(
-      (card) => card.status === BusinessGiftCardStatus.USED,
-    ).length;
-
-    // Count pending cards (sent status is pending)
-    const totalPendingCards = allCards.filter(
-      (card) => card.sentStatus === BusinessSentStatus.PENDING,
-    ).length;
-
-    // Count sold cards (sent status is pending)
-    const totalSoldCards = allCards.filter(
-      (card) => card.soldStatus === BusinessGiftCardSoldStatus.PURCHASED,
-    ).length;
-
-    // Count available cards (not redeemed, not expired)
-    const totalAvailableCards = allCards.filter(
-      (card) =>
-        card.status === BusinessGiftCardStatus.ACTIVE && card.expiresAt > now,
-    ).length;
-
-    // Count expired cards
-    const totalExpiredCards = allCards.filter(
-      (card) =>
-        card.status === BusinessGiftCardStatus.EXPIRED || card.expiresAt <= now,
-    ).length;
-
-    return {
-      totalCards,
-      totalValue: parseFloat(totalValue.toFixed(2)),
-      totalRedeemedCards,
-      totalSoldCards,
-      totalPendingCards,
-      totalAvailableCards,
-      totalExpiredCards,
-      totalRemainingValue: parseFloat(totalRemainingValue.toFixed(2)),
-      totalRedeemedValue: parseFloat(totalRedeemedValue.toFixed(2)),
-    };
-  }
-
-  private isValidCodeFormat(code: string): boolean {
-    const pattern = /^KSH[A-Z0-9]{5}$/;
-    return pattern.test(code);
+    return summarizeGiftCards(allCards);
   }
 
   /**

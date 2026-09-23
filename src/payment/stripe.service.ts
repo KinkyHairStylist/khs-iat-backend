@@ -1,8 +1,9 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import Stripe from 'stripe';
 
 @Injectable()
 export class StripeService {
+  private readonly logger = new Logger(StripeService.name);
   private readonly secretKey = process.env.STRIPE_SECRET_KEY;
   private readonly webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
   private readonly stripe: Stripe;
@@ -350,8 +351,27 @@ export class StripeService {
     try {
       let productId: string | undefined;
       if (payload.existingPriceId) {
-        const existing = await this.stripe.prices.retrieve(payload.existingPriceId);
-        productId = typeof existing.product === 'string' ? existing.product : existing.product.id;
+        // The stored price id can belong to a different Stripe account/mode
+        // than whatever STRIPE_SECRET_KEY this environment is running with
+        // right now -- platform_settings.payments.subscriptionPrices lives
+        // in the shared database, but Stripe price ids are inherently
+        // environment-specific, so "known to the DB" doesn't mean "known to
+        // THIS Stripe account". Confirmed live: a price created under one
+        // environment's key came back "No such price" under another's,
+        // permanently blocking any pricing change from that environment
+        // with no way to recover, since this used to just rethrow. Falling
+        // through to create a fresh product below is exactly what already
+        // happens when there was never a stored price at all -- the same
+        // safe behavior, just also reached when the stored one turns out to
+        // be unusable here rather than only when it's absent.
+        try {
+          const existing = await this.stripe.prices.retrieve(payload.existingPriceId);
+          productId = typeof existing.product === 'string' ? existing.product : existing.product.id;
+        } catch (retrieveError) {
+          this.logger.warn(
+            `Stored price ${payload.existingPriceId} for tier ${payload.tier} not found in this Stripe account (${retrieveError.message}) -- creating a new product instead of reusing it.`,
+          );
+        }
       }
       if (!productId) {
         const product = await this.stripe.products.create({
