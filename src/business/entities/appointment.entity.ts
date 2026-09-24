@@ -112,6 +112,11 @@ export class Appointment {
   @Column({ type: 'timestamptz', nullable: true })
   clientConfirmedAt?: Date;
 
+  // Set once the "your service has started" notification has fired —
+  // prevents the sweep from sending it again on a later run.
+  @Column({ type: 'timestamptz', nullable: true })
+  serviceStartedNotifiedAt?: Date;
+
   // Optional Notes
   @Column({ type: 'text', nullable: true })
   specialRequests?: string;
