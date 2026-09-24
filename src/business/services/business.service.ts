@@ -1477,16 +1477,20 @@ export class BusinessService {
       : [];
     const commissionMap = new Map(commissionRows.map((r) => [r.staffId, Number(r.total)]));
 
-    // Real per-staff rating — averaged from reviews now attributed to
-    // this staff member via Review.staffId (see BookingService.rateBusiness).
-    // Previously there was no such link at all, so this was always a
-    // hardcoded frontend fallback.
+    // Real per-staff rating — averaged from Review.staffRating, a rating
+    // distinct from the overall service rating (Review.rating), given
+    // specifically for the staff member on a booking that had one assigned
+    // (see BookingService.rateBusiness). AVG() already ignores NULLs, and
+    // COUNT is on staffRating specifically (not review.id) so a review
+    // that only rated the service, with no separate staff rating given,
+    // doesn't inflate this count. Previously there was no such link at
+    // all, so this was always a hardcoded frontend fallback.
     const ratingRows = staff.length
       ? await this.reviewRepo
           .createQueryBuilder('review')
           .select('review.staffId', 'staffId')
-          .addSelect('AVG(review.rating)', 'avgRating')
-          .addSelect('COUNT(review.id)', 'reviewCount')
+          .addSelect('AVG(review.staffRating)', 'avgRating')
+          .addSelect('COUNT(review.staffRating)', 'reviewCount')
           .where('review.staffId IN (:...staffIds)', { staffIds: staff.map((s) => s.id) })
           .groupBy('review.staffId')
           .getRawMany()
