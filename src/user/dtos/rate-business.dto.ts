@@ -1,5 +1,5 @@
-import { IsNotEmpty, IsNumber, IsString, Max, Min } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { IsNotEmpty, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class RateBusinessDto {
   @ApiProperty({
@@ -20,4 +20,17 @@ export class RateBusinessDto {
   @IsNotEmpty()
   @IsString()
   comment: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Separate rating (1-5) for the staff member who performed the service, distinct from the overall service rating. Omitted when the booking had no assigned staff.',
+    example: 5,
+    minimum: 1,
+    maximum: 5,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(5)
+  staffRating?: number;
 }

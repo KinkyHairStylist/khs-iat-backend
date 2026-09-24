@@ -9,6 +9,8 @@ import { WalletReleaseCronService } from './services/wallet-release-cron.service
 import { Business } from './entities/business.entity';
 import { Withdrawal } from 'src/admin/withdrawal/entities/withdrawal.entity';
 import { StripePaymentIntent } from 'src/payment/entities/stripe-payment-intent.entity';
+import { EmailModule } from 'src/email/email.module';
+import { NotificationModule } from 'src/notifications/notification.module';
 
 @Module({
   imports: [
@@ -20,6 +22,8 @@ import { StripePaymentIntent } from 'src/payment/entities/stripe-payment-intent.
       Withdrawal,
       StripePaymentIntent,
     ]),
+    EmailModule,
+    NotificationModule,
   ],
   controllers: [BusinessWalletController],
   providers: [BusinessWalletService, WalletReleaseCronService],
