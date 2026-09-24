@@ -335,6 +335,22 @@ export class StripeService {
   }
 
   /**
+   * Whether a stored Stripe price id actually exists under this environment's Stripe
+   * account/mode -- a stored id can belong to a different one (see createTierPrice's
+   * comment below), so "known to our DB" doesn't mean "usable here". Cheap check: a
+   * plain retrieve, not a mutation, so it's safe to call on every use of a stored price
+   * rather than only when a value is being changed.
+   */
+  async priceExists(priceId: string): Promise<boolean> {
+    try {
+      await this.stripe.prices.retrieve(priceId);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * A new recurring monthly price for a merchant plan. When the plan's old price is
    * known its Stripe product is reused; otherwise a product is created. Existing
    * subscribers stay on their old price; only new sign-ups get the new one.

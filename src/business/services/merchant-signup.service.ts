@@ -63,8 +63,8 @@ export class MerchantSignupService {
     if (!isPlanTier(input.tier)) throw new BadRequestException('Choose a plan.');
 
     const payments = await this.platformSettings.getPayments();
-    const priceId = payments.subscriptionPrices?.[input.tier]?.priceId;
-    if (!priceId) {
+    const tierPrice = payments.subscriptionPrices?.[input.tier];
+    if (!tierPrice?.priceId) {
       throw new BadRequestException(`The ${input.tier} plan isn't available to buy yet.`);
     }
 
@@ -79,12 +79,53 @@ export class MerchantSignupService {
     if (existing) return { subscriptionId: existing.id, customerId: input.customerId };
 
     await this.stripeService.attachPaymentMethodAsDefault(input.customerId, input.paymentMethodId);
+
+    const priceId = await this.ensureUsablePriceId(input.tier, tierPrice);
     const subscription = await this.stripeService.createSubscriptionNow(input.customerId, priceId, {
       userId: user.id,
       tier: input.tier,
       purpose: SIGNUP_PURPOSE,
     });
     return { subscriptionId: subscription.id, customerId: input.customerId };
+  }
+
+  /**
+   * The same cross-environment price id problem createTierPrice fixed for the admin
+   * pricing screen also blocks sign-up: platform_settings.payments.subscriptionPrices
+   * lives in the shared database, but Stripe price ids are environment-specific, so a
+   * price id saved under one environment's Stripe key can be unusable under another's
+   * ("No such price"), with nobody having touched pricing to trigger the admin-side
+   * self-heal. Checked on every sign-up (a plain retrieve, not a mutation) rather than
+   * only reacting to a failed charge, so a bad stored id never reaches the customer as
+   * a raw Stripe error. Only mints a fresh Stripe price (an actual write) when the
+   * stored one is confirmed unusable, not on every sign-up.
+   */
+  private async ensureUsablePriceId(
+    tier: PlanTier,
+    tierPrice: { priceId: string; displayAmount: number },
+  ): Promise<string> {
+    if (await this.stripeService.priceExists(tierPrice.priceId)) {
+      return tierPrice.priceId;
+    }
+
+    const amountCents = Math.round(Number(tierPrice.displayAmount) * 100);
+    const created = await this.stripeService.createTierPrice({ tier, amountCents });
+    await this.persistNewPriceId(tier, created.id, tierPrice.displayAmount);
+    return created.id;
+  }
+
+  private async persistNewPriceId(
+    tier: PlanTier,
+    priceId: string,
+    displayAmount: number,
+  ): Promise<void> {
+    const payments = await this.platformSettings.getPayments();
+    await this.platformSettings.updatePlanSettings({
+      subscriptionPrices: {
+        ...payments.subscriptionPrices,
+        [tier]: { priceId, displayAmount },
+      },
+    });
   }
 
   /**

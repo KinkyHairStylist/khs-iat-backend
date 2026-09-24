@@ -27,7 +27,7 @@ const stripeSub = (over: Record<string, any> = {}) => ({
 
 describe('MerchantSignupService', () => {
   let stripe: Record<string, jest.Mock>;
-  let settings: { getPayments: jest.Mock };
+  let settings: { getPayments: jest.Mock; updatePlanSettings: jest.Mock };
   let subs: Record<string, jest.Mock>;
   let subRepo: { exists: jest.Mock };
   let service: MerchantSignupService;
@@ -41,8 +41,10 @@ describe('MerchantSignupService', () => {
       attachPaymentMethodAsDefault: jest.fn().mockResolvedValue(undefined),
       createSubscriptionNow: jest.fn().mockResolvedValue({ id: 'sub_new' }),
       retrieveSubscription: jest.fn().mockResolvedValue(stripeSub()),
+      priceExists: jest.fn().mockResolvedValue(true),
+      createTierPrice: jest.fn().mockResolvedValue({ id: 'price_fresh' }),
     };
-    settings = { getPayments: jest.fn().mockResolvedValue(payments()) };
+    settings = { getPayments: jest.fn().mockResolvedValue(payments()), updatePlanSettings: jest.fn() };
     subs = { recordPaidSignup: jest.fn(), recordRevealSignup: jest.fn() };
     subRepo = { exists: jest.fn().mockResolvedValue(false) };
     service = new MerchantSignupService(stripe as any, settings as any, subs as any, subRepo as any);
@@ -101,6 +103,37 @@ describe('MerchantSignupService', () => {
     it('surfaces a declined card and never leaves a subscription behind', async () => {
       stripe.createSubscriptionNow.mockRejectedValue(new BadRequestException('Your card could not be charged: declined'));
       await expect(service.subscribe(user, input)).rejects.toThrow(/could not be charged/);
+    });
+
+    it('self-heals a stored price id that belongs to a different Stripe environment', async () => {
+      // Same real bug createTierPrice already fixed for the admin pricing screen,
+      // reached here instead: nobody touched pricing, but the stored price id
+      // still doesn't exist under this environment's Stripe account.
+      stripe.priceExists.mockResolvedValue(false);
+      const result = await service.subscribe(user, input);
+
+      expect(stripe.priceExists).toHaveBeenCalledWith('price_growth');
+      expect(stripe.createTierPrice).toHaveBeenCalledWith({ tier: 'Growth', amountCents: 5999 });
+      expect(stripe.createSubscriptionNow).toHaveBeenCalledWith('cus_1', 'price_fresh', expect.anything());
+      expect(result.subscriptionId).toBe('sub_new');
+    });
+
+    it('persists the freshly-minted price id so the next sign-up skips the retrieve failure', async () => {
+      stripe.priceExists.mockResolvedValue(false);
+      await service.subscribe(user, input);
+
+      expect(settings.updatePlanSettings).toHaveBeenCalledWith({
+        subscriptionPrices: expect.objectContaining({
+          Growth: { priceId: 'price_fresh', displayAmount: 59.99 },
+          Starter: { priceId: 'price_starter', displayAmount: 29.99 },
+        }),
+      });
+    });
+
+    it('never mints a new Stripe price when the stored one is already usable', async () => {
+      await service.subscribe(user, input);
+      expect(stripe.createTierPrice).not.toHaveBeenCalled();
+      expect(settings.updatePlanSettings).not.toHaveBeenCalled();
     });
   });
 
