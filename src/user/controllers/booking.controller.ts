@@ -147,7 +147,7 @@ export class BookingController {
   @ApiBody({ type: RateBusinessDto })
   @ApiResponse({ status: 201, description: 'Business rated successfully' })
   async rateBusiness(@Param('orderId') orderId: string, @Body() rateBusinessDto: RateBusinessDto, @GetUser() user: User) {
-    return this.bookingService.rateBusiness(orderId, rateBusinessDto.rating, rateBusinessDto.comment, user);
+    return this.bookingService.rateBusiness(orderId, rateBusinessDto.rating, rateBusinessDto.comment, user, rateBusinessDto.staffRating);
   }
 
   //  Reschedule booking

@@ -40,6 +40,10 @@ import {
   SlackProvider,
   SlackSeverity,
 } from '../../utils/enum';
+import { EmailService } from 'src/email/email.service';
+import { TemplateService } from 'src/email/template.service';
+import { NotificationService } from 'src/notifications/notification.service';
+import { NotificationType } from 'src/notifications/notification.enum';
 
 @Injectable()
 export class BusinessWalletService {
@@ -56,6 +60,9 @@ export class BusinessWalletService {
     private withdrawalRepository: Repository<Withdrawal>,
     @InjectRepository(StripePaymentIntent)
     private stripePaymentIntentRepository: Repository<StripePaymentIntent>,
+    private readonly emailService: EmailService,
+    private readonly templateService: TemplateService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   async createWalletForBusiness(
@@ -321,7 +328,54 @@ export class BusinessWalletService {
       await manager.save(Transaction, transaction);
 
       return { transaction, withdrawal };
+    }).then(async (result) => {
+      // Outside the transaction and never allowed to throw — a failed
+      // message must not undo money already moved out of the wallet.
+      // Previously nothing told the merchant a request was even submitted;
+      // the only confirmation came later, at approve/reject.
+      await this.confirmWithdrawalRequested(result.withdrawal);
+      return result;
     });
+  }
+
+  private async confirmWithdrawalRequested(withdrawal: Withdrawal): Promise<void> {
+    try {
+      const business = await this.walletRepository.manager.findOne(Business, {
+        where: { id: withdrawal.businessId },
+        relations: ['owner'],
+      });
+      const ownerId = business?.ownerId || business?.owner?.id;
+      const title = 'Withdrawal Request Received';
+      const message = `We've received your withdrawal request for $${withdrawal.amount}. We'll email you again once it's approved and sent.`;
+
+      if (ownerId) {
+        await this.notificationService.create({
+          userId: ownerId,
+          type: NotificationType.SYSTEM,
+          title,
+          message,
+          link: '/merchant/dashboard/wallet',
+          metadata: { withdrawalId: withdrawal.id, status: withdrawal.status },
+        });
+      }
+
+      const to = business?.ownerEmail || business?.owner?.email;
+      if (to) {
+        const frontendUrl = process.env.FRONTEND_URL || 'https://kinkyhairstylists.com';
+        const html = this.templateService.render('communication-bulk', {
+          businessName: business?.businessName,
+          subject: title,
+          clientName: business?.ownerName || 'there',
+          message,
+          closingRemarks: null,
+          frontendUrl,
+          year: new Date().getFullYear(),
+        });
+        this.emailService.sendEmail(to, title, message, html);
+      }
+    } catch (error) {
+      this.logger.error(`Could not confirm withdrawal request ${withdrawal.id} to the salon:`, error);
+    }
   }
 
   /**

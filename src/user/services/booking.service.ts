@@ -3071,6 +3071,7 @@ export class BookingService {
     rating: number,
     comment: string,
     user: User,
+    staffRating?: number,
   ) {
     const appointment = await this.bookingRepository.findOne({
       where: { orderId, client: { id: user.id } },
@@ -3112,6 +3113,10 @@ export class BookingService {
       // member in practice; null if none was assigned.
       staffId: appointment.staff?.[0]?.id ?? null,
       rating,
+      // Only meaningful when a staff member was actually assigned — a
+      // rating for nobody would silently pollute nobody's average, but
+      // storing it anyway invites confusion later about who it was for.
+      staffRating: appointment.staff?.[0]?.id ? (staffRating ?? null) : null,
       comment,
       service: appointment.serviceName,
       clientName: `${user.firstName} ${user.surname}`,
