@@ -32,6 +32,7 @@ import { ZohoBooksModule } from 'src/integration/zohobooks.module';
 import { StripePaymentIntent } from 'src/payment/entities/stripe-payment-intent.entity';
 import { NotificationModule } from 'src/notifications/notification.module';
 import { StaffCommissionEarning } from './entities/staff-commission-earning.entity';
+import { AppointmentServiceStartedCronService } from './services/appointment-service-started-cron.service';
 
 @Module({
   imports: [
@@ -78,6 +79,7 @@ import { StaffCommissionEarning } from './entities/staff-commission-earning.enti
     OtpService,
     PasswordUtil,
     JwtStrategy,
+    AppointmentServiceStartedCronService,
   ],
   exports: [AuthService, BusinessService, OtpService],
 })
