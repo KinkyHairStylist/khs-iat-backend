@@ -23,7 +23,13 @@ function setup(over: { balance?: number; walletStatus?: string; methodBelongsToW
     status: over.walletStatus ?? 'active',
   };
   const bank: any = { id: 'pm-1', walletId: 'wallet-1', isActive: true };
-  const business: any = { id: 'biz-1', businessName: 'Merch Tech Salon' };
+  const business: any = {
+    id: 'biz-1',
+    businessName: 'Merch Tech Salon',
+    ownerId: 'owner-1',
+    ownerEmail: 'owner@merchtech.test',
+    ownerName: 'Ada Obi',
+  };
 
   let nextId = 1;
   const saved: Record<string, any[]> = { Transaction: [], Withdrawal: [], Wallet: [] };
@@ -49,7 +55,12 @@ function setup(over: { balance?: number; walletStatus?: string; methodBelongsToW
   };
 
   const walletRepository: any = {
-    manager: { transaction: (callback: any) => callback(manager) },
+    manager: {
+      transaction: (callback: any) => callback(manager),
+      // Used outside the transaction, to look up the business for the
+      // post-request confirmation email/notification.
+      findOne: jest.fn(async (entity: any) => (entity === Business ? business : null)),
+    },
     findOne: jest.fn().mockResolvedValue(wallet),
   };
   const withdrawalRepository: any = {
@@ -57,14 +68,30 @@ function setup(over: { balance?: number; walletStatus?: string; methodBelongsToW
     save: jest.fn(async (value: any) => value),
   };
 
+  const emailService: any = { sendEmail: jest.fn() };
+  const templateService: any = { render: jest.fn().mockReturnValue('<html></html>') };
+  const notificationService: any = { create: jest.fn() };
+
   const service = new BusinessWalletService(
     walletRepository,
     {} as any,
     {} as any,
     withdrawalRepository,
     {} as any,
+    emailService,
+    templateService,
+    notificationService,
   );
-  return { service, wallet, manager, saved, withdrawalRepository, walletRepository };
+  return {
+    service,
+    wallet,
+    manager,
+    saved,
+    withdrawalRepository,
+    walletRepository,
+    emailService,
+    notificationService,
+  };
 }
 
 const request = (amount: number, bankDetailsId = 'pm-1') => ({
@@ -86,6 +113,34 @@ describe('requesting a withdrawal', () => {
     expect(withdrawal.transactionId).toBe(transaction.id);
     expect(transaction.referenceId).toMatch(/^WD-[0-9A-Z]{8}$/);
     expect(saved.Withdrawal).toHaveLength(1);
+  });
+
+  it('confirms the request to the salon by notification and email — previously nothing did', async () => {
+    const { service, emailService, notificationService } = setup({ balance: 100 });
+
+    await service.requestWithdrawal(request(40));
+
+    expect(notificationService.create).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'owner-1', title: 'Withdrawal Request Received' }),
+    );
+    expect(emailService.sendEmail).toHaveBeenCalledWith(
+      'owner@merchtech.test',
+      'Withdrawal Request Received',
+      expect.any(String),
+      expect.any(String),
+    );
+  });
+
+  it('still creates the request even if confirming it fails — never undoes money already moved', async () => {
+    const { service, wallet, emailService } = setup({ balance: 100 });
+    emailService.sendEmail.mockImplementation(() => {
+      throw new Error('SMTP down');
+    });
+
+    const { withdrawal } = await service.requestWithdrawal(request(40));
+
+    expect(withdrawal.status).toBe('Pending');
+    expect(wallet.balance).toBe(60);
   });
 
   it.each([[0], [-50], [NaN], [Infinity]])('refuses an amount of %s, so nobody can add money by withdrawing a negative amount', async (amount) => {

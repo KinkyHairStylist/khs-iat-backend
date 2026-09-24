@@ -34,6 +34,13 @@ export class Review {
   @Column({ type: 'decimal', precision: 2, scale: 1 })
   rating: number;
 
+  // Separate from `rating` (the service/business rating) — the client's
+  // rating of the staff member specifically, when one was assigned to the
+  // booking. Nullable: older reviews predate this, and a booking with no
+  // assigned staff ("any stylist" left unfilled) has nothing to rate here.
+  @Column({ type: 'decimal', precision: 2, scale: 1, nullable: true })
+  staffRating: number | null;
+
   @Column({ type: 'text' })
   comment: string;
 
