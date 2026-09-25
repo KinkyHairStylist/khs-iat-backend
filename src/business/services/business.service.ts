@@ -71,6 +71,9 @@ import { merchantPayout } from 'src/user/services/booking-fees';
 import { assertCanManageBusiness } from '../utils/business-access';
 import { summarizeStaffAppointments, weekBounds } from '../utils/staff-stats';
 import { computeDisplayStatus } from '../utils/appointment-display-status';
+import { percentChange, ChangeType } from '../../helpers/dashboard-stats.helper';
+import { parseDurationToMinutes } from '../../helpers/booking-rules.helper';
+import { DashboardPeriod } from '../dtos/requests/DashboardStatsDto';
 
 @Injectable()
 export class BusinessService {
@@ -1963,6 +1966,159 @@ export class BusinessService {
       },
     });
     return appointments.map((a) => ({ ...a, displayStatus: computeDisplayStatus(a) }));
+  }
+
+  // Duration strings come in two shapes — "1 hr 30 mins" and "4:00 PM (120 min)" —
+  // so handle the parenthetical form first, then fall back to the booking parser.
+  private durationMinutes(value?: string | null): number {
+    if (!value) return 30;
+    const parenthetical = String(value).match(/\(\s*(\d+)\s*min/i);
+    if (parenthetical) return parseInt(parenthetical[1], 10);
+    return parseDurationToMinutes(value);
+  }
+
+  private buildPeriodWindows(period: DashboardPeriod, anchorDate: string) {
+    const shift = (str: string, days: number): string => {
+      const [y, m, d] = str.split('-').map(Number);
+      const dt = new Date(Date.UTC(y, m - 1, d));
+      dt.setUTCDate(dt.getUTCDate() + days);
+      return dt.toISOString().slice(0, 10);
+    };
+
+    if (period === 'today') {
+      return {
+        current: { start: anchorDate, end: anchorDate },
+        previous: { start: shift(anchorDate, -1), end: shift(anchorDate, -1) },
+      };
+    }
+    if (period === 'week') {
+      return {
+        current: { start: shift(anchorDate, -6), end: anchorDate },
+        previous: { start: shift(anchorDate, -13), end: shift(anchorDate, -7) },
+      };
+    }
+    const [y, m] = anchorDate.split('-').map(Number);
+    return {
+      current: {
+        start: `${anchorDate.slice(0, 7)}-01`,
+        end: new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10),
+      },
+      previous: {
+        start: new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 10),
+        end: new Date(Date.UTC(y, m - 1, 0)).toISOString().slice(0, 10),
+      },
+    };
+  }
+
+  async getDashboardStats(
+    userId: string,
+    period?: DashboardPeriod,
+    anchorDate?: string,
+  ) {
+    const periodKey: DashboardPeriod =
+      period === 'week' || period === 'month' ? period : 'today';
+    const anchor =
+      anchorDate?.match(/^\d{4}-\d{2}-\d{2}$/)?.[0] ??
+      new Date().toISOString().slice(0, 10);
+
+    let business = await this.businessRepo.findOne({
+      where: { owner: { id: userId } },
+    });
+    if (!business) {
+      const staff = await this.staffRepo.findOne({
+        where: { id: userId },
+        relations: ['business'],
+      });
+      if (!staff?.business) throw new NotFoundException('Business not found');
+      business = staff.business;
+    }
+    if (!business) throw new NotFoundException('Business does not exist');
+
+    const windows = this.buildPeriodWindows(periodKey, anchor);
+
+    const statsFor = async (start: string, end: string) => {
+      const base = this.appointmentRepo
+        .createQueryBuilder('a')
+        .where('a.business_id = :businessId', { businessId: business.id })
+        .andWhere('a.date >= :start', { start })
+        .andWhere('a.date <= :end', { end })
+        .andWhere('a.status != :cancelled', {
+          cancelled: AppointmentStatus.CANCELLED,
+        });
+
+      const revenueRow = await base
+        .clone()
+        .select('COALESCE(SUM(a.amount), 0)', 'revenue')
+        .andWhere('a.paymentStatus = :paid', { paid: PaymentStatus.PAID })
+        .getRawOne();
+
+      const bookings = await base.clone().getCount();
+
+      const clientsRow = await base
+        .clone()
+        .select(
+          'COUNT(DISTINCT COALESCE(a.business_client_id, a.client_id))',
+          'clients',
+        )
+        .getRawOne();
+
+      const durations = await base
+        .clone()
+        .select('a.duration', 'duration')
+        .getRawMany();
+      const parsed = durations
+        .map((r) => this.durationMinutes(r.duration))
+        .filter((n) => n > 0);
+
+      return {
+        revenue: Number(revenueRow?.revenue ?? 0) || 0,
+        bookings: Number(bookings) || 0,
+        activeClients: Number(clientsRow?.clients ?? 0) || 0,
+        averageServiceTimeMinutes:
+          parsed.length > 0
+            ? Math.round(parsed.reduce((s, n) => s + n, 0) / parsed.length)
+            : 0,
+      };
+    };
+
+    const currentStats = await statsFor(windows.current.start, windows.current.end);
+    const previousStats = await statsFor(windows.previous.start, windows.previous.end);
+
+    const growth = (now: number, before: number) => {
+      const change = percentChange(now, before);
+      const percent = before > 0 ? Math.round(((now - before) / before) * 100) : 0;
+      return { percent, text: change.text, type: change.type as ChangeType };
+    };
+
+    return {
+      period: periodKey,
+      windows,
+      metrics: {
+        revenue: {
+          current: currentStats.revenue,
+          previous: previousStats.revenue,
+          growth: growth(currentStats.revenue, previousStats.revenue),
+        },
+        bookings: {
+          current: currentStats.bookings,
+          previous: previousStats.bookings,
+          growth: growth(currentStats.bookings, previousStats.bookings),
+        },
+        activeClients: {
+          current: currentStats.activeClients,
+          previous: previousStats.activeClients,
+          growth: growth(currentStats.activeClients, previousStats.activeClients),
+        },
+        averageServiceTimeMinutes: {
+          current: currentStats.averageServiceTimeMinutes,
+          previous: previousStats.averageServiceTimeMinutes,
+          growth: growth(
+            currentStats.averageServiceTimeMinutes,
+            previousStats.averageServiceTimeMinutes,
+          ),
+        },
+      },
+    };
   }
 
   getServices(): BusinessServiceData[] {
