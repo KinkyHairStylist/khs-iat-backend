@@ -21,6 +21,7 @@ import { CreateBusinessDto } from '../dtos/requests/CreateBusinessDto';
 import { BookingPoliciesData, BusinessServiceData } from '../types/constants';
 import { Public } from '../middlewares/public.decorator';
 import { CreateBlockedTimeDto } from '../dtos/requests/CreateBlockedTimeDto';
+import { DashboardStatsDto } from '../dtos/requests/DashboardStatsDto';
 import { CreateBookingDto } from '../dtos/requests/CreateBookingDto';
 import { CreateServiceDto } from '../dtos/requests/CreateServiceDto';
 import { CreateStaffDto } from '../dtos/requests/AddStaffDto';
@@ -406,6 +407,22 @@ export class BusinessController {
   @Get('business-details')
   async getBusinessDetails(@Req() req: RequestWithUser) {
     return this.businessService.getBusinessDetails(req.user.id);
+  }
+
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @Roles(Role.Merchant, Role.Staff, Role.BusinessStaff)
+  @RequirePermission(Permission.VIEW_REPORTS)
+  @Get('dashboard/stats')
+  async getDashboardStats(
+    @Req() req: RequestWithUser,
+    @Query() query: DashboardStatsDto,
+  ) {
+    return this.businessService.getDashboardStats(
+      req.user.id,
+      query?.period,
+      query?.anchorDate,
+    );
   }
 
   // Any authenticated user — public business profile by ID
