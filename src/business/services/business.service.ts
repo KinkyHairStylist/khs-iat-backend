@@ -2205,6 +2205,7 @@ export class BusinessService {
         category: business.category,
         companySize: business.companySize,
         status: business.status,
+        revenueGoal: business.revenueGoal,
         createdAt: business.createdAt,
         updatedAt: business.updatedAt,
         owner: {
@@ -2243,6 +2244,7 @@ export class BusinessService {
         category: staff.business.category,
         companySize: staff.business.companySize,
         status: staff.business.status,
+        revenueGoal: staff.business.revenueGoal,
         createdAt: staff.business.createdAt,
         updatedAt: staff.business.updatedAt,
         owner: {
