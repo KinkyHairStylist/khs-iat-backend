@@ -3,7 +3,8 @@ import { getConnectedRedis } from "../config/redis";
 import { getSlackClient } from "../config/slack";
 import { StandardSlackNotification } from "../types/slack.types";
 import { getServiceLogger } from "./createLogger";
-import { SlackChannel, SlackLocation } from "./enum";
+import { SlackLocation } from "./enum";
+import { getSlackChannelId, slackEnvPrefix } from "./slack-target";
 import { isRedisUsable } from "./helpers"
 import axios from "axios";
 
@@ -41,26 +42,20 @@ export const sendStandardSlackNotification = async (
   try {
     const formattedMessage = formatStandardNotification(params);
 
-    // Unlike c2c (NODE_ENV = rat|iat|sit|uat|prod, one value per deployed
-    // environment), KHS only has a binary NODE_ENV = development|production
-    // — every deployed environment, including IAT/SIT/UAT, plausibly runs
-    // with NODE_ENV=production for the usual build/runtime optimizations.
-    // That means an `isProductionEnv` check here can't actually tell a
-    // staging deploy apart from real production, so every Slack call in
-    // KHS is routed to #test-notifications unconditionally for now — see
-    // src/slack/slack.service.ts, which already does this for the
-    // booking/membership/gift-card/live-chat notifications. Flip this back
-    // to environment-based routing once KHS has a real per-environment
-    // signal (e.g. a dedicated APP_ENV) and real destination channels are
-    // provisioned.
-    const isProductionEnv = false;
-
-    let channel: SlackChannel | string;
-    if (!isProductionEnv) {
-      channel = SlackChannel.TEST_NOTIFICATIONS;
-    } else {
-      channel = params.channel ?? SlackChannel.TOWN_CRIER;
+    // Every Slack call in KHS goes to the one channel set in SLACK_CHANNEL_ID
+    // — see src/slack/slack.service.ts, which does the same for the
+    // booking/membership/gift-card/live-chat notifications. With no channel
+    // configured we skip rather than guess.
+    const channel = getSlackChannelId();
+    if (!channel) {
+      logger.warn("SLACK_CHANNEL_ID is not set — Slack notification skipped.");
+      return false;
     }
+
+    // KHS only has a binary NODE_ENV = development|production, so this can't
+    // tell a staging deploy apart from real production. Teammate tagging stays
+    // off everywhere until it can.
+    const isProductionEnv = false;
 
     // Only tag teammates in true production — local/rat/iat/sit/uat notifications
     // go out silently so they don't get mistaken for real production alerts.
@@ -81,9 +76,9 @@ export const sendStandardSlackNotification = async (
       }
     }
 
-    const finalMessage = mentions
-      ? `${formattedMessage}\n\n${mentions}`
-      : formattedMessage;
+    const finalMessage = `${slackEnvPrefix()}${
+      mentions ? `${formattedMessage}\n\n${mentions}` : formattedMessage
+    }`;
 
     await getSlackClient().chat.postMessage({
       channel: channel,
