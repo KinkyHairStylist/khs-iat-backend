@@ -1,6 +1,5 @@
 import { Request } from "express";
 import {
-  SlackChannel,
   SlackEventType,
   SlackLocation,
   SlackNode,
@@ -15,7 +14,6 @@ export interface StandardSlackNotification {
   severity: SlackSeverity;
   type: SlackEventType;
   body: string;
-  channel?: SlackChannel;
   teamMentions?: "DEVOPS" | "CSM";
   trigger?: string;
   location?: SlackLocation; // Enum for routing

@@ -9,7 +9,6 @@ import {
 import { assertNotSuspended } from '../utils/account-suspension';
 import { SlackService } from '../../services/slack.service';
 import {
-  SlackChannel,
   SlackEventType,
   SlackNode,
   SlackProvider,
@@ -87,7 +86,7 @@ export class UserService {
           },
           timeout: 5000,
           headers: {
-            'User-Agent': 'KHS-App/1.0 (support@khs.com)',
+            'User-Agent': `KHS-App/1.0 (${process.env.SUPPORT_EMAIL || 'support@kinkyhairstylists.com'})`,
           },
         },
       );
@@ -339,6 +338,12 @@ export class UserService {
     this.emailService.sendWelcomeEmail(
       user.email,
       user.firstName || 'Customer',
+    );
+
+    this.emailService.sendCustomerRegistrationTeamNotification(
+      user.firstName || user.surname || 'Customer',
+      user.email,
+      user.id,
     );
 
     try {

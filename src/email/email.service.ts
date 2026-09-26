@@ -141,6 +141,32 @@ export class EmailService {
     );
   }
 
+  // Tells the KHS team a customer has just signed up. Sends nothing when the
+  // team mailbox isn't set (DELIVERY_TEAM_EMAIL).
+  sendCustomerRegistrationTeamNotification(
+    customerName: string,
+    customerEmail: string,
+    customerId: string,
+  ) {
+    const teamTo = this.deliveryTeamEmail;
+    if (!teamTo) {
+      this.logger.warn(
+        'DELIVERY_TEAM_EMAIL is not set — skipping customer registration team notification',
+      );
+      return;
+    }
+
+    const html = this.templateService.render('customer-team-notification', {
+      customerName,
+      customerId,
+      email: customerEmail,
+      frontendUrl: this.frontendUrl,
+      year: new Date().getFullYear(),
+    });
+    const text = `New customer signup: ${customerName} <${customerEmail}> (#${customerId}).`;
+    this.sendEmail(teamTo, `New customer signup: ${customerName}`, text, html);
+  }
+
   sendPasswordResetEmail(to: string, resetToken: string) {
     const resetUrl = `${this.frontendUrl}/reset-password?token=${resetToken}`;
     const html = this.templateService.render('password-reset', {

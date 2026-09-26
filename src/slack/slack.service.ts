@@ -1,10 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { WebClient } from '@slack/web-api';
-
-// #test-notifications — replaces Town Crier, whose access was revoked with
-// immediate effect.
-const NOTIFICATIONS_CHANNEL_ID = 'C0B9KDACX5G';
+import { getSlackChannelId, slackEnvPrefix } from '../utils/slack-target';
 
 @Injectable()
 export class SlackService {
@@ -29,9 +26,11 @@ export class SlackService {
   // Fire-and-forget by design — a Slack outage must never affect the
   // request that triggered it (mirrors EmailService's sendWithRetry, which
   // is also never awaited by its callers).
-  notify(message: string, channel: string = NOTIFICATIONS_CHANNEL_ID): void {
-    if (!channel) {
-      this.logger.warn('No Slack channel ID configured — notification skipped.');
+  notify(message: string, channel?: string): void {
+    const target =
+      channel || getSlackChannelId(this.configService.get<string>('SLACK_CHANNEL_ID'));
+    if (!target) {
+      this.logger.warn('SLACK_CHANNEL_ID is not set — notification skipped.');
       return;
     }
 
@@ -40,12 +39,12 @@ export class SlackService {
 
     client.chat
       .postMessage({
-        channel,
-        text: message,
+        channel: target,
+        text: `${slackEnvPrefix(this.configService.get<string>('APP_ENV'))}${message}`,
         username: 'KHS Support Alerts',
         unfurl_links: false,
       })
-      .then(() => this.logger.log(`Slack notification sent to ${channel}`))
+      .then(() => this.logger.log(`Slack notification sent to ${target}`))
       .catch((err) => this.logger.error(`Slack notification failed: ${err.message}`));
   }
 }
