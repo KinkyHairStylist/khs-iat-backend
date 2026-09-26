@@ -30,9 +30,9 @@ export class PlatformSettingsService {
     const settings = new PlatformSettingsEntity();
     settings.general = {
       platformName: 'Kinky Hair Stylist',
-      platformUrl: 'https://kinkyhairstylist.com',
+      platformUrl: process.env.FRONTEND_URL || 'https://kinkyhairstylists.com',
       platformDescription: 'Hair styling platform',
-      supportEmail: 'support@kinkyhairstylist.com',
+      supportEmail: process.env.SUPPORT_EMAIL || 'support@kinkyhairstylists.com',
       contactPhone: '08099823810',
       userRegistration: true,
       businessRegistration: true,
