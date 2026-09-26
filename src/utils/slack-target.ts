@@ -13,3 +13,12 @@ export const slackEnvPrefix = (
   const label = appEnv?.trim();
   return label ? `[${label.toUpperCase()}] ` : "";
 };
+
+// The URL shown as LOC in an alert: an explicit host wins, then this
+// deployment's own FRONTEND_URL (each environment sets its own), then the
+// legacy NEXTAUTH_URL, and "localhost" for local development.
+export const slackLocationHost = (
+  explicit?: string,
+  frontendUrl: string | undefined = process.env.FRONTEND_URL,
+  legacyUrl: string | undefined = process.env.NEXTAUTH_URL,
+): string => explicit?.trim() || frontendUrl?.trim() || legacyUrl?.trim() || "localhost";
