@@ -1,4 +1,4 @@
-import { getSlackChannelId, slackEnvPrefix } from './slack-target';
+import { getSlackChannelId, slackEnvPrefix, slackLocationHost } from './slack-target';
 
 describe('getSlackChannelId', () => {
   it('returns the configured channel', () => {
@@ -25,5 +25,22 @@ describe('slackEnvPrefix', () => {
   it('adds no prefix when APP_ENV is unset or blank', () => {
     expect(slackEnvPrefix(undefined)).toBe('');
     expect(slackEnvPrefix('  ')).toBe('');
+  });
+});
+
+describe('slackLocationHost', () => {
+  it('prefers an explicit host', () => {
+    expect(slackLocationHost('https://x.test', 'https://iat.test', 'https://old.test')).toBe('https://x.test');
+  });
+
+  it("uses this deployment's FRONTEND_URL when no host is given", () => {
+    expect(slackLocationHost(undefined, 'https://iat.kinkyhairstylists.com', 'https://old.test')).toBe(
+      'https://iat.kinkyhairstylists.com',
+    );
+  });
+
+  it('falls back to the legacy NEXTAUTH_URL, then localhost', () => {
+    expect(slackLocationHost(undefined, undefined, 'https://old.test')).toBe('https://old.test');
+    expect(slackLocationHost(undefined, '  ', '')).toBe('localhost');
   });
 });
