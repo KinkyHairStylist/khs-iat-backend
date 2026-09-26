@@ -114,18 +114,6 @@ export enum SlackEventType {
   SUPPORT_MESSAGE = "SUPPORT_MESSAGE",
 }
 
-export enum SlackChannel {
-  CRY_WOLF = "C06JUAXP73P",
-  CHANGE_REQUESTS = "C07BBMUMMFX",
-  TOWN_CRIER = "C0603SL8QJ0",
-  DEPLOYMENTS_LOGS = "C04FA0YU72A",
-  TEST_NOTIFICATIONS = "C0B9KDACX5G",
-  // PAYMENTS = 'C077H6PBBFS',
-  // VA = 'C04FYK43Q2D',
-  VA = "C09HJKSS42E",
-  FREE_TRIALS = "C08PWPTA8FM",
-  PAID_SUB = "C077H6PBBFS", // Replace with actual paid-sub channel ID
-}
 
 export enum SlackLocation {
   LOCALHOST = "localhost",
