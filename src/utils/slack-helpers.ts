@@ -4,7 +4,7 @@ import { getSlackClient } from "../config/slack";
 import { StandardSlackNotification } from "../types/slack.types";
 import { getServiceLogger } from "./createLogger";
 import { SlackLocation } from "./enum";
-import { getSlackChannelId, slackEnvPrefix } from "./slack-target";
+import { getSlackChannelId, slackEnvPrefix, slackLocationHost } from "./slack-target";
 import { isRedisUsable } from "./helpers"
 import axios from "axios";
 
@@ -117,10 +117,10 @@ export const formatStandardNotification = (
 ): string => {
   // Get protocol and host
   const protocol = params.protocol || "https";
-  const host = params.host || process.env.NEXTAUTH_URL || "localhost";
+  const host = slackLocationHost(params.host);
 
   // Clean up host value
-  const cleanHost = host.replace(/^https?:\/\//, "");
+  const cleanHost = host.replace(/^https?:\/\//, "").replace(/\/+$/, "");
 
   // Build full URL
   const locValue =
