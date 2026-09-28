@@ -21,7 +21,7 @@ import {
   PaymentMethod,
   TransactionStatus as TxnStatus,
 } from 'src/business/entities/transaction.entity';
-import { WalletCurrency } from 'src/admin/payment/enums/wallet.enum';
+import { PLATFORM_LEDGER_CURRENCY, WalletCurrency } from 'src/admin/payment/enums/wallet.enum';
 import { PlatformSettingsService } from 'src/admin/platform-settings/platform-settings.service';
 import {
   DEFAULT_CANCELLATION_WINDOW_HOURS,
@@ -1361,7 +1361,7 @@ export class BookingService {
 
       const paymentIntent = await this.stripeService.createPaymentIntent({
         amount: Math.round(stripeChargeAmount * 100), // Convert to cents
-        currency: 'usd',
+        currency: PLATFORM_LEDGER_CURRENCY.toLowerCase(),
         customerEmail: user.email,
         metadata: {
           orderId,
