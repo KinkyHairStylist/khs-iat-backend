@@ -324,6 +324,10 @@ export class BusinessSettingsService {
       business.businessAddress = updateDto.businessAddress.trim();
     }
 
+    if (updateDto.country !== undefined) {
+      business.country = updateDto.country.trim().toUpperCase();
+    }
+
     if (updateDto.latitude !== undefined) {
       if (updateDto.latitude < -90 || updateDto.latitude > 90) {
         throw new BadRequestException('Latitude must be between -90 and 90');
@@ -391,6 +395,10 @@ export class BusinessSettingsService {
     // Update location
     if (updateDto.businessAddress !== undefined) {
       business.businessAddress = updateDto.businessAddress.trim();
+    }
+
+    if (updateDto.country !== undefined) {
+      business.country = updateDto.country.trim().toUpperCase();
     }
 
     if (updateDto.latitude !== undefined) {

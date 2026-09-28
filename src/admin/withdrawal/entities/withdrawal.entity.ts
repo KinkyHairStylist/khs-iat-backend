@@ -48,6 +48,26 @@ export class Withdrawal {
   @Column('decimal', { precision: 10, scale: 2 })
   amount: number;
 
+  // The wallet's ledger currency at the moment this request was made (a
+  // snapshot — see PLATFORM_LEDGER_CURRENCY in wallet.enum.ts for what new
+  // wallets default to today).
+  @Column({ type: 'varchar', length: 3, default: 'USD' })
+  currency: string;
+
+  // What the merchant will actually be paid in, and the numbers used to get
+  // there — all three stamped once at request time by
+  // WalletService.requestWithdrawal and never recomputed, so a later change
+  // in the live FX rate can't retroactively alter a past request. Null when
+  // the payout currency equals the ledger currency (no conversion needed).
+  @Column({ type: 'varchar', length: 3, nullable: true })
+  payoutCurrency: string | null;
+
+  @Column({ type: 'decimal', precision: 18, scale: 8, nullable: true })
+  exchangeRate: number | null;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  payoutAmount: number | null;
+
   // Pending: waiting for KHS to review. Processing: approved, KHS is sending the money. Completed: KHS
   // has sent it (payoutReference says how to trace it). Rejected: KHS refused (rejectionReason says
   // why) and the amount went back to the wallet. Cancelled: the salon withdrew the request first.

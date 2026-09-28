@@ -145,6 +145,15 @@ export class AddPaymentMethodDto {
   accountNumber?: string;
 
   @IsOptional()
+  @IsEnum(WalletCurrency)
+  payoutCurrency?: WalletCurrency;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  country?: string;
+
+  @IsOptional()
   @IsString()
   @MinLength(1)
   last4Digits?: string;
@@ -162,6 +171,18 @@ export class CreateWithdrawalDto {
   bankDetails?: string;
   amount: number;
   currentBalance: number;
+}
+
+export class WithdrawalPreviewDto {
+  @IsUUID()
+  walletId: string;
+
+  @IsNumber()
+  @Min(0.01)
+  amount: number;
+
+  @IsUUID()
+  bankDetailsId: string;
 }
 
 export class WithdrawalDto {

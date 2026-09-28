@@ -45,6 +45,7 @@ import { EmailService } from 'src/email/email.service';
 import { TemplateService } from 'src/email/template.service';
 import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'src/notifications/notification.enum';
+import { CurrencyConversionService } from './currency-conversion.service';
 
 // What KHS actually took out of a booking earning before crediting the
 // merchant — surfaced on the transaction so they can see it, not just the
@@ -73,6 +74,7 @@ export class BusinessWalletService {
     private readonly emailService: EmailService,
     private readonly templateService: TemplateService,
     private readonly notificationService: NotificationService,
+    private readonly currencyConversionService: CurrencyConversionService,
   ) {}
 
   async createWalletForBusiness(
@@ -275,6 +277,34 @@ export class BusinessWalletService {
       throw new BadRequestException('Enter an amount greater than zero');
     }
 
+    // Look up the payout method and convert *before* opening the locked
+    // transaction below — the conversion is an external HTTP call, and
+    // holding a pessimistic row lock on the wallet for the duration of that
+    // call would block every other operation on it (including another
+    // withdrawal request) until the currency API responds or times out.
+    // The payment method is re-checked for real (still this wallet's own,
+    // still active) inside the transaction; this pass is only to compute
+    // the conversion without holding anything.
+    const walletForLookup = await this.walletRepository.findOne({
+      where: { businessId: params.businessId },
+    });
+    if (!walletForLookup) throw new NotFoundException('Wallet not found');
+    const bankDetailsForLookup = await this.paymentMethodRepository.findOne({
+      where: { id: params.bankDetailsId, walletId: walletForLookup.id, isActive: true },
+    });
+    if (!bankDetailsForLookup) {
+      throw new NotFoundException('Payout account not found for this business');
+    }
+    if (!bankDetailsForLookup.payoutCurrency) {
+      throw new BadRequestException(
+        'Add a payout currency to this payment method before withdrawing',
+      );
+    }
+    const conversion = await this.currencyConversionService.convert(
+      amount,
+      bankDetailsForLookup.payoutCurrency,
+    );
+
     return this.walletRepository.manager.transaction(async (manager) => {
       const wallet = await manager.findOne(Wallet, {
         where: { businessId: params.businessId },
@@ -288,12 +318,20 @@ export class BusinessWalletService {
         throw new BadRequestException('Insufficient wallet balance');
       }
 
-      // The payout account has to be this wallet's own, and still in use.
+      // The payout account has to be this wallet's own, and still in use —
+      // re-checked here (not just reused from the pre-lock lookup above)
+      // in case it changed between that lookup and getting the lock.
       const bankDetails = await manager.findOne(WalletPaymentMethod, {
         where: { id: params.bankDetailsId, walletId: wallet.id, isActive: true },
       });
       if (!bankDetails) {
         throw new NotFoundException('Payout account not found for this business');
+      }
+      if (bankDetails.payoutCurrency !== bankDetailsForLookup.payoutCurrency) {
+        // The merchant changed the payout currency on this method between
+        // the lookup above and now — recompute rather than use a stale
+        // conversion for a currency they no longer have selected.
+        throw new BadRequestException('Payout method changed — please try again');
       }
 
       const business = await manager.findOne(Business, { where: { id: wallet.businessId } });
@@ -326,6 +364,10 @@ export class BusinessWalletService {
           bankDetails,
           bankDetailsId: bankDetails.id,
           amount,
+          currency: wallet.currency,
+          payoutCurrency: conversion.payoutCurrency === wallet.currency ? null : conversion.payoutCurrency,
+          exchangeRate: conversion.payoutCurrency === wallet.currency ? null : conversion.exchangeRate,
+          payoutAmount: conversion.payoutCurrency === wallet.currency ? null : conversion.payoutAmount,
           status: 'Pending',
           currentBalance: balanceAfter,
           requestDate: new Date().toISOString(),
@@ -346,6 +388,52 @@ export class BusinessWalletService {
       await this.confirmWithdrawalRequested(result.withdrawal);
       return result;
     });
+  }
+
+  /**
+   * Pure read — no wallet lock, no money moved — so the frontend can call
+   * this on every amount keystroke or payout-method change while the
+   * merchant is filling in the withdraw form.
+   */
+  async previewWithdrawal(params: {
+    businessId: string;
+    amount: number;
+    bankDetailsId: string;
+  }): Promise<{
+    amount: number;
+    ledgerCurrency: string;
+    payoutCurrency: string;
+    exchangeRate: number;
+    payoutAmount: number;
+  }> {
+    const amount = Math.round(Number(params.amount) * 100) / 100;
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new BadRequestException('Enter an amount greater than zero');
+    }
+
+    const wallet = await this.walletRepository.findOne({
+      where: { businessId: params.businessId },
+    });
+    if (!wallet) throw new NotFoundException('Wallet not found');
+
+    const bankDetails = await this.paymentMethodRepository.findOne({
+      where: { id: params.bankDetailsId, walletId: wallet.id, isActive: true },
+    });
+    if (!bankDetails) {
+      throw new NotFoundException('Payout account not found for this business');
+    }
+    if (!bankDetails.payoutCurrency) {
+      throw new BadRequestException(
+        'Add a payout currency to this payment method before withdrawing',
+      );
+    }
+
+    const conversion = await this.currencyConversionService.convert(
+      amount,
+      bankDetails.payoutCurrency,
+    );
+
+    return { amount, ...conversion };
   }
 
   private async confirmWithdrawalRequested(withdrawal: Withdrawal): Promise<void> {

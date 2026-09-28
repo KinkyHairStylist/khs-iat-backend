@@ -19,6 +19,7 @@ import {
   CreateWalletDto,
   DebitWalletRequestDto,
   TransactionFiltersDto,
+  WithdrawalPreviewDto,
 } from '../dtos/requests/WalletDto';
 import { BusinessWalletService } from '../services/wallet.service';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -230,6 +231,21 @@ export class BusinessWalletController {
     }
 
     return result;
+  }
+
+  // Pure read — what the merchant would actually receive if they withdrew
+  // this amount right now, in their chosen payout method's currency.
+  // Safe to call on every amount keystroke or payout-method change.
+  @Post('/withdrawal-preview')
+  async previewWithdrawal(@Request() req, @Body() body: WithdrawalPreviewDto) {
+    await this.assertOwnsWalletById(body.walletId, req.user);
+    const wallet = await this.walletService.getWalletById(body.walletId);
+    const preview = await this.walletService.previewWithdrawal({
+      businessId: wallet.businessId,
+      amount: body.amount,
+      bankDetailsId: body.bankDetailsId,
+    });
+    return { success: true, data: preview };
   }
 
   @Patch('/debit')
