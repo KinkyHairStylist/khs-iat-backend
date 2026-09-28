@@ -6,7 +6,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Admin, In, Not, Repository } from 'typeorm';
+import { Admin, Between, In, Not, Repository } from 'typeorm';
 import {
   TransactionType,
   PaymentMethod,
@@ -71,6 +71,12 @@ import { Review } from '../entities/review.entity';
 import { merchantPayout } from 'src/user/services/booking-fees';
 import { assertCanManageBusiness } from '../utils/business-access';
 import { summarizeStaffAppointments, weekBounds } from '../utils/staff-stats';
+import {
+  DashboardPeriod,
+  DashboardAppointmentRow,
+  resolveDashboardPeriodBounds,
+  computeDashboardMetrics,
+} from '../utils/dashboard-stats.helper';
 import { computeDisplayStatus } from '../utils/appointment-display-status';
 
 @Injectable()
@@ -1526,6 +1532,55 @@ export class BusinessService {
       servicesAssigned: (s.services ?? []).map((service) => service.id),
       ...summarizeStaffAppointments(rowsByStaff.get(s.id) ?? [], week),
     }));
+  }
+
+  // Backs the merchant dashboard's Today/Week/Month stat cards (revenue,
+  // bookings, active clients, average service time) with real numbers and
+  // a real period-over-period comparison, replacing what used to be
+  // computed client-side from whatever was already loaded (today-only,
+  // no trend) plus a couple of hardcoded fallbacks (a fixed 4.5 rating,
+  // a fixed $10,000 revenue goal — fixed separately, not here).
+  async getDashboardStats(
+    userId: string,
+    period: DashboardPeriod,
+    anchorDate?: string,
+  ) {
+    let business = await this.businessRepo.findOne({
+      where: { owner: { id: userId } },
+    });
+    if (!userId) throw new Error('Invalid User');
+    if (!business) business = await this.getBusinessFromStaff(userId);
+    if (!business) {
+      throw new NotFoundException('Business not found');
+    }
+
+    const anchor = anchorDate ? new Date(anchorDate) : new Date();
+    const bounds = resolveDashboardPeriodBounds(period, anchor);
+
+    // Only pull the two windows we actually need out of what could be a
+    // large history — [previous.start, current.end] covers both periods in
+    // one query rather than fetching the salon's whole appointment history.
+    const appointments = await this.appointmentRepo.find({
+      where: {
+        business: { id: business.id },
+        date: Between(bounds.previous.start, bounds.current.end),
+      },
+      relations: ['client', 'businessClient'],
+    });
+
+    const rows: DashboardAppointmentRow[] = appointments
+      .map((a) => ({
+        date: a.date,
+        status: a.status,
+        amount: a.amount,
+        duration: a.duration,
+        clientKey: a.client?.id ?? a.businessClient?.id ?? null,
+      }));
+
+    return {
+      period,
+      metrics: computeDashboardMetrics(rows, bounds),
+    };
   }
 
   async getAdvertisementPlans() {

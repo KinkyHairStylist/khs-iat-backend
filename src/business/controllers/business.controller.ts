@@ -272,6 +272,26 @@ export class BusinessController {
   @ApiBearerAuth('access-token')
   @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
   @Roles(Role.Merchant, Role.Staff, Role.BusinessStaff)
+  @RequirePermission(Permission.VIEW_REPORTS)
+  @Get('dashboard/stats')
+  async getDashboardStats(
+    @Req() req: RequestWithUser,
+    @Query('period') period?: string,
+    @Query('anchorDate') anchorDate?: string,
+  ) {
+    const validPeriods = ['today', 'week', 'month'] as const;
+    const resolvedPeriod = validPeriods.includes(period as any)
+      ? (period as 'today' | 'week' | 'month')
+      : 'today';
+    const resolvedAnchor =
+      anchorDate && !Number.isNaN(new Date(anchorDate).getTime()) ? anchorDate : undefined;
+
+    return this.businessService.getDashboardStats(req.user.id, resolvedPeriod, resolvedAnchor);
+  }
+
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @Roles(Role.Merchant, Role.Staff, Role.BusinessStaff)
   @RequirePermission(Permission.MANAGE_STAFF)
   @Post('assign-staff-to-service')
   async assignStaffToService(
