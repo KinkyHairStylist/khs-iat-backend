@@ -32,7 +32,7 @@ import {
   PaymentMethod,
   TransactionStatus as TxnStatus,
 } from '../entities/transaction.entity';
-import { WalletCurrency } from '../../admin/payment/enums/wallet.enum';
+import { PLATFORM_LEDGER_CURRENCY, WalletCurrency } from '../../admin/payment/enums/wallet.enum';
 import { PlatformSettingsService } from '../../admin/platform-settings/platform-settings.service';
 import { BusinessWalletService } from './wallet.service';
 import { SlackService } from 'src/services/slack.service';
@@ -354,7 +354,7 @@ export class BusinessGiftCardsService {
           await this.walletService.createWalletForBusiness({
             businessId: business.id,
             ownerId: business.owner.id,
-            currency: WalletCurrency.USD,
+            currency: PLATFORM_LEDGER_CURRENCY,
             description: 'Business wallet - auto-created from gift card redemption',
           });
         }

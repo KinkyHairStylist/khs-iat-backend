@@ -53,6 +53,9 @@ export class AddTransactionDto {
   @Min(0.01)
   amount: number;
 
+  // @deprecated ignored by WalletService.processTransaction/addFundsPending,
+  // which stamp the wallet's own `currency` instead — kept optional so old
+  // callers don't break, but setting this no longer has any effect.
   @IsOptional()
   @IsString()
   @MinLength(1)
@@ -142,6 +145,15 @@ export class AddPaymentMethodDto {
   accountNumber?: string;
 
   @IsOptional()
+  @IsEnum(WalletCurrency)
+  payoutCurrency?: WalletCurrency;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  country?: string;
+
+  @IsOptional()
   @IsString()
   @MinLength(1)
   last4Digits?: string;
@@ -159,6 +171,35 @@ export class CreateWithdrawalDto {
   bankDetails?: string;
   amount: number;
   currentBalance: number;
+}
+
+// Lets a merchant attach a payout currency to a bank/card they saved before
+// this feature existed, without having to re-enter the whole thing as a
+// duplicate payment method. Deliberately narrow — only the two payout
+// fields, never the bank/card details themselves.
+export class UpdatePayoutCurrencyDto {
+  @IsUUID()
+  walletId: string;
+
+  @IsEnum(WalletCurrency)
+  payoutCurrency: WalletCurrency;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  country?: string;
+}
+
+export class WithdrawalPreviewDto {
+  @IsUUID()
+  walletId: string;
+
+  @IsNumber()
+  @Min(0.01)
+  amount: number;
+
+  @IsUUID()
+  bankDetailsId: string;
 }
 
 export class WithdrawalDto {

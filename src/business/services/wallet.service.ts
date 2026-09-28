@@ -26,6 +26,7 @@ import {
 } from '../entities/transaction.entity';
 import {
   PaymentMethodType,
+  PLATFORM_LEDGER_CURRENCY,
   WalletCurrency,
   WalletStatus,
 } from 'src/admin/payment/enums/wallet.enum';
@@ -44,6 +45,7 @@ import { EmailService } from 'src/email/email.service';
 import { TemplateService } from 'src/email/template.service';
 import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'src/notifications/notification.enum';
+import { CurrencyConversionService } from './currency-conversion.service';
 
 // What KHS actually took out of a booking earning before crediting the
 // merchant — surfaced on the transaction so they can see it, not just the
@@ -72,6 +74,7 @@ export class BusinessWalletService {
     private readonly emailService: EmailService,
     private readonly templateService: TemplateService,
     private readonly notificationService: NotificationService,
+    private readonly currencyConversionService: CurrencyConversionService,
   ) {}
 
   async createWalletForBusiness(
@@ -95,7 +98,7 @@ export class BusinessWalletService {
       const wallet = this.walletRepository.create({
         businessId: createWalletDto.businessId,
         ownerId: createWalletDto.ownerId,
-        currency: createWalletDto.currency || WalletCurrency.NGN,
+        currency: createWalletDto.currency || PLATFORM_LEDGER_CURRENCY,
         description:
           createWalletDto.description || 'Business wallet - auto-created',
         balance: 0,
@@ -274,6 +277,34 @@ export class BusinessWalletService {
       throw new BadRequestException('Enter an amount greater than zero');
     }
 
+    // Look up the payout method and convert *before* opening the locked
+    // transaction below — the conversion is an external HTTP call, and
+    // holding a pessimistic row lock on the wallet for the duration of that
+    // call would block every other operation on it (including another
+    // withdrawal request) until the currency API responds or times out.
+    // The payment method is re-checked for real (still this wallet's own,
+    // still active) inside the transaction; this pass is only to compute
+    // the conversion without holding anything.
+    const walletForLookup = await this.walletRepository.findOne({
+      where: { businessId: params.businessId },
+    });
+    if (!walletForLookup) throw new NotFoundException('Wallet not found');
+    const bankDetailsForLookup = await this.paymentMethodRepository.findOne({
+      where: { id: params.bankDetailsId, walletId: walletForLookup.id, isActive: true },
+    });
+    if (!bankDetailsForLookup) {
+      throw new NotFoundException('Payout account not found for this business');
+    }
+    if (!bankDetailsForLookup.payoutCurrency) {
+      throw new BadRequestException(
+        'Add a payout currency to this payment method before withdrawing',
+      );
+    }
+    const conversion = await this.currencyConversionService.convert(
+      amount,
+      bankDetailsForLookup.payoutCurrency,
+    );
+
     return this.walletRepository.manager.transaction(async (manager) => {
       const wallet = await manager.findOne(Wallet, {
         where: { businessId: params.businessId },
@@ -287,12 +318,20 @@ export class BusinessWalletService {
         throw new BadRequestException('Insufficient wallet balance');
       }
 
-      // The payout account has to be this wallet's own, and still in use.
+      // The payout account has to be this wallet's own, and still in use —
+      // re-checked here (not just reused from the pre-lock lookup above)
+      // in case it changed between that lookup and getting the lock.
       const bankDetails = await manager.findOne(WalletPaymentMethod, {
         where: { id: params.bankDetailsId, walletId: wallet.id, isActive: true },
       });
       if (!bankDetails) {
         throw new NotFoundException('Payout account not found for this business');
+      }
+      if (bankDetails.payoutCurrency !== bankDetailsForLookup.payoutCurrency) {
+        // The merchant changed the payout currency on this method between
+        // the lookup above and now — recompute rather than use a stale
+        // conversion for a currency they no longer have selected.
+        throw new BadRequestException('Payout method changed — please try again');
       }
 
       const business = await manager.findOne(Business, { where: { id: wallet.businessId } });
@@ -325,6 +364,10 @@ export class BusinessWalletService {
           bankDetails,
           bankDetailsId: bankDetails.id,
           amount,
+          currency: wallet.currency,
+          payoutCurrency: conversion.payoutCurrency === wallet.currency ? null : conversion.payoutCurrency,
+          exchangeRate: conversion.payoutCurrency === wallet.currency ? null : conversion.exchangeRate,
+          payoutAmount: conversion.payoutCurrency === wallet.currency ? null : conversion.payoutAmount,
           status: 'Pending',
           currentBalance: balanceAfter,
           requestDate: new Date().toISOString(),
@@ -345,6 +388,52 @@ export class BusinessWalletService {
       await this.confirmWithdrawalRequested(result.withdrawal);
       return result;
     });
+  }
+
+  /**
+   * Pure read — no wallet lock, no money moved — so the frontend can call
+   * this on every amount keystroke or payout-method change while the
+   * merchant is filling in the withdraw form.
+   */
+  async previewWithdrawal(params: {
+    businessId: string;
+    amount: number;
+    bankDetailsId: string;
+  }): Promise<{
+    amount: number;
+    ledgerCurrency: string;
+    payoutCurrency: string;
+    exchangeRate: number;
+    payoutAmount: number;
+  }> {
+    const amount = Math.round(Number(params.amount) * 100) / 100;
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new BadRequestException('Enter an amount greater than zero');
+    }
+
+    const wallet = await this.walletRepository.findOne({
+      where: { businessId: params.businessId },
+    });
+    if (!wallet) throw new NotFoundException('Wallet not found');
+
+    const bankDetails = await this.paymentMethodRepository.findOne({
+      where: { id: params.bankDetailsId, walletId: wallet.id, isActive: true },
+    });
+    if (!bankDetails) {
+      throw new NotFoundException('Payout account not found for this business');
+    }
+    if (!bankDetails.payoutCurrency) {
+      throw new BadRequestException(
+        'Add a payout currency to this payment method before withdrawing',
+      );
+    }
+
+    const conversion = await this.currencyConversionService.convert(
+      amount,
+      bankDetails.payoutCurrency,
+    );
+
+    return { amount, ...conversion };
   }
 
   private async confirmWithdrawalRequested(withdrawal: Withdrawal): Promise<void> {
@@ -476,7 +565,7 @@ export class BusinessWalletService {
       method: addTransactionDto.method,
       type: TransactionType.EARNING,
       referenceId: addTransactionDto.referenceId,
-      currency: addTransactionDto.currency,
+      currency: wallet.currency,
       status: TransactionStatus.COMPLETED,
       mode: addTransactionDto.mode,
       description: addTransactionDto.description,
@@ -654,7 +743,7 @@ export class BusinessWalletService {
             ? addTransactionDto.recipientId
             : undefined,
         referenceId: addTransactionDto.referenceId,
-        currency: addTransactionDto.currency,
+        currency: wallet.currency,
         status:
           addTransactionDto.type === TransactionType.EARNING
             ? TransactionStatus.COMPLETED
@@ -767,6 +856,49 @@ export class BusinessWalletService {
         success: false,
         error: error.message,
         message: 'Failed to add payment method to business',
+      };
+    }
+  }
+
+  /**
+   * Attach (or change) a payout currency/country on a payment method that
+   * already exists — the only way an account saved before this feature
+   * shipped can become usable for withdrawal, short of adding a whole new
+   * duplicate one. Never touches the bank/card details themselves.
+   */
+  async updatePayoutCurrency(
+    paymentMethodId: string,
+    walletId: string,
+    updates: { payoutCurrency: WalletCurrency; country?: string },
+  ): Promise<ApiResponse<WalletPaymentMethod>> {
+    try {
+      const paymentMethod = await this.paymentMethodRepository.findOne({
+        where: { id: paymentMethodId, walletId, isActive: true },
+      });
+      if (!paymentMethod) {
+        return {
+          success: false,
+          error: 'Payment method not found',
+          message: 'Payment method not found for this wallet',
+        };
+      }
+
+      paymentMethod.payoutCurrency = updates.payoutCurrency;
+      if (updates.country !== undefined) {
+        paymentMethod.country = updates.country;
+      }
+      const saved = await this.paymentMethodRepository.save(paymentMethod);
+
+      return {
+        success: true,
+        data: saved,
+        message: 'Payout currency updated successfully',
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+        message: 'Failed to update payout currency',
       };
     }
   }
