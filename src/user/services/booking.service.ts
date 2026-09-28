@@ -27,6 +27,7 @@ import {
   DEFAULT_CANCELLATION_WINDOW_HOURS,
   resolveCancellationWindowHours,
 } from 'src/helpers/cancellation-window.helper';
+import { merchantPayout } from './booking-fees';
 import { IntegrationSyncService } from 'src/integration/services/integration-sync.service';
 import {
   checkBookingAgainstRules,
@@ -1868,18 +1869,63 @@ export class BookingService {
           });
         }
 
-        await this.walletService.addFunds({
-          businessId,
-          recipientId: ownerId,
-          senderId: meta.userId,
-          amount: bookingAmount, // Amount credited to business (excluding platform fee)
-          type: TransactionType.EARNING,
-          description: `Booking payment for order ${orderId}`,
-          referenceId: reference,
-          currency: WalletCurrency.USD,
-          mode: 'Web',
-          method: PaymentMethod.PAYSTACK,
-        });
+        // bookingAmount here is the whole order's gross price, and the
+        // fee transaction rows created at initialization (marked
+        // COMPLETED above) never actually touch the wallet balance on
+        // their own — crediting the raw bookingAmount was paying the
+        // merchant the full gross amount with acquisition/commission
+        // never really deducted, and (when a gift card also covered part
+        // of the order) double-crediting the gift-card portion on top of
+        // what it already paid the merchant at gift-card purchase time.
+        // Only the amount actually captured through this card charge
+        // (gross minus any gift-card share) is real new money to credit,
+        // and the fees still come out of that, mirroring exactly how the
+        // Stripe escrow-release path computes it (business.service.ts).
+        const paidByCard = Math.round((bookingAmount - result.giftCardAmountUsed) * 100) / 100;
+        const { credit: netAmount, shortfall } = merchantPayout(
+          paidByCard,
+          acquisitionFeeAmount,
+          commissionAmount,
+        );
+
+        if (netAmount > 0) {
+          await this.walletService.addFunds({
+            businessId,
+            recipientId: ownerId,
+            senderId: meta.userId,
+            amount: netAmount,
+            type: TransactionType.EARNING,
+            description: `Booking payment for order ${orderId}`,
+            referenceId: reference,
+            currency: WalletCurrency.USD,
+            mode: 'Web',
+            method: PaymentMethod.PAYSTACK,
+          });
+        }
+
+        if (shortfall > 0) {
+          // Split what is still owed between the two fees, in proportion, matching the
+          // Stripe escrow-release path's own shortfall handling.
+          const feeTotal = acquisitionFeeAmount + commissionAmount;
+          const acquisitionShare =
+            feeTotal > 0 ? Math.round(((shortfall * acquisitionFeeAmount) / feeTotal) * 100) / 100 : 0;
+          const commissionShare = Math.round((shortfall - acquisitionShare) * 100) / 100;
+          for (const [kind, amount] of [
+            ['Acquisition', acquisitionShare],
+            ['Commission', commissionShare],
+          ] as const) {
+            if (amount <= 0) continue;
+            await this.walletService.debitWithPendingFallback({
+              businessId,
+              amount,
+              type: TransactionType.FEE,
+              feeSubtype: kind,
+              referenceId: reference,
+              description: `${kind} on gift-card-covered booking ${orderId}`,
+              senderId: ownerId,
+            });
+          }
+        }
       }
     } catch (walletError) {
       // Log the error but don't fail the entire operation since booking was confirmed successfully
