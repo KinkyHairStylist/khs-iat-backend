@@ -3019,11 +3019,18 @@ export class BookingService {
     stripePassthroughFixedFee: number;
     allowDepositPayment: boolean;
     cancellationWindowHours: number;
+    earlyCancellationFee: number;
   }> {
     const payments = await this.platformSettingsService.getPayments();
     const commissionRate = Number(payments.commissionRate) || 0;
     const stripePassthroughRate = Number(payments.stripePassthroughRate) || 0;
     const stripePassthroughFixedFee = Number(payments.stripePassthroughFixedFee) || 0;
+    // Same admin-platform setting cancelBooking itself reads when it
+    // actually charges this fee — exposed here so the customer can be
+    // warned about it before they confirm, not just after.
+    const earlyCancellationFee = Number(
+      payments.earlyCancellationFee ?? BookingService.DEFAULT_EARLY_CANCELLATION_FEE,
+    );
 
     if (!businessId) {
       return {
@@ -3033,6 +3040,7 @@ export class BookingService {
         stripePassthroughFixedFee,
         allowDepositPayment: true,
         cancellationWindowHours: DEFAULT_CANCELLATION_WINDOW_HOURS,
+        earlyCancellationFee,
       };
     }
 
@@ -3062,6 +3070,7 @@ export class BookingService {
       allowDepositPayment:
         business.ownerSettings?.pricingPolicies?.allowDepositPayment !== false,
       cancellationWindowHours: resolveCancellationWindowHours(business),
+      earlyCancellationFee,
     };
   }
 
