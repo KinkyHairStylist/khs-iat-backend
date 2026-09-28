@@ -47,7 +47,7 @@ export class UserProfileController {
   @Put('avatar')
   @UseInterceptors(FileInterceptor('file', fileUploadOptions()))
   @ApiConsumes('multipart/form-data')
-  @ApiOperation({ summary: 'Upload user avatar to Cloudinary' })
+  @ApiOperation({ summary: 'Upload user avatar to Firebase Storage' })
   @ApiBody({
     schema: {
       type: 'object',
@@ -68,7 +68,7 @@ export class UserProfileController {
   }
 
   @Delete('avatar')
-  @ApiOperation({ summary: 'Delete user avatar from Cloudinary' })
+  @ApiOperation({ summary: 'Delete user avatar from Firebase Storage' })
   async deleteAvatar(@GetUser() user: User) {
     return this.userProfileService.deleteAvatar(user);
   }

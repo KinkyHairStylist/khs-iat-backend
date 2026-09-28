@@ -22,7 +22,6 @@ export class ProductService {
     private businessRepo: Repository<Business>,
     private skuGeneratorService: SkuGeneratorService,
     private inventoryService: InventoryService,
-    // private readonly businessCloudinaryService: BusinessCloudinaryService,
     private readonly businessFirebaseService: BusinessFirebaseService,
   ) {}
 

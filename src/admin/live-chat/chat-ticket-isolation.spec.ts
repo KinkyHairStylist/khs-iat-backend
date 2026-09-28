@@ -31,9 +31,9 @@ function setup(ticketOverrides: Partial<Record<string, any>> = {}) {
     closeTicket: jest.fn().mockResolvedValue({ ...ticket, status: TicketStatus.CLOSED }),
   };
   const chatGateway: any = { sendMessageToReceiver: jest.fn(), notifyTicketClosed: jest.fn() };
-  const cloudinary: any = { uploadBase64: jest.fn() };
+  const firebaseStorageService: any = { uploadFromBase64: jest.fn() };
 
-  const controller = new ChatController(chatService, chatGateway, cloudinary);
+  const controller = new ChatController(chatService, chatGateway, firebaseStorageService);
   return { controller, chatService, chatGateway };
 }
 

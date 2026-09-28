@@ -54,6 +54,7 @@ import { GoogleCalendarModule } from './integration/google-calendar.module';
 import { MailchimpModule } from './integration/mail-chimp.module';
 import { ZohoBooksModule } from './integration/zohobooks.module';
 import { LandingModule } from './landing/landing.module';
+import { FirebaseStorageModule } from './shared/firebase-storage.module';
 
 @Module({
   imports: [
@@ -89,6 +90,7 @@ import { LandingModule } from './landing/landing.module';
     ]),
     ScheduleModule.forRoot(),
 
+    FirebaseStorageModule,
     EmailModule,
     SlackModule,
     BusinessModule,
