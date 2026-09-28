@@ -229,6 +229,19 @@ export class BusinessController {
   @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
   @Roles(Role.Merchant, Role.Staff, Role.BusinessStaff)
   @RequirePermission(Permission.MANAGE_STAFF)
+  @Post('upload-staff-image')
+  async uploadStaffImage(@Body() body: UploadServiceImageDto) {
+    const { imageUrl } = await this.businessFirebaseService.uploadImageFromBase64(
+      body.dataUri,
+      'KHS/staffImages',
+    );
+    return { success: true, data: { imageUrl } };
+  }
+
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @Roles(Role.Merchant, Role.Staff, Role.BusinessStaff)
+  @RequirePermission(Permission.MANAGE_STAFF)
   @Post('editStaff/:staffId')
   async editStaff(
     @Req() req: RequestWithUser,
@@ -254,6 +267,26 @@ export class BusinessController {
   @Get('getTeamMembers')
   async getTeamMembers(@Req() req: RequestWithUser) {
     return this.businessService.getTeamMembers(req.user.id);
+  }
+
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @Roles(Role.Merchant, Role.Staff, Role.BusinessStaff)
+  @RequirePermission(Permission.VIEW_REPORTS)
+  @Get('dashboard/stats')
+  async getDashboardStats(
+    @Req() req: RequestWithUser,
+    @Query('period') period?: string,
+    @Query('anchorDate') anchorDate?: string,
+  ) {
+    const validPeriods = ['today', 'week', 'month'] as const;
+    const resolvedPeriod = validPeriods.includes(period as any)
+      ? (period as 'today' | 'week' | 'month')
+      : 'today';
+    const resolvedAnchor =
+      anchorDate && !Number.isNaN(new Date(anchorDate).getTime()) ? anchorDate : undefined;
+
+    return this.businessService.getDashboardStats(req.user.id, resolvedPeriod, resolvedAnchor);
   }
 
   @ApiBearerAuth('access-token')

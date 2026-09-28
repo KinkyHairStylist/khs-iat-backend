@@ -6,7 +6,7 @@ import { Roles } from 'src/middleware/roles.decorator';
 import { Role } from 'src/middleware/role.enum';
 import { ChatService } from './chat.service';
 import { ChatGateway } from './chat.gateway';
-import { CloudinaryService } from 'src/helpers/cloudinary-massage-image-helper';
+import { FirebaseStorageService } from 'src/shared/services/firebase-storage.service';
 import { User } from 'src/all_user_entities/user.entity';
 import { RolesGuard } from 'src/middleware/roles.guard';
 import { Ticket, TicketStatus } from 'src/all_user_entities/ticket.entity';
@@ -22,7 +22,7 @@ export class ChatController {
   constructor(
     private readonly chatService: ChatService,
     private readonly chatGateway: ChatGateway,
-    private readonly cloudinary: CloudinaryService,
+    private readonly firebaseStorageService: FirebaseStorageService,
   ) {}
 
   @Post('send')
@@ -65,7 +65,11 @@ export class ChatController {
     let imageUrl: string | undefined;
 
     if (data.imageBase64) {
-      imageUrl = await this.cloudinary.uploadBase64(data.imageBase64);
+      const uploaded = await this.firebaseStorageService.uploadFromBase64(
+        data.imageBase64,
+        'KHS/chat',
+      );
+      imageUrl = uploaded.imageUrl;
     }
 
     const saved = await this.chatService.storeMessage({

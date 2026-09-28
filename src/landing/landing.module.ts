@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { CloudinaryModule } from 'src/user/modules/cloudinary.module';
 
 import { NewsletterSubscriber } from './entities/newsletter-subscriber.entity';
 import { BlogPost } from './entities/blog-post.entity';
@@ -27,7 +26,6 @@ import { PlatformSettingsService } from 'src/admin/platform-settings/platform-se
 
 @Module({
   imports: [
-    CloudinaryModule,
     TypeOrmModule.forFeature([
       NewsletterSubscriber,
       BlogPost,
@@ -49,7 +47,6 @@ import { PlatformSettingsService } from 'src/admin/platform-settings/platform-se
   providers: [
     NewsletterService,
     BlogPostService,
-    // CloudinaryService is provided via CloudinaryModule import above
     FaqService,
     StoryService,
     TestimonialService,

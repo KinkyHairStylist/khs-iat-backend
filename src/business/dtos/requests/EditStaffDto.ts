@@ -1,5 +1,7 @@
-import {IsString, IsOptional, IsArray, IsEmail, IsObject, IsNumber, Min, Max} from 'class-validator';
+import {IsString, IsOptional, IsArray, IsEmail, IsObject, IsNumber, Min, Max, ValidateNested} from 'class-validator';
+import { Type } from 'class-transformer';
 import { BusinessStaffRole } from 'src/middleware/business-staff-role.enum';
+import { StaffAddressDto, StaffEmergencyContactDto } from './StaffSubDtos';
 
 export class EditStaffDto {
     @IsString()
@@ -40,14 +42,18 @@ export class EditStaffDto {
 
     @IsArray()
     @IsOptional()
-    addresses?:any;
+    @ValidateNested({ each: true })
+    @Type(() => StaffAddressDto)
+    addresses?: StaffAddressDto[];
 
     @IsOptional()
     settings?: any;
 
     @IsArray()
     @IsOptional()
-    emergencyContacts?: any;
+    @ValidateNested({ each: true })
+    @Type(() => StaffEmergencyContactDto)
+    emergencyContacts?: StaffEmergencyContactDto[];
 
     @IsString()
     @IsOptional()

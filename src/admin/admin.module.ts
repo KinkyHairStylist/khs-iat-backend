@@ -20,7 +20,6 @@ import { Subscription } from '../business/entities/subscription.entity';
 import { Payment } from './payment/entities/payment.entity';
 import { EmailModule } from '../email/email.module';
 import { PaymentService } from './payment/payment.service';
-import { CloudinaryModule } from '../user/modules/cloudinary.module';
 import { BusinessWalletModule } from 'src/business/wallet.module';
 import { Transaction } from 'src/business/entities/transaction.entity';
 import { StripePaymentIntent } from 'src/payment/entities/stripe-payment-intent.entity';
@@ -62,7 +61,6 @@ import { PlatformSettingsService } from './platform-settings/platform-settings.s
     TypeOrmModule.forFeature([PlatformSettingsEntity]),
     TypeOrmModule.forFeature([MerchantMembershipPackage, MerchantMembershipPurchase, Service]),
     MerchantMembershipModule,
-    CloudinaryModule,
     BusinessWalletModule,
     EmailModule,
     BusinessModule,

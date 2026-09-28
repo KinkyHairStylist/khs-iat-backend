@@ -30,7 +30,6 @@ import { MerchantSignupController } from './controllers/merchant-signup.controll
       PlatformSettingsEntity,
     ]),
     UserModule,
-    // BusinessCloudinaryModule,
     BusinessFirebaseModule,
     EmailModule,
   ],

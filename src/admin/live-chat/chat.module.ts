@@ -7,7 +7,6 @@ import { User } from 'src/all_user_entities/user.entity';
 import { Ticket } from 'src/all_user_entities/ticket.entity';
 import { ChatGateway } from './chat.gateway';
 import { ChatService } from './chat.service';
-import { CloudinaryService } from 'src/helpers/cloudinary-massage-image-helper';
 import { ChatController } from './chat.controller';
 import { Appointment } from 'src/business/entities/appointment.entity';
 import { Business } from 'src/business/entities/business.entity';
@@ -18,7 +17,7 @@ import { SlackModule } from 'src/slack/slack.module';
     TypeOrmModule.forFeature([ChatMessage, UserStatus, Appointment, Business, User, Ticket]),
     SlackModule,
   ],
-  providers: [ChatService, ChatGateway, CloudinaryService],
+  providers: [ChatService, ChatGateway],
   controllers: [ChatController],
 })
 export class ChatModule {}

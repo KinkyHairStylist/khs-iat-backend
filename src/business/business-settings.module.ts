@@ -12,7 +12,6 @@ import { BusinessImageValidationMiddleware } from './middlewares/business-image-
 @Module({
   imports: [
     TypeOrmModule.forFeature([Business, BookingDay]),
-    // BusinessCloudinaryModule,
     BusinessFirebaseModule
   ],
   controllers: [BusinessSettingsController],

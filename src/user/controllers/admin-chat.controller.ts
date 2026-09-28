@@ -7,7 +7,7 @@ import { Role } from '../../middleware/role.enum';
 import { RolesGuard } from 'src/middleware/roles.guard';
 import { AdminChatService } from '../services/admin-chat.service';
 import { AdminChatGateway } from '../admin-chat.gateway';
-import { CloudinaryService } from '../../helpers/cloudinary-massage-image-helper';
+import { FirebaseStorageService } from '../../shared/services/firebase-storage.service';
 import { User } from '../../all_user_entities/user.entity';
 import { SendAdminMessageDto, AdminChatMessageResponseDto, AdminDto } from '../dtos/send-admin-message.dto';
 import { GetUser } from '../../middleware/get-user.decorator';
@@ -21,7 +21,7 @@ export class AdminChatController {
   constructor(
     private readonly adminChatService: AdminChatService,
     private readonly adminChatGateway: AdminChatGateway,
-    private readonly cloudinary: CloudinaryService,
+    private readonly firebaseStorageService: FirebaseStorageService,
   ) {}
 
   @Post('send')
@@ -40,7 +40,11 @@ export class AdminChatController {
     let imageUrl: string | undefined;
 
     if (data.imageBase64) {
-      imageUrl = await this.cloudinary.uploadBase64(data.imageBase64);
+      const uploaded = await this.firebaseStorageService.uploadFromBase64(
+        data.imageBase64,
+        'KHS/chat',
+      );
+      imageUrl = uploaded.imageUrl;
     }
 
     const saved = await this.adminChatService.storeMessage({

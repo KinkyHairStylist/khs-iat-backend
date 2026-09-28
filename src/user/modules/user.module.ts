@@ -42,7 +42,6 @@ import { EmailModule } from '../../email/email.module';
 import { ReferralModule } from './referral.module';
 import { PhoneVerificationModule } from './phone-verification.module';
 import { PhoneVerification } from 'src/business/entities/phone-verification.entity';
-import { CloudinaryModule } from './cloudinary.module';
 import { PreferencesModule } from './preferences.module';
 import { PasswordUtil } from 'src/business/utils/password.util';
 import { PaystackService } from 'src/payment/paystack.service';
@@ -77,7 +76,6 @@ import { SlackModule } from 'src/slack/slack.module';
     SlackModule,
     ReferralModule,
     PhoneVerificationModule,
-    CloudinaryModule,
     PreferencesModule,
     PlatformSettingsModule,
     AdminChatModule,

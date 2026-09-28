@@ -13,7 +13,7 @@ import {
   UpdateUserProfileDto,
   ChangePasswordDto,
 } from '../dtos/update-profile.dto';
-import { CloudinaryService } from './cloudinary.service';
+import { FirebaseStorageService } from '../../shared/services/firebase-storage.service';
 import { PasswordHashingHelper } from '../../helpers/password-hashing.helper';
 import { EmailService } from '../../email/email.service';
 
@@ -24,7 +24,7 @@ export class UserProfileService implements OnModuleInit {
   constructor(
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
-    private readonly cloudinaryService: CloudinaryService,
+    private readonly firebaseStorageService: FirebaseStorageService,
     private readonly emailService: EmailService,
   ) {}
 
@@ -90,8 +90,11 @@ export class UserProfileService implements OnModuleInit {
     const foundUser = await this.userRepo.findOne({ where: { id: user.id } });
     if (!foundUser) throw new NotFoundException('User not found');
 
-    const uploadedUrl = await this.cloudinaryService.uploadFile(file);
-    foundUser.avatarUrl = uploadedUrl;
+    const { imageUrl } = await this.firebaseStorageService.uploadBufferReplacing(
+      file,
+      `avatars/${user.id}`,
+    );
+    foundUser.avatarUrl = imageUrl;
 
     const saved = await this.userRepo.save(foundUser);
     return this.withoutPassword(saved);
@@ -102,9 +105,7 @@ export class UserProfileService implements OnModuleInit {
     if (!foundUser) throw new NotFoundException('User not found');
 
     if (foundUser.avatarUrl) {
-      const parts = foundUser.avatarUrl.split('/');
-      const publicId = parts[parts.length - 1].split('.')[0];
-      await this.cloudinaryService.deleteFile(`user_avatars/${publicId}`);
+      await this.firebaseStorageService.deleteByPrefix(`avatars/${user.id}`);
       foundUser.avatarUrl = undefined;
       await this.userRepo.save(foundUser);
     }

@@ -16,7 +16,7 @@ import { StoryService } from '../services/story.service';
 import { CreateStoryDto, UpdateStoryDto } from '../dtos/story.dto';
 import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
 import { Public } from 'src/business/middlewares/public.decorator';
-import { CloudinaryService } from 'src/user/services/cloudinary.service';
+import { FirebaseStorageService } from 'src/shared/services/firebase-storage.service';
 import { fileUploadOptions } from 'src/middleware/file-upload.middleware';
 
 @ApiTags('Landing - Stories')
@@ -24,7 +24,7 @@ import { fileUploadOptions } from 'src/middleware/file-upload.middleware';
 export class StoryController {
   constructor(
     private readonly storyService: StoryService,
-    private readonly cloudinaryService: CloudinaryService,
+    private readonly firebaseStorageService: FirebaseStorageService,
   ) {}
 
   @Get()
@@ -49,8 +49,11 @@ export class StoryController {
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Upload a story image (admin)' })
   async uploadImage(@UploadedFile() file: Express.Multer.File) {
-    const url = await this.cloudinaryService.uploadFile(file);
-    return { success: true, data: { url } };
+    const { imageUrl } = await this.firebaseStorageService.uploadFromBuffer(
+      file,
+      'KHS/landing/stories',
+    );
+    return { success: true, data: { url: imageUrl } };
   }
 
   @Post()

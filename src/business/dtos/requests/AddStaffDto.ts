@@ -1,5 +1,7 @@
-import {IsString, IsOptional, IsArray, IsEmail, IsObject, IsNumber, Min, Max} from 'class-validator';
+import {IsString, IsOptional, IsArray, IsEmail, IsObject, IsNumber, Min, Max, ValidateNested} from 'class-validator';
+import { Type } from 'class-transformer';
 import { BusinessStaffRole } from 'src/middleware/business-staff-role.enum';
+import { StaffAddressDto, StaffEmergencyContactDto } from './StaffSubDtos';
 
 export class CreateStaffDto {
   @IsString()
@@ -39,10 +41,15 @@ export class CreateStaffDto {
   employmentType?: 'full-time' | 'part-time' | 'contract';
 
   @IsArray()
-  addresses:any;
+  @ValidateNested({ each: true })
+  @Type(() => StaffAddressDto)
+  addresses: StaffAddressDto[];
 
   @IsArray()
-  emergencyContacts?: any;
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => StaffEmergencyContactDto)
+  emergencyContacts?: StaffEmergencyContactDto[];
 
   @IsObject()
   settings: any;
