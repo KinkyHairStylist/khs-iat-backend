@@ -16,7 +16,7 @@ import { BlogPostService } from '../services/blog-post.service';
 import { CreateBlogPostDto, UpdateBlogPostDto } from '../dtos/blog-post.dto';
 import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
 import { Public } from 'src/business/middlewares/public.decorator';
-import { CloudinaryService } from 'src/user/services/cloudinary.service';
+import { FirebaseStorageService } from 'src/shared/services/firebase-storage.service';
 import { fileUploadOptions } from 'src/middleware/file-upload.middleware';
 
 @ApiTags('Landing - Blog')
@@ -24,7 +24,7 @@ import { fileUploadOptions } from 'src/middleware/file-upload.middleware';
 export class BlogPostController {
   constructor(
     private readonly blogPostService: BlogPostService,
-    private readonly cloudinaryService: CloudinaryService,
+    private readonly firebaseStorageService: FirebaseStorageService,
   ) {}
 
   @Get()
@@ -56,8 +56,11 @@ export class BlogPostController {
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Upload a blog post cover image (admin)' })
   async uploadImage(@UploadedFile() file: Express.Multer.File) {
-    const url = await this.cloudinaryService.uploadFile(file);
-    return { success: true, data: { url } };
+    const { imageUrl } = await this.firebaseStorageService.uploadFromBuffer(
+      file,
+      'KHS/landing/blog',
+    );
+    return { success: true, data: { url: imageUrl } };
   }
 
   @Post()

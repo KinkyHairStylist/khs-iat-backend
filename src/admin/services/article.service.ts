@@ -4,14 +4,14 @@ import { Repository } from 'typeorm';
 import { Article } from '../../all_user_entities/article.entity';
 import { CreateArticleDto } from '../dtos/create-article.dto';
 import { User } from '../../all_user_entities/user.entity';
-import { CloudinaryService } from 'src/user/services/cloudinary.service';
+import { FirebaseStorageService } from 'src/shared/services/firebase-storage.service';
 
 @Injectable()
 export class ArticleService {
   constructor(
     @InjectRepository(Article)
     private readonly articleRepo: Repository<Article>,
-    private readonly cloudinaryService: CloudinaryService,
+    private readonly firebaseStorageService: FirebaseStorageService,
   ) {}
 
   async createArticle(
@@ -21,7 +21,11 @@ export class ArticleService {
   ): Promise<Article> {
     let fileUrl: string | undefined;
     if (file) {
-      fileUrl = await this.cloudinaryService.uploadFile(file);
+      const uploaded = await this.firebaseStorageService.uploadFromBuffer(
+        file,
+        'KHS/admin/articles',
+      );
+      fileUrl = uploaded.imageUrl;
     }
 
     const article = this.articleRepo.create({
