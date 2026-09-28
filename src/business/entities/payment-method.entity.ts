@@ -51,6 +51,18 @@ export class WalletPaymentMethod {
   @Column({ type: 'varchar', length: 100, nullable: true })
   sortCode: string;
 
+  // The currency the merchant wants to be paid out in, e.g. "NGN" while the
+  // wallet's own ledger currency stays USD — see WithdrawalService/
+  // CurrencyConversionService for how the two are reconciled at withdrawal
+  // time. A bank-tab payment method can't be saved without this.
+  @Column({ type: 'varchar', length: 3, nullable: true })
+  payoutCurrency: string;
+
+  // ISO2 (e.g. "NG") — which country this bank account is in. Informational;
+  // payoutCurrency alone drives the actual conversion math.
+  @Column({ type: 'varchar', length: 2, nullable: true })
+  country: string;
+
   // A card security code is never needed after it was entered and is never sent in a response.
   @Exclude({ toPlainOnly: true })
   @Column({ type: 'varchar', length: 100, nullable: true })

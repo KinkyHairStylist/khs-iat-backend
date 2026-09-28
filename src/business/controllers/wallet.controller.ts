@@ -19,6 +19,8 @@ import {
   CreateWalletDto,
   DebitWalletRequestDto,
   TransactionFiltersDto,
+  UpdatePayoutCurrencyDto,
+  WithdrawalPreviewDto,
 } from '../dtos/requests/WalletDto';
 import { BusinessWalletService } from '../services/wallet.service';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -147,6 +149,31 @@ export class BusinessWalletController {
     return result;
   }
 
+  // Adds a payout currency to a bank/card saved before this feature existed
+  // — without it, that account is invisible in the withdraw flow (see
+  // BusinessWalletService.updatePayoutCurrency).
+  @Patch('/payment-method/:id/payout-currency')
+  async updatePayoutCurrency(
+    @Request() req,
+    @Param('id') id: string,
+    @Body() body: UpdatePayoutCurrencyDto,
+  ) {
+    await this.assertOwnsWalletById(body.walletId, req.user);
+    const result = await this.walletService.updatePayoutCurrency(id, body.walletId, {
+      payoutCurrency: body.payoutCurrency,
+      country: body.country,
+    });
+
+    if (!result.success) {
+      throw new HttpException(
+        { message: result.message, error: result.error },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    return result;
+  }
+
   @Get('/payment-method-list/:walletId')
   async getWalletPaymentMethodList(
     @Request() req,
@@ -230,6 +257,21 @@ export class BusinessWalletController {
     }
 
     return result;
+  }
+
+  // Pure read — what the merchant would actually receive if they withdrew
+  // this amount right now, in their chosen payout method's currency.
+  // Safe to call on every amount keystroke or payout-method change.
+  @Post('/withdrawal-preview')
+  async previewWithdrawal(@Request() req, @Body() body: WithdrawalPreviewDto) {
+    await this.assertOwnsWalletById(body.walletId, req.user);
+    const wallet = await this.walletService.getWalletById(body.walletId);
+    const preview = await this.walletService.previewWithdrawal({
+      businessId: wallet.businessId,
+      amount: body.amount,
+      bankDetailsId: body.bankDetailsId,
+    });
+    return { success: true, data: preview };
   }
 
   @Patch('/debit')
