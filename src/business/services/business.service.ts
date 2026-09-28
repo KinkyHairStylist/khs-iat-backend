@@ -50,7 +50,7 @@ import { ClientSchema } from '../entities/client.entity';
 import { Address } from '../entities/address.entity';
 import { EditStaffDto } from '../dtos/requests/EditStaffDto';
 import { GoogleCalendarService } from 'src/integration/services/google-calendar.service';
-import { WalletCurrency } from 'src/admin/payment/enums/wallet.enum';
+import { PLATFORM_LEDGER_CURRENCY, WalletCurrency } from 'src/admin/payment/enums/wallet.enum';
 import { BusinessWalletService } from './wallet.service';
 import { MailchimpService } from 'src/integration/services/mailchimp.service';
 import { BusinessOwnerSettingsService } from './business-owner-settings.service';
@@ -214,7 +214,7 @@ export class BusinessService {
     await this.walletService.createWalletForBusiness({
       businessId: business.id,
       ownerId: owner.id,
-      currency: WalletCurrency.AUD,
+      currency: PLATFORM_LEDGER_CURRENCY,
     });
 
     try {
@@ -544,7 +544,7 @@ export class BusinessService {
           await this.walletService.createWalletForBusiness({
             businessId,
             ownerId,
-            currency: WalletCurrency.USD,
+            currency: PLATFORM_LEDGER_CURRENCY,
             description: 'Business wallet - auto-created from booking',
           });
         }

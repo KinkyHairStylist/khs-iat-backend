@@ -53,6 +53,9 @@ export class AddTransactionDto {
   @Min(0.01)
   amount: number;
 
+  // @deprecated ignored by WalletService.processTransaction/addFundsPending,
+  // which stamp the wallet's own `currency` instead — kept optional so old
+  // callers don't break, but setting this no longer has any effect.
   @IsOptional()
   @IsString()
   @MinLength(1)

@@ -26,6 +26,7 @@ import {
 } from '../entities/transaction.entity';
 import {
   PaymentMethodType,
+  PLATFORM_LEDGER_CURRENCY,
   WalletCurrency,
   WalletStatus,
 } from 'src/admin/payment/enums/wallet.enum';
@@ -95,7 +96,7 @@ export class BusinessWalletService {
       const wallet = this.walletRepository.create({
         businessId: createWalletDto.businessId,
         ownerId: createWalletDto.ownerId,
-        currency: createWalletDto.currency || WalletCurrency.NGN,
+        currency: createWalletDto.currency || PLATFORM_LEDGER_CURRENCY,
         description:
           createWalletDto.description || 'Business wallet - auto-created',
         balance: 0,
@@ -476,7 +477,7 @@ export class BusinessWalletService {
       method: addTransactionDto.method,
       type: TransactionType.EARNING,
       referenceId: addTransactionDto.referenceId,
-      currency: addTransactionDto.currency,
+      currency: wallet.currency,
       status: TransactionStatus.COMPLETED,
       mode: addTransactionDto.mode,
       description: addTransactionDto.description,
@@ -654,7 +655,7 @@ export class BusinessWalletService {
             ? addTransactionDto.recipientId
             : undefined,
         referenceId: addTransactionDto.referenceId,
-        currency: addTransactionDto.currency,
+        currency: wallet.currency,
         status:
           addTransactionDto.type === TransactionType.EARNING
             ? TransactionStatus.COMPLETED
