@@ -229,6 +229,19 @@ export class BusinessController {
   @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
   @Roles(Role.Merchant, Role.Staff, Role.BusinessStaff)
   @RequirePermission(Permission.MANAGE_STAFF)
+  @Post('upload-staff-image')
+  async uploadStaffImage(@Body() body: UploadServiceImageDto) {
+    const { imageUrl } = await this.businessFirebaseService.uploadImageFromBase64(
+      body.dataUri,
+      'KHS/staffImages',
+    );
+    return { success: true, data: { imageUrl } };
+  }
+
+  @ApiBearerAuth('access-token')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+  @Roles(Role.Merchant, Role.Staff, Role.BusinessStaff)
+  @RequirePermission(Permission.MANAGE_STAFF)
   @Post('editStaff/:staffId')
   async editStaff(
     @Req() req: RequestWithUser,

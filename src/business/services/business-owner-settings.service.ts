@@ -23,10 +23,7 @@ import {
   UpdateOwnerProfileDto,
   UpdateUserAddressDto,
 } from '../dtos/requests/BusinessOwnerSettingsDto';
-import {
-  // BusinessCloudinaryService,
-  FileUpload,
-} from './business-cloudinary.service';
+import { FileUpload } from 'src/shared/services/firebase-storage.service';
 import { BusinessFirebaseService } from './business-firebase.service';
 import { User } from 'src/all_user_entities/user.entity';
 import { ApiResponse } from '../types/client.types';
@@ -44,7 +41,6 @@ export class BusinessOwnerSettingsService {
 
     @InjectRepository(Business)
     private readonly businessRepo: Repository<Business>,
-    // private readonly businessCloudinaryService: BusinessCloudinaryService,
     private readonly businessFirebaseService: BusinessFirebaseService,
   ) {}
 

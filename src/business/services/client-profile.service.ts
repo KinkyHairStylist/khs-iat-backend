@@ -5,9 +5,9 @@ import { Client, ApiResponse } from '../types/client.types';
 import { ClientSchema } from '../entities/client.entity';
 import { CreateClientProfileDto } from '../dtos/requests/ClientDto';
 import {
-  BusinessCloudinaryService,
+  FirebaseStorageService,
   FileUpload,
-} from './business-cloudinary.service';
+} from 'src/shared/services/firebase-storage.service';
 import { Business } from '../entities/business.entity';
 
 @Injectable()
@@ -17,7 +17,7 @@ export class ClientProfileService {
     private readonly clientRepo: Repository<ClientSchema>,
     @InjectRepository(Business)
     private readonly businessRepo: Repository<Business>,
-    private readonly businessCloudinaryService: BusinessCloudinaryService,
+    private readonly firebaseStorageService: FirebaseStorageService,
   ) {}
 
   async createClientProfile(
@@ -59,7 +59,7 @@ export class ClientProfileService {
 
       if (bodyProfileImage) {
         try {
-          const { imageUrl } = await this.businessCloudinaryService.uploadImage(
+          const { imageUrl } = await this.firebaseStorageService.uploadReplacing(
             bodyProfileImage,
             folderPath,
           );
