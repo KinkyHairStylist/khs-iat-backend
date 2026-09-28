@@ -7,7 +7,7 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Wallet } from '../entities/wallet.entity';
 import {
   AddPaymentMethodDto,
@@ -44,6 +44,15 @@ import { EmailService } from 'src/email/email.service';
 import { TemplateService } from 'src/email/template.service';
 import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'src/notifications/notification.enum';
+
+// What KHS actually took out of a booking earning before crediting the
+// merchant — surfaced on the transaction so they can see it, not just the
+// net number that hit their balance.
+export interface FeeBreakdown {
+  grossAmount: number;
+  commissionAmount: number;
+  acquisitionFeeAmount: number;
+}
 
 @Injectable()
 export class BusinessWalletService {
@@ -922,7 +931,7 @@ export class BusinessWalletService {
     filters: TransactionFiltersDto,
   ): Promise<
     ApiResponse<{
-      transactionList: Transaction[];
+      transactionList: (Transaction & { feeBreakdown?: FeeBreakdown })[];
       meta: {
         total: number;
         page: number;
@@ -978,6 +987,13 @@ export class BusinessWalletService {
       /* --------- EXECUTE ---------- */
       const [transactionList, total] = await queryBuilder.getManyAndCount();
 
+      // Fee (commission/acquisition) transactions are excluded above so the
+      // merchant's ledger only shows what actually moved their balance, but
+      // that left them with no way to see what was taken out of an earning
+      // and why. Attach each earning's fee breakdown instead, keyed by the
+      // referenceId it shares with its fee rows.
+      await this.attachFeeBreakdown(transactionList);
+
       const totalPages = Math.ceil(total / limit);
       const startIndex = (page - 1) * limit + 1;
       const endIndex = Math.min(page * limit, total);
@@ -1009,6 +1025,46 @@ export class BusinessWalletService {
         success: false,
         error: error.message,
         message: 'Failed to fetch Transaction history',
+      };
+    }
+  }
+
+  // Fee transactions share a referenceId with the earning they were taken
+  // from (both created off the same booking/order) — batched into one
+  // query rather than looking each one up per row.
+  private async attachFeeBreakdown(
+    transactionList: (Transaction & { feeBreakdown?: FeeBreakdown })[],
+  ): Promise<void> {
+    const referenceIds = [
+      ...new Set(
+        transactionList
+          .filter((t) => t.type === TransactionType.EARNING && t.referenceId)
+          .map((t) => t.referenceId),
+      ),
+    ];
+    if (referenceIds.length === 0) return;
+
+    const feeRows = await this.transactionRepository.find({
+      where: { type: TransactionType.FEE, referenceId: In(referenceIds) },
+    });
+    if (feeRows.length === 0) return;
+
+    const feesByReference = new Map<string, { commission: number; acquisition: number }>();
+    for (const fee of feeRows) {
+      const entry = feesByReference.get(fee.referenceId) ?? { commission: 0, acquisition: 0 };
+      if (fee.feeSubtype === 'Commission') entry.commission += Number(fee.amount);
+      else if (fee.feeSubtype === 'Acquisition') entry.acquisition += Number(fee.amount);
+      feesByReference.set(fee.referenceId, entry);
+    }
+
+    for (const t of transactionList) {
+      const fees = t.referenceId ? feesByReference.get(t.referenceId) : undefined;
+      if (!fees) continue;
+      const netAmount = Number(t.amount);
+      t.feeBreakdown = {
+        grossAmount: Math.round((netAmount + fees.commission + fees.acquisition) * 100) / 100,
+        commissionAmount: fees.commission,
+        acquisitionFeeAmount: fees.acquisition,
       };
     }
   }
