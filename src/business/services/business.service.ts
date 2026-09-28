@@ -44,6 +44,7 @@ import { AssignStaffToBookingDto } from '../dtos/assign-staff-to-booking.dto';
 import { Service } from '../entities/service.entity';
 import { AdvertisementPlan } from '../entities/advertisement-plan.entity';
 import { CreateStaffDto } from '../dtos/requests/AddStaffDto';
+import { StaffAddressDto, StaffEmergencyContactDto } from '../dtos/requests/StaffSubDtos';
 import { EmergencyContact } from '../entities/emergency-contact.entity';
 import { ClientSchema } from '../entities/client.entity';
 import { Address } from '../entities/address.entity';
@@ -1036,7 +1037,7 @@ export class BusinessService {
 
     // Handle emergency contacts
     if (emergencyContacts?.length) {
-      const cleanContacts = emergencyContacts.map((contact: any) => {
+      const cleanContacts: EmergencyContact[] = emergencyContacts.map((contact: StaffEmergencyContactDto & { id?: string }) => {
         const { id, ...rest } = contact;
         return this.emergencyRepo.create({ ...rest, staff });
       });
@@ -1045,7 +1046,7 @@ export class BusinessService {
 
     // Handle addresses
     if (addresses?.length) {
-      const cleanAddresses = addresses.map((addr: any) => {
+      const cleanAddresses: Address[] = addresses.map((addr: StaffAddressDto & { id?: string }) => {
         const { id, ...rest } = addr;
         return this.addressRepo.create({ ...rest, staff });
       });
