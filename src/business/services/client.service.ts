@@ -22,9 +22,9 @@ import { groupAppointmentsByClient, summarizeClientAppointments } from '../utils
 import { clientSegment, newClientCutoff } from '../utils/client-segments';
 import { ClientFiltersDto, UpdateClientDto } from '../dtos/requests/ClientDto';
 import {
-  BusinessCloudinaryService,
+  FirebaseStorageService,
   FileUpload,
-} from './business-cloudinary.service';
+} from 'src/shared/services/firebase-storage.service';
 import { PasswordHashingHelper } from 'src/helpers/password-hashing.helper';
 import { User } from 'src/all_user_entities/user.entity';
 import { Appointment } from '../entities/appointment.entity';
@@ -60,7 +60,7 @@ export class ClientService {
     @InjectRepository(Appointment)
     private readonly appointmentRepo: Repository<Appointment>,
 
-    private readonly businessCloudinaryService: BusinessCloudinaryService,
+    private readonly firebaseStorageService: FirebaseStorageService,
     private readonly dataSource: DataSource,
   ) {
     const apiKey = process.env.SENDGRID_API_KEY;
@@ -301,6 +301,7 @@ export class ClientService {
     bodyProfileImage: FileUpload,
   ): Promise<ApiResponse<any>> {
     let profileImage: string | undefined;
+    let uploadFolderPath: string | undefined;
 
     try {
       // STEP 1: VALIDATE — all preconditions checked before any write or slow I/O
@@ -316,7 +317,8 @@ export class ClientService {
             .trim()
             .replace(/\s+/g, '_');
         const folderPath = `KHS/business/${business.businessName}/clients/${clientName}`;
-        const { imageUrl } = await this.businessCloudinaryService.uploadImage(
+        uploadFolderPath = folderPath;
+        const { imageUrl } = await this.firebaseStorageService.uploadReplacing(
           bodyProfileImage,
           folderPath,
         );
@@ -413,14 +415,12 @@ export class ClientService {
     } catch (error) {
       console.error('Create client error:', error);
 
-      // Cleanup Cloudinary image if DB writes failed after upload
-      if (profileImage) {
+      // Cleanup the uploaded image if DB writes failed after upload
+      if (profileImage && uploadFolderPath) {
         try {
-          await this.businessCloudinaryService.deleteBusinessImage(
-            profileImage,
-          );
+          await this.firebaseStorageService.deleteByPrefix(uploadFolderPath);
         } catch (cleanupError) {
-          console.error('Failed to cleanup Cloudinary image:', cleanupError);
+          console.error('Failed to cleanup uploaded image:', cleanupError);
         }
       }
 
@@ -846,7 +846,7 @@ export class ClientService {
         if (bodyProfileImage) {
           try {
             const { imageUrl } =
-              await this.businessCloudinaryService.uploadImage(
+              await this.firebaseStorageService.uploadReplacing(
                 bodyProfileImage,
                 folderPath,
               );
