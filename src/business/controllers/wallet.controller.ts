@@ -19,6 +19,7 @@ import {
   CreateWalletDto,
   DebitWalletRequestDto,
   TransactionFiltersDto,
+  UpdatePayoutCurrencyDto,
   WithdrawalPreviewDto,
 } from '../dtos/requests/WalletDto';
 import { BusinessWalletService } from '../services/wallet.service';
@@ -137,6 +138,31 @@ export class BusinessWalletController {
 
     await this.assertOwnsWalletById(paymentMethodData.walletId, req.user);
     const result = await this.walletService.addPaymentMethod(paymentMethodData);
+
+    if (!result.success) {
+      throw new HttpException(
+        { message: result.message, error: result.error },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    return result;
+  }
+
+  // Adds a payout currency to a bank/card saved before this feature existed
+  // — without it, that account is invisible in the withdraw flow (see
+  // BusinessWalletService.updatePayoutCurrency).
+  @Patch('/payment-method/:id/payout-currency')
+  async updatePayoutCurrency(
+    @Request() req,
+    @Param('id') id: string,
+    @Body() body: UpdatePayoutCurrencyDto,
+  ) {
+    await this.assertOwnsWalletById(body.walletId, req.user);
+    const result = await this.walletService.updatePayoutCurrency(id, body.walletId, {
+      payoutCurrency: body.payoutCurrency,
+      country: body.country,
+    });
 
     if (!result.success) {
       throw new HttpException(

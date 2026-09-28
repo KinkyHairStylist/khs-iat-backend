@@ -860,6 +860,49 @@ export class BusinessWalletService {
     }
   }
 
+  /**
+   * Attach (or change) a payout currency/country on a payment method that
+   * already exists — the only way an account saved before this feature
+   * shipped can become usable for withdrawal, short of adding a whole new
+   * duplicate one. Never touches the bank/card details themselves.
+   */
+  async updatePayoutCurrency(
+    paymentMethodId: string,
+    walletId: string,
+    updates: { payoutCurrency: WalletCurrency; country?: string },
+  ): Promise<ApiResponse<WalletPaymentMethod>> {
+    try {
+      const paymentMethod = await this.paymentMethodRepository.findOne({
+        where: { id: paymentMethodId, walletId, isActive: true },
+      });
+      if (!paymentMethod) {
+        return {
+          success: false,
+          error: 'Payment method not found',
+          message: 'Payment method not found for this wallet',
+        };
+      }
+
+      paymentMethod.payoutCurrency = updates.payoutCurrency;
+      if (updates.country !== undefined) {
+        paymentMethod.country = updates.country;
+      }
+      const saved = await this.paymentMethodRepository.save(paymentMethod);
+
+      return {
+        success: true,
+        data: saved,
+        message: 'Payout currency updated successfully',
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+        message: 'Failed to update payout currency',
+      };
+    }
+  }
+
   async getAvailablePaymentMethodTypes(): Promise<
     Array<{
       type: PaymentMethodType;

@@ -65,7 +65,12 @@ export class Withdrawal {
   @Column({ type: 'decimal', precision: 18, scale: 8, nullable: true })
   exchangeRate: number | null;
 
-  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  // Wider than `amount` on purpose: converting into a currency with a large
+  // exchange rate (e.g. USD->NGN) can multiply the digit count well past a
+  // typical withdrawal's size, and this should fail loudly at the DTO/service
+  // layer with a clear error rather than at the database with a silent
+  // truncation or a thrown numeric-overflow error.
+  @Column({ type: 'decimal', precision: 14, scale: 2, nullable: true })
   payoutAmount: number | null;
 
   // Pending: waiting for KHS to review. Processing: approved, KHS is sending the money. Completed: KHS

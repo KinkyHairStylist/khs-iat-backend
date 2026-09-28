@@ -173,6 +173,23 @@ export class CreateWithdrawalDto {
   currentBalance: number;
 }
 
+// Lets a merchant attach a payout currency to a bank/card they saved before
+// this feature existed, without having to re-enter the whole thing as a
+// duplicate payment method. Deliberately narrow — only the two payout
+// fields, never the bank/card details themselves.
+export class UpdatePayoutCurrencyDto {
+  @IsUUID()
+  walletId: string;
+
+  @IsEnum(WalletCurrency)
+  payoutCurrency: WalletCurrency;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  country?: string;
+}
+
 export class WithdrawalPreviewDto {
   @IsUUID()
   walletId: string;

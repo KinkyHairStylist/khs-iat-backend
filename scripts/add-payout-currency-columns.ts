@@ -35,7 +35,7 @@ async function run() {
     { label: 'withdrawals.currency', sql: `ALTER TABLE "withdrawals" ADD COLUMN IF NOT EXISTS "currency" varchar(3) NOT NULL DEFAULT 'USD';` },
     { label: 'withdrawals.payoutCurrency', sql: `ALTER TABLE "withdrawals" ADD COLUMN IF NOT EXISTS "payoutCurrency" varchar(3);` },
     { label: 'withdrawals.exchangeRate', sql: `ALTER TABLE "withdrawals" ADD COLUMN IF NOT EXISTS "exchangeRate" numeric(18,8);` },
-    { label: 'withdrawals.payoutAmount', sql: `ALTER TABLE "withdrawals" ADD COLUMN IF NOT EXISTS "payoutAmount" numeric(10,2);` },
+    { label: 'withdrawals.payoutAmount', sql: `ALTER TABLE "withdrawals" ADD COLUMN IF NOT EXISTS "payoutAmount" numeric(14,2);` },
   ];
 
   for (const { label, sql } of statements) {
