@@ -218,21 +218,24 @@ export class WebhookController {
     return { received: true };
   }
 
+  // Real event names + payload shape confirmed directly from the Airwallex
+  // sandbox dashboard's own sample-payload viewer (2026-09-29), not guessed:
+  // the webhook fires `{ id, name, account_id, data: { id, status, ...the
+  // whole transfer object... }, created_at, version }` — `name` is one of
+  // these four (plus intermediate ones this app doesn't subscribe to, like
+  // payout.transfer.processing/scheduled), and `data.id`/`data.status` are
+  // the transfer's own id/status, the exact same values createTransfer's
+  // response and retrieveTransfer already return.
+  private static readonly AIRWALLEX_TRANSFER_EVENTS = new Set([
+    'payout.transfer.sent',
+    'payout.transfer.paid',
+    'payout.transfer.failed',
+    'payout.transfer.cancelled',
+  ]);
+
   /**
    * Airwallex webhook endpoint
    * URL: POST /api/webhook/airwallex
-   *
-   * The real event name for a transfer status change was never confirmed
-   * this session — Airwallex webhooks can't be created via this account's
-   * API (POST /webhooks returns 405, dashboard-only), and the docs site is
-   * fully JS-rendered so it couldn't be scraped either. Rather than block
-   * on that, this handler is deliberately self-teaching: it logs the full
-   * payload of the FIRST real event it ever receives (via Slack, capped to
-   * a readable size) so the real event/field names can be read off that
-   * alert, then makes a best-effort, defensively-guarded attempt to extract
-   * a transfer id + status from a few plausible shapes. Tighten the
-   * matching once a real event has actually been seen — this is scaffolding
-   * for that moment, not a finished integration.
    *
    * Requires the raw request body (see the express.raw() middleware
    * registered for this exact path in main.ts) — signature verification
@@ -273,42 +276,34 @@ export class WebhookController {
       return { received: true };
     }
 
-    const eventName = event?.name ?? event?.type ?? event?.event_type ?? '(unknown field)';
-    this.logger.log(`Airwallex webhook received: ${eventName}`);
+    const eventName: string = event?.name ?? '(missing name field)';
 
-    // First-ever-seen logging: teaches us the real shape from the Slack
-    // alert. Loud on purpose — this should stop firing once the real event
-    // name is confirmed and this handler is tightened to match it exactly.
-    SlackService.notify({
-      node: SlackNode.PAYMENT,
-      provider: SlackProvider.SYSTEM,
-      severity: SlackSeverity.INFO,
-      type: SlackEventType.PAYMENT_SUCCESS,
-      trigger: `Airwallex webhook received: ${eventName}`,
-      body: `Use this to confirm the real event name/shape and tighten webhook.controller.ts's handleAirwallexWebhook accordingly.
-Payload: ${JSON.stringify(event).slice(0, 2000)}`,
-    });
+    if (!WebhookController.AIRWALLEX_TRANSFER_EVENTS.has(eventName)) {
+      // Anything else this webhook is subscribed to (or a future event type
+      // added on the dashboard later) — not an error, just not one this app
+      // needs to act on.
+      this.logger.log(`Unhandled Airwallex event: ${eventName}`);
+      return { received: true };
+    }
 
     try {
-      // Best-effort extraction across a few plausible shapes — not
-      // confirmed against a real event yet (see the method doc above).
-      const transferObject =
-        event?.data?.object ?? event?.data?.transfer ?? event?.data ?? event;
-      const transferId: string | undefined = transferObject?.id;
-      const status: string | undefined = transferObject?.status;
-      const failureType: string | undefined = transferObject?.failure_type;
+      const transfer = event.data;
+      const transferId: string | undefined = transfer?.id;
+      const status: string | undefined = transfer?.status;
+      const failureType: string | undefined = transfer?.failure_type;
 
-      if (transferId && status) {
-        await this.businessWalletService.handleAirwallexTransferStatus(
-          transferId,
-          status,
-          failureType,
-        );
-      } else {
-        this.logger.warn(
-          `Airwallex webhook ${eventName}: could not extract a transfer id/status from the payload — see the Slack alert above for the real shape.`,
-        );
+      if (!transferId || !status) {
+        // Shouldn't happen given the confirmed shape above, but a webhook
+        // handler must never throw on an unexpected payload.
+        this.logger.warn(`Airwallex webhook ${eventName} had no data.id/data.status: ${JSON.stringify(event).slice(0, 500)}`);
+        return { received: true };
       }
+
+      await this.businessWalletService.handleAirwallexTransferStatus(
+        transferId,
+        status,
+        failureType,
+      );
     } catch (error) {
       this.logger.error(
         `Error processing Airwallex webhook event ${eventName}: ${error.message}`,
