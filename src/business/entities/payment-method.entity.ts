@@ -78,6 +78,31 @@ export class WalletPaymentMethod {
   @Column({ type: 'boolean', default: false })
   stripePayoutsEnabled: boolean;
 
+  // Only set on a type: AIRWALLEX_CONNECT row. Unlike Stripe's
+  // stripeAccountId, this id alone means "ready" — an Airwallex Beneficiary
+  // is usable the instant it's created, there's no onboarding-in-progress
+  // state to wait on, so there's no equivalent of stripePayoutsEnabled here.
+  // payoutCurrency (above) is set immediately at creation time for this
+  // rail, not left null pending a webhook.
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  airwallexBeneficiaryId: string;
+
+  // The raw form-submitted bank-detail fields (account name/number, SWIFT
+  // code, address, etc.), keyed exactly as Airwallex's form-schema API
+  // named them. Needed because — unlike Stripe Express, which never hands
+  // this app the merchant's bank fields at all — Airwallex's Beneficiaries
+  // model requires KHS to collect and hold them directly; ReviewWithdrawalModal
+  // on the frontend renders this for an admin the way it renders bank/card
+  // fields for a plain bank_account row.
+  @Column({ type: 'jsonb', nullable: true })
+  airwallexBeneficiaryDetails: Record<string, unknown> | null;
+
+  // 'LOCAL' or 'SWIFT' — stamped from whichever transfer method the form
+  // schema was fetched for at beneficiary-creation time, so
+  // claimAutomaticPayout doesn't need to re-derive it later.
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  airwallexTransferMethod: string;
+
   // A card security code is never needed after it was entered and is never sent in a response.
   @Exclude({ toPlainOnly: true })
   @Column({ type: 'varchar', length: 100, nullable: true })

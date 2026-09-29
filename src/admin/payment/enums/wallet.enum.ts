@@ -30,6 +30,13 @@ export enum PaymentMethodType {
   // live on Stripe's side, not in accountNumber/bankName here. See
   // stripeAccountId/stripePayoutsEnabled on WalletPaymentMethod.
   STRIPE_CONNECT = 'stripe_connect',
+  // An Airwallex Beneficiary — unlike Stripe Connect, the merchant's bank
+  // details ARE collected directly by this app (via Airwallex's dynamic
+  // form-schema API) and stored on airwallexBeneficiaryDetails, because
+  // Airwallex's Beneficiaries+Transfers model has no per-merchant
+  // sub-account to hold them on its own side. See airwallexBeneficiaryId
+  // on WalletPaymentMethod.
+  AIRWALLEX_CONNECT = 'airwallex_connect',
 }
 export enum PaymentModeType {
   PAYSTACK = 'paystack',
