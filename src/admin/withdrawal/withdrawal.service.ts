@@ -154,12 +154,30 @@ export class WithdrawalService {
   // throwing) falls back to exactly the historical manual behavior: only
   // the status flips, an admin sends it by hand and marks it paid later.
   async approve(id: string): Promise<Withdrawal> {
-    const withdrawal = await this.findOne(id);
-    this.assertStatus(withdrawal, ['Pending']);
+    // Claim it under a row lock first, in its own short transaction — two
+    // concurrent Approve clicks (a slow double-click, two admins on the same
+    // queue) must not both pass the Pending check and both fire a real
+    // Stripe transfer. `loadEagerRelations: false` here on purpose: Postgres
+    // can't apply FOR UPDATE across bankDetails' outer join, so this locks
+    // only the withdrawals row itself — bankDetails is re-loaded via the
+    // plain findOne below, after the lock is already released. The transfer
+    // attempt further down intentionally happens outside this transaction
+    // entirely (an external HTTP call must never run inside a held row lock).
+    await this.withdrawalRepo.manager.transaction(async (manager) => {
+      const locked = await manager.findOne(Withdrawal, {
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+        loadEagerRelations: false,
+      });
+      if (!locked) throw new NotFoundException('Withdrawal not found');
+      this.assertStatus(locked, ['Pending']);
 
-    withdrawal.status = 'Processing';
-    withdrawal.reviewedAt = new Date();
+      locked.status = 'Processing';
+      locked.reviewedAt = new Date();
+      await manager.save(Withdrawal, locked);
+    });
 
+    const withdrawal = await this.findOne(id); // bankDetails eager-loaded here
     const bank = withdrawal.bankDetails;
     const canGoAutomatic =
       process.env.STRIPE_CONNECT_ENABLED === 'true' &&
@@ -169,6 +187,11 @@ export class WithdrawalService {
 
     if (canGoAutomatic) {
       try {
+        // Only a failure of the transfer ITSELF should fall back to manual —
+        // once Stripe confirms the money actually moved, nothing after this
+        // point may undo payoutMethod/status back to 'manual', or a
+        // successful automatic payout would be mislabeled as one an admin
+        // still needs to send by hand.
         const transfer = await this.stripeService.createTransfer({
           amount: Math.round(Number(withdrawal.payoutAmount ?? withdrawal.amount) * 100),
           currency: (withdrawal.payoutCurrency ?? withdrawal.currency).toLowerCase(),
@@ -179,12 +202,6 @@ export class WithdrawalService {
         withdrawal.payoutMethod = 'stripe';
         withdrawal.payoutReference = transfer.id;
         withdrawal.paidAt = new Date();
-        if (withdrawal.transactionId) {
-          await this.transactionRepo.update(
-            { id: withdrawal.transactionId },
-            { status: TransactionStatus.COMPLETED },
-          );
-        }
       } catch (error) {
         // Never leave it half-done — fall back to the manual path an admin
         // can still complete by hand.
@@ -202,6 +219,33 @@ export class WithdrawalService {
           body: `The automatic Stripe transfer for withdrawal ${withdrawal.id} (${withdrawal.businessName}) failed and fell back to manual. Send it by hand and mark it paid.
 Error: ${error.message}`,
         });
+      }
+
+      // Separate from the transfer itself: a failure here means the transfer
+      // genuinely succeeded but our own bookkeeping didn't update — log and
+      // alert, but don't touch payoutMethod/status, which already correctly
+      // reflect that the money moved.
+      if (withdrawal.status === 'Completed' && withdrawal.transactionId) {
+        try {
+          await this.transactionRepo.update(
+            { id: withdrawal.transactionId },
+            { status: TransactionStatus.COMPLETED },
+          );
+        } catch (error) {
+          this.logger.error(
+            `Stripe transfer for withdrawal ${id} succeeded but updating its transaction record failed: ${error.message}`,
+            error.stack,
+          );
+          SlackService.notify({
+            node: SlackNode.PAYMENT,
+            provider: SlackProvider.STRIPE,
+            severity: SlackSeverity.ERROR,
+            type: SlackEventType.ERROR_ALERT,
+            trigger: `Bookkeeping update failed after a successful payout: ${withdrawal.businessName}`,
+            body: `The automatic Stripe transfer for withdrawal ${withdrawal.id} succeeded, but its linked transaction record could not be marked completed. Check transaction ${withdrawal.transactionId} by hand.
+Error: ${error.message}`,
+          });
+        }
       }
     }
     // else: no automatic rail available — payoutMethod stays 'manual',
