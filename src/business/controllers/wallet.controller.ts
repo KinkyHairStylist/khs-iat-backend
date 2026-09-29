@@ -16,8 +16,11 @@
 import {
   AddPaymentMethodDto,
   AddTransactionDto,
+  AirwallexFormSchemaDto,
+  CreateAirwallexBeneficiaryDto,
   CreateWalletDto,
   DebitWalletRequestDto,
+  StripeConnectOnboardingDto,
   TransactionFiltersDto,
   UpdatePayoutCurrencyDto,
   WithdrawalPreviewDto,
@@ -274,6 +277,79 @@ export class BusinessWalletController {
     return { success: true, data: preview };
   }
 
+  // A hosted Stripe onboarding URL for automatic payouts — the merchant is
+  // redirected to Stripe's own pages to connect (or finish connecting) an
+  // Express account; this app never collects their bank details directly
+  // for this path.
+  @Post('/stripe-connect/onboarding-link')
+  async getStripeConnectOnboardingLink(
+    @Request() req,
+    @Body() body: StripeConnectOnboardingDto,
+  ) {
+    await this.assertOwnsWalletById(body.walletId, req.user);
+    const wallet = await this.walletService.getWalletById(body.walletId);
+    const result = await this.walletService.getOrCreateStripeConnectOnboardingLink({
+      walletId: body.walletId,
+      businessId: wallet.businessId,
+      payoutCurrency: body.payoutCurrency,
+    });
+    return { success: true, data: result };
+  }
+
+  // The dynamic, per-corridor required-field list for the Airwallex
+  // beneficiary form — Airwallex's own recommended mechanism, so this app
+  // never hardcodes per-country bank-field requirements. No wallet-scoped
+  // ownership check needed (no wallet id involved, just a field-schema
+  // lookup for whatever country the merchant is in).
+  @Post('/airwallex/form-schema')
+  async getAirwallexFormSchema(@Body() body: AirwallexFormSchemaDto) {
+    const schema = await this.walletService.getAirwallexFormSchema({
+      country: body.country,
+      currency: body.currency,
+      transferMethod: body.transferMethod,
+      localClearingSystem: body.localClearingSystem,
+    });
+    return { success: true, data: schema };
+  }
+
+  // Creates the merchant's Airwallex Beneficiary — this app collects their
+  // bank details directly (unlike Stripe's hosted redirect) because
+  // Airwallex's Beneficiaries+Transfers model has no per-merchant
+  // sub-account to hold them on its own side.
+  @Post('/airwallex/beneficiary')
+  async createAirwallexBeneficiary(
+    @Request() req,
+    @Body() body: CreateAirwallexBeneficiaryDto,
+  ) {
+    await this.assertOwnsWalletById(body.walletId, req.user);
+    const wallet = await this.walletService.getWalletById(body.walletId);
+    const method = await this.walletService.createAirwallexBeneficiary({
+      walletId: body.walletId,
+      businessId: wallet.businessId,
+      country: body.country,
+      currency: body.currency,
+      transferMethod: body.transferMethod,
+      localClearingSystem: body.localClearingSystem,
+      answers: body.answers,
+    });
+    return { success: true, data: method };
+  }
+
+  // On-demand confirmation of an in-flight Airwallex transfer — the only
+  // confirmation path in this first version (no webhook wired yet). A
+  // no-op unless the withdrawal is currently 'Submitted'.
+  @Patch('/withdrawals/:withdrawalId/refresh-status')
+  async refreshWithdrawalStatus(
+    @Request() req,
+    @Param('withdrawalId') withdrawalId: string,
+  ) {
+    const withdrawal = await this.walletService.refreshAirwallexWithdrawalStatus(
+      withdrawalId,
+      req.user,
+    );
+    return { success: true, data: withdrawal };
+  }
+
   @Patch('/debit')
   async debitWallet(@Request() req, @Body() body: DebitWalletRequestDto) {
     const ownerId = req.user.id || req.user.sub;
@@ -306,5 +382,15 @@ export class BusinessWalletController {
   async cancelWithdrawal(@Request() req, @Param('withdrawalId') withdrawalId: string) {
     const withdrawal = await this.walletService.cancelWithdrawal(withdrawalId, req.user);
     return { success: true, data: withdrawal, message: 'Withdrawal request cancelled' };
+  }
+
+  // A salon pulls an admin-approved withdrawal to their own connected Stripe
+  // account, themselves — the real transfer fires here, not when the admin
+  // approved it. Only ever succeeds for a Stripe-Connect-eligible payout
+  // method; anything else still needs an admin to send it by hand.
+  @Patch('/withdrawals/:withdrawalId/claim')
+  async claimWithdrawal(@Request() req, @Param('withdrawalId') withdrawalId: string) {
+    const withdrawal = await this.walletService.claimAutomaticPayout(withdrawalId, req.user);
+    return { success: true, data: withdrawal, message: 'Withdrawal sent to your Stripe account' };
   }
 }

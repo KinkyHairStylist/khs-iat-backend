@@ -46,6 +46,34 @@ import { TemplateService } from 'src/email/template.service';
 import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'src/notifications/notification.enum';
 import { CurrencyConversionService } from './currency-conversion.service';
+import { StripeService } from 'src/payment/stripe.service';
+import { AirwallexService } from 'src/payment/airwallex.service';
+
+// A manually-curated fee table for the previewWithdrawal disclosure only —
+// Airwallex has no no-commitment quote endpoint (confirmed live: both
+// /transfers/estimate and /transfers/quote are routed as GET /transfers/{id}
+// by the real API, neither is a real endpoint), so the exact fee is only
+// ever known for certain once a real transfer is created. This is a stated
+// approximation, not authoritative — the real fee is what
+// claimAutomaticPayout's Airwallex branch actually reports back. Keyed by
+// `${bankCountryCode}_${transferMethod}`; countries/methods not listed here
+// show no estimate rather than a guessed number.
+const AIRWALLEX_FEE_TABLE: Record<string, { amount: number; currency: string }> = {
+  // Confirmed live 2026-09-29: flat, not a percentage (identical on a $10
+  // and a $500 test transfer).
+  NG_SWIFT: { amount: 14.1, currency: 'USD' },
+  // Confirmed live 2026-09-29 — LOCAL transfers (SEPA for the euro
+  // countries, Faster Payments for the UK, ACH for the US) were fee-free
+  // across every corridor actually tested, unlike the SWIFT fallback above.
+  // Real per-corridor test transfers, not assumed from LOCAL being free in
+  // just one of them.
+  US_LOCAL: { amount: 0, currency: 'USD' },
+  GB_LOCAL: { amount: 0, currency: 'GBP' },
+  DE_LOCAL: { amount: 0, currency: 'EUR' },
+  FR_LOCAL: { amount: 0, currency: 'EUR' },
+  ES_LOCAL: { amount: 0, currency: 'EUR' },
+  IE_LOCAL: { amount: 0, currency: 'EUR' },
+};
 
 // What KHS actually took out of a booking earning before crediting the
 // merchant — surfaced on the transaction so they can see it, not just the
@@ -75,6 +103,8 @@ export class BusinessWalletService {
     private readonly templateService: TemplateService,
     private readonly notificationService: NotificationService,
     private readonly currencyConversionService: CurrencyConversionService,
+    private readonly stripeService: StripeService,
+    private readonly airwallexService: AirwallexService,
   ) {}
 
   async createWalletForBusiness(
@@ -405,6 +435,8 @@ export class BusinessWalletService {
     payoutCurrency: string;
     exchangeRate: number;
     payoutAmount: number;
+    estimatedFee?: number;
+    feeCurrency?: string;
   }> {
     const amount = Math.round(Number(params.amount) * 100) / 100;
     if (!Number.isFinite(amount) || amount <= 0) {
@@ -433,7 +465,315 @@ export class BusinessWalletService {
       bankDetails.payoutCurrency,
     );
 
-    return { amount, ...conversion };
+    // Airwallex only: the merchant absorbs any transfer fee (fee_paid_by:
+    // BENEFICIARY, decided since KHS's own balance shouldn't carry a
+    // corridor-specific cost) — see AIRWALLEX_FEE_TABLE's comment for why
+    // this is an estimate, not a quote.
+    let estimatedFee: number | undefined;
+    let feeCurrency: string | undefined;
+    if (
+      bankDetails.type === PaymentMethodType.AIRWALLEX_CONNECT &&
+      bankDetails.country &&
+      bankDetails.airwallexTransferMethod
+    ) {
+      const fee =
+        AIRWALLEX_FEE_TABLE[`${bankDetails.country}_${bankDetails.airwallexTransferMethod}`];
+      if (fee) {
+        estimatedFee = fee.amount;
+        feeCurrency = fee.currency;
+      }
+    }
+
+    return { amount, ...conversion, estimatedFee, feeCurrency };
+  }
+
+  /**
+   * The merchant pulls an admin-approved withdrawal to their own Stripe
+   * Connect account themselves — the actual transfer fires here, on their
+   * action, not when the admin approved it. Locked the same way
+   * WithdrawalService.approve is, for the same reason: two clicks on the
+   * same withdrawal must not both fire a real transfer.
+   */
+  async claimAutomaticPayout(withdrawalId: string, user: any): Promise<Withdrawal> {
+    await this.withdrawalRepository.manager.transaction(async (manager) => {
+      const locked = await manager.findOne(Withdrawal, {
+        where: { id: withdrawalId },
+        lock: { mode: 'pessimistic_write' },
+        loadEagerRelations: false,
+      });
+      if (!locked) throw new NotFoundException('Withdrawal not found');
+
+      // Same ownership check as cancelWithdrawal — the wallet's own owner,
+      // or staff.
+      const wallet = await manager.findOne(Wallet, { where: { businessId: locked.businessId } });
+      const userId = user?.id ?? user?.sub;
+      if (!user?.isStaff && (!wallet || !userId || wallet.ownerId !== userId)) {
+        throw new ForbiddenException('You can only withdraw your own business\'s requests');
+      }
+
+      if (locked.status !== 'Processing') {
+        throw new BadRequestException(
+          `This withdrawal is ${locked.status.toLowerCase()}, not ready to withdraw`,
+        );
+      }
+      // No further changes here — just holding the lock through the
+      // ownership/status check above so a second concurrent claim can't
+      // slip past it. The real state change happens below, after release.
+    });
+
+    const withdrawal = await this.withdrawalRepository.findOne({ where: { id: withdrawalId } });
+    if (!withdrawal) throw new NotFoundException('Withdrawal not found');
+
+    const bank = withdrawal.bankDetails;
+    const stripeEligible =
+      process.env.STRIPE_CONNECT_ENABLED === 'true' &&
+      bank?.type === PaymentMethodType.STRIPE_CONNECT &&
+      !!bank.stripeAccountId &&
+      bank.stripePayoutsEnabled;
+    const airwallexEligible =
+      process.env.AIRWALLEX_ENABLED === 'true' &&
+      bank?.type === PaymentMethodType.AIRWALLEX_CONNECT &&
+      !!bank.airwallexBeneficiaryId;
+
+    if (!stripeEligible && !airwallexEligible) {
+      throw new BadRequestException(
+        'This withdrawal is not set up for self-serve withdrawal — an admin will send it by hand',
+      );
+    }
+
+    if (stripeEligible) {
+      try {
+        const transfer = await this.stripeService.createTransfer({
+          amount: Math.round(Number(withdrawal.payoutAmount ?? withdrawal.amount) * 100),
+          currency: (withdrawal.payoutCurrency ?? withdrawal.currency).toLowerCase(),
+          destinationAccountId: bank.stripeAccountId,
+          metadata: { withdrawalId: withdrawal.id },
+        });
+        withdrawal.status = 'Completed';
+        withdrawal.payoutMethod = 'stripe';
+        withdrawal.payoutReference = transfer.id;
+        withdrawal.paidAt = new Date();
+      } catch (error) {
+        this.logger.error(
+          `Merchant-claimed Stripe transfer failed for withdrawal ${withdrawalId}: ${error.message}`,
+          error.stack,
+        );
+        SlackService.notify({
+          node: SlackNode.PAYMENT,
+          provider: SlackProvider.STRIPE,
+          severity: SlackSeverity.ERROR,
+          type: SlackEventType.ERROR_ALERT,
+          trigger: `Merchant-claimed payout failed: ${withdrawal.businessName}`,
+          body: `The merchant tried to withdraw ${withdrawal.id} (${withdrawal.businessName}) to their connected Stripe account and it failed. It's still Processing — they can retry, or send it by hand.
+Error: ${error.message}`,
+        });
+        // Stays Processing — the merchant can see the error and retry, or an
+        // admin can still fall back to sending it by hand.
+        throw new BadRequestException(
+          `Could not send this withdrawal to your Stripe account: ${error.message}`,
+        );
+      }
+    } else {
+      // Airwallex: the create call only means "accepted", not "delivered" —
+      // see AirwallexService's class doc. Status lands on 'Submitted', not
+      // 'Completed', until a refresh (or, later, a webhook) confirms
+      // SENT/PAID via handleAirwallexTransferStatus.
+      try {
+        const transfer = await this.airwallexService.createTransfer({
+          amount: Number(withdrawal.payoutAmount ?? withdrawal.amount),
+          sourceCurrency: PLATFORM_LEDGER_CURRENCY,
+          transferCurrency: withdrawal.payoutCurrency ?? withdrawal.currency,
+          beneficiaryId: bank.airwallexBeneficiaryId,
+          transferMethod: (bank.airwallexTransferMethod as 'LOCAL' | 'SWIFT') ?? 'SWIFT',
+          feePaidBy: 'BENEFICIARY',
+          reference: `WD-${withdrawal.id.slice(0, 8).toUpperCase()}`,
+          requestId: withdrawal.id,
+        });
+        withdrawal.status = 'Submitted';
+        withdrawal.payoutMethod = 'airwallex';
+        withdrawal.payoutReference = transfer.id;
+        // paidAt intentionally NOT set yet — only once handleAirwallexTransferStatus confirms it.
+      } catch (error) {
+        this.logger.error(
+          `Merchant-claimed Airwallex transfer failed for withdrawal ${withdrawalId}: ${error.message}`,
+          error.stack,
+        );
+        SlackService.notify({
+          node: SlackNode.PAYMENT,
+          provider: SlackProvider.SYSTEM,
+          severity: SlackSeverity.ERROR,
+          type: SlackEventType.ERROR_ALERT,
+          trigger: `Merchant-claimed payout failed: ${withdrawal.businessName}`,
+          body: `The merchant tried to withdraw ${withdrawal.id} (${withdrawal.businessName}) to their connected Airwallex beneficiary and it failed. It's still Processing — they can retry, or send it by hand.
+Error: ${error.message}`,
+        });
+        throw new BadRequestException(
+          `Could not send this withdrawal to your Airwallex account: ${error.message}`,
+        );
+      }
+    }
+
+    const saved = await this.withdrawalRepository.save(withdrawal);
+
+    // Only mark the linked transaction completed once the payout is
+    // actually final — for Stripe that's now (this branch only reaches
+    // here on success, above), for Airwallex it's still 'Submitted' and
+    // handleAirwallexTransferStatus does this instead once confirmed.
+    if (saved.status === 'Completed' && saved.transactionId) {
+      try {
+        await this.transactionRepository.update(
+          { id: saved.transactionId },
+          { status: TransactionStatus.COMPLETED },
+        );
+      } catch (error) {
+        this.logger.error(
+          `Merchant-claimed transfer for withdrawal ${withdrawalId} succeeded but updating its transaction record failed: ${error.message}`,
+          error.stack,
+        );
+        SlackService.notify({
+          node: SlackNode.PAYMENT,
+          provider: SlackProvider.STRIPE,
+          severity: SlackSeverity.ERROR,
+          type: SlackEventType.ERROR_ALERT,
+          trigger: `Bookkeeping update failed after a successful merchant-claimed payout: ${saved.businessName}`,
+          body: `Withdrawal ${saved.id} was successfully sent to the merchant's Stripe account, but its linked transaction record could not be marked completed. Check transaction ${saved.transactionId} by hand.
+Error: ${error.message}`,
+        });
+      }
+    }
+
+    this.slack(
+      saved,
+      stripeEligible
+        ? `Merchant withdrew to their own Stripe account: ${saved.businessName}`
+        : `Merchant submitted a withdrawal via Airwallex (awaiting confirmation): ${saved.businessName}`,
+    );
+    return saved;
+  }
+
+  /**
+   * The merchant-facing (or staff) "Refresh status" action — looks up the
+   * withdrawal, checks ownership the same way cancelWithdrawal/
+   * claimAutomaticPayout do, reads the real transfer status from Airwallex,
+   * and resolves it via handleAirwallexTransferStatus. A no-op (returns the
+   * withdrawal unchanged) unless it's currently 'Submitted'.
+   */
+  async refreshAirwallexWithdrawalStatus(withdrawalId: string, user: any): Promise<Withdrawal> {
+    const withdrawal = await this.withdrawalRepository.findOne({ where: { id: withdrawalId } });
+    if (!withdrawal) throw new NotFoundException('Withdrawal not found');
+
+    const wallet = await this.walletRepository.findOne({ where: { businessId: withdrawal.businessId } });
+    const userId = user?.id ?? user?.sub;
+    if (!user?.isStaff && (!wallet || !userId || wallet.ownerId !== userId)) {
+      throw new ForbiddenException('You can only refresh your own business\'s withdrawal requests');
+    }
+
+    if (withdrawal.status !== 'Submitted' || !withdrawal.payoutReference) {
+      return withdrawal;
+    }
+
+    const transfer = await this.airwallexService.retrieveTransfer(withdrawal.payoutReference);
+    const resolved = await this.handleAirwallexTransferStatus(transfer.id, transfer.status);
+    return resolved ?? withdrawal;
+  }
+
+  /**
+   * Resolves an in-flight Airwallex transfer's real status — called from a
+   * merchant-facing "Refresh status" action in this first version (no
+   * webhook wired yet, see AirwallexService's class doc). Never throws: an
+   * unrecognized transferId is logged and ignored, same as
+   * handleStripeAccountUpdated.
+   */
+  async handleAirwallexTransferStatus(
+    transferId: string,
+    status: string,
+    failureType?: string,
+  ): Promise<Withdrawal | null> {
+    const withdrawal = await this.withdrawalRepository.findOne({
+      where: { payoutReference: transferId, payoutMethod: 'airwallex' },
+    });
+    if (!withdrawal) {
+      this.logger.warn(`Airwallex transfer status update for unrecognized transfer ${transferId}`);
+      return null;
+    }
+
+    if (withdrawal.status !== 'Submitted') {
+      // Already resolved (or moved on some other way) — nothing to do.
+      return withdrawal;
+    }
+
+    if (status === 'SENT' || status === 'PAID') {
+      withdrawal.status = 'Completed';
+      withdrawal.paidAt = new Date();
+      const saved = await this.withdrawalRepository.save(withdrawal);
+      if (saved.transactionId) {
+        try {
+          await this.transactionRepository.update(
+            { id: saved.transactionId },
+            { status: TransactionStatus.COMPLETED },
+          );
+        } catch (error) {
+          this.logger.error(
+            `Airwallex transfer ${transferId} confirmed but updating its transaction record failed: ${error.message}`,
+            error.stack,
+          );
+        }
+      }
+      try {
+        const wallet = await this.walletRepository.findOne({ where: { businessId: saved.businessId } });
+        if (wallet) {
+          await this.notificationService.create({
+            userId: wallet.ownerId,
+            type: NotificationType.SYSTEM,
+            title: 'Your payout has been sent',
+            message: `Your withdrawal of $${saved.amount} has been sent via Airwallex. Reference: ${saved.payoutReference}.`,
+            link: '/merchant/dashboard/wallet',
+            metadata: { withdrawalId: saved.id },
+          });
+        }
+      } catch (error) {
+        this.logger.error(`Could not notify merchant of confirmed Airwallex payout: ${error.message}`);
+      }
+      this.slack(saved, `Airwallex payout confirmed sent: ${saved.businessName}`);
+      return saved;
+    }
+
+    if (status === 'FAILED' || status === 'CANCELLED') {
+      // Reverts to Processing, not Rejected — the money is still owed; the
+      // merchant can retry-claim, or an admin sends it by hand. payoutMethod
+      // stays 'airwallex' for audit history even if the retry goes out
+      // manually.
+      withdrawal.status = 'Processing';
+      const saved = await this.withdrawalRepository.save(withdrawal);
+      SlackService.notify({
+        node: SlackNode.PAYMENT,
+        provider: SlackProvider.SYSTEM,
+        severity: SlackSeverity.ERROR,
+        type: SlackEventType.ERROR_ALERT,
+        trigger: `Airwallex payout ${status.toLowerCase()}: ${saved.businessName}`,
+        body: `Withdrawal ${saved.id} (${saved.businessName})'s Airwallex transfer ${transferId} came back ${status}${failureType ? ` (${failureType})` : ''}. Reverted to Processing — the merchant can retry, or send it by hand.`,
+      });
+      return saved;
+    }
+
+    // SCHEDULED / PROCESSING — no change, still Submitted.
+    return withdrawal;
+  }
+
+  // Same Slack-notify shape WithdrawalService uses — kept local rather than
+  // shared, since the two classes don't otherwise depend on each other.
+  private slack(withdrawal: Withdrawal, trigger: string): void {
+    SlackService.notify({
+      node: SlackNode.PAYMENT,
+      provider: SlackProvider.SYSTEM,
+      severity: SlackSeverity.INFO,
+      type: SlackEventType.PAYMENT_SUCCESS,
+      trigger,
+      body: `${trigger}
+• Business: ${withdrawal.businessName}
+• Amount: $${withdrawal.amount}
+• Withdrawal ID: ${withdrawal.id}`,
+    });
   }
 
   private async confirmWithdrawalRequested(withdrawal: Withdrawal): Promise<void> {
@@ -858,6 +1198,202 @@ export class BusinessWalletService {
         message: 'Failed to add payment method to business',
       };
     }
+  }
+
+  /**
+   * A hosted Stripe onboarding link for automatic payouts. Creates a Stripe
+   * Express account (and its WalletPaymentMethod row) the first time this is
+   * called for a wallet; a not-yet-onboarded row is reused rather than
+   * creating a second stranded Stripe account. `payoutCurrency` is left null
+   * until the account.updated webhook confirms payouts are actually enabled
+   * (see handleStripeAccountUpdated) — that alone is what makes an
+   * in-progress connection unusable for withdrawal, via the same
+   * payoutCurrency guard requestWithdrawal already has.
+   */
+  async getOrCreateStripeConnectOnboardingLink(params: {
+    walletId: string;
+    businessId: string;
+    payoutCurrency?: WalletCurrency;
+  }): Promise<{ url?: string; alreadyConnected?: boolean }> {
+    const existing = await this.paymentMethodRepository.findOne({
+      where: {
+        walletId: params.walletId,
+        type: PaymentMethodType.STRIPE_CONNECT,
+        isActive: true,
+      },
+    });
+
+    if (existing?.stripePayoutsEnabled) {
+      return { alreadyConnected: true };
+    }
+
+    const frontendUrl = process.env.FRONTEND_URL || 'https://kinkyhairstylists.com';
+    const refreshUrl = `${frontendUrl}/merchant/dashboard/wallet?stripeRefresh=1`;
+    const returnUrl = `${frontendUrl}/merchant/dashboard/wallet?stripeReturn=1`;
+
+    let stripeAccountId = existing?.stripeAccountId;
+
+    if (!stripeAccountId) {
+      const business = await this.walletRepository.manager.findOne(Business, {
+        where: { id: params.businessId },
+      });
+      if (!business) throw new NotFoundException('Business not found');
+      if (!business.country) {
+        throw new BadRequestException(
+          'Add your country in Settings before connecting a payout account',
+        );
+      }
+
+      const account = await this.stripeService.createConnectedAccount({
+        businessId: params.businessId,
+        email: business.ownerEmail,
+        country: business.country,
+        payoutCurrency: params.payoutCurrency,
+      });
+      stripeAccountId = account.id;
+
+      if (existing) {
+        existing.stripeAccountId = stripeAccountId;
+        await this.paymentMethodRepository.save(existing);
+      } else {
+        await this.paymentMethodRepository.save(
+          this.paymentMethodRepository.create({
+            walletId: params.walletId,
+            type: PaymentMethodType.STRIPE_CONNECT,
+            stripeAccountId,
+            stripePayoutsEnabled: false,
+            country: business.country,
+            isActive: true,
+            isDefault: false,
+          }),
+        );
+      }
+    }
+
+    const url = await this.stripeService.createAccountLink({
+      accountId: stripeAccountId,
+      refreshUrl,
+      returnUrl,
+    });
+    return { url };
+  }
+
+  /**
+   * The account.updated webhook telling us a connected account's onboarding
+   * state changed. Never throws — an event for an account this app doesn't
+   * recognize is logged and ignored, not an error.
+   */
+  async handleStripeAccountUpdated(
+    stripeAccountId: string,
+    payoutsEnabled: boolean,
+    payoutCurrency?: string,
+  ): Promise<void> {
+    const method = await this.paymentMethodRepository.findOne({
+      where: { stripeAccountId, type: PaymentMethodType.STRIPE_CONNECT },
+    });
+    if (!method) {
+      this.logger.warn(`account.updated for unrecognized Stripe account ${stripeAccountId}`);
+      return;
+    }
+
+    const wasEnabled = method.stripePayoutsEnabled;
+    method.stripePayoutsEnabled = payoutsEnabled;
+    if (payoutsEnabled && !method.payoutCurrency && payoutCurrency) {
+      method.payoutCurrency = payoutCurrency;
+    }
+    await this.paymentMethodRepository.save(method);
+
+    if (payoutsEnabled && !wasEnabled) {
+      const wallet = await this.walletRepository.findOne({ where: { id: method.walletId } });
+      if (wallet) {
+        try {
+          await this.notificationService.create({
+            userId: wallet.ownerId,
+            type: NotificationType.SYSTEM,
+            title: 'Your Stripe payout account is ready',
+            message: 'Automatic payouts are now enabled — future approved withdrawals will be sent to it directly.',
+            link: '/merchant/dashboard/wallet',
+            metadata: { stripeAccountId },
+          });
+        } catch (error) {
+          this.logger.error(`Could not notify merchant of Stripe payouts enabled: ${error.message}`);
+        }
+      }
+    }
+  }
+
+  /**
+   * Thin passthrough to Airwallex's dynamic form-schema API — lets the
+   * frontend fetch the live required-field list for the merchant's own
+   * country/currency before rendering the beneficiary form. No DB
+   * interaction, safe to call on every country/currency change.
+   */
+  async getAirwallexFormSchema(params: {
+    country: string;
+    currency: string;
+    transferMethod: 'LOCAL' | 'SWIFT';
+    localClearingSystem?: string;
+  }) {
+    return this.airwallexService.getFormSchema({
+      accountCurrency: params.currency,
+      bankCountryCode: params.country,
+      entityType: 'COMPANY',
+      transferMethod: params.transferMethod,
+      localClearingSystem: params.localClearingSystem,
+    });
+  }
+
+  /**
+   * Creates the merchant's Airwallex Beneficiary — this IS the "onboarding"
+   * for this rail; there's no separate enable step to wait on afterward,
+   * unlike Stripe Connect's hosted onboarding + webhook (see
+   * airwallexBeneficiaryId's comment on WalletPaymentMethod).
+   */
+  async createAirwallexBeneficiary(params: {
+    walletId: string;
+    businessId: string;
+    country: string;
+    currency: string;
+    transferMethod: 'LOCAL' | 'SWIFT';
+    localClearingSystem?: string;
+    answers: Record<string, unknown>;
+  }): Promise<WalletPaymentMethod> {
+    const existing = await this.paymentMethodRepository.findOne({
+      where: {
+        walletId: params.walletId,
+        type: PaymentMethodType.AIRWALLEX_CONNECT,
+        isActive: true,
+      },
+    });
+    if (existing) {
+      throw new BadRequestException(
+        'A payout account is already connected via Airwallex for this wallet',
+      );
+    }
+
+    const beneficiary = await this.airwallexService.createBeneficiary({
+      accountCurrency: params.currency,
+      bankCountryCode: params.country,
+      entityType: 'COMPANY',
+      transferMethod: params.transferMethod,
+      localClearingSystem: params.localClearingSystem,
+      answers: params.answers,
+    });
+
+    return this.paymentMethodRepository.save(
+      this.paymentMethodRepository.create({
+        walletId: params.walletId,
+        type: PaymentMethodType.AIRWALLEX_CONNECT,
+        airwallexBeneficiaryId: beneficiary.id,
+        airwallexBeneficiaryDetails: params.answers,
+        airwallexTransferMethod: params.transferMethod,
+        // Set immediately, unlike Stripe's — there's nothing to wait for.
+        payoutCurrency: params.currency,
+        country: params.country,
+        isActive: true,
+        isDefault: false,
+      }),
+    );
   }
 
   /**

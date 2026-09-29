@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   IsBoolean,
   IsEnum,
+  IsIn,
   IsNumber,
   IsObject,
   IsOptional,
@@ -205,6 +206,59 @@ export class WithdrawalPreviewDto {
 export class WithdrawalDto {
   @IsUUID()
   bankDetailsId: string;
+}
+
+export class StripeConnectOnboardingDto {
+  @IsUUID()
+  walletId: string;
+
+  // What currency the merchant wants to be paid out in via this Stripe
+  // account — stashed onto the Stripe account's own metadata and read back
+  // once payouts are enabled (see StripeService.createConnectedAccount).
+  @IsOptional()
+  @IsEnum(WalletCurrency)
+  payoutCurrency?: WalletCurrency;
+}
+
+export class AirwallexFormSchemaDto {
+  @IsString()
+  @MinLength(2)
+  country: string;
+
+  @IsEnum(WalletCurrency)
+  currency: WalletCurrency;
+
+  @IsIn(['LOCAL', 'SWIFT'])
+  transferMethod: 'LOCAL' | 'SWIFT';
+
+  @IsOptional()
+  @IsString()
+  localClearingSystem?: string;
+}
+
+export class CreateAirwallexBeneficiaryDto {
+  @IsUUID()
+  walletId: string;
+
+  @IsString()
+  @MinLength(2)
+  country: string;
+
+  @IsEnum(WalletCurrency)
+  currency: WalletCurrency;
+
+  @IsIn(['LOCAL', 'SWIFT'])
+  transferMethod: 'LOCAL' | 'SWIFT';
+
+  @IsOptional()
+  @IsString()
+  localClearingSystem?: string;
+
+  // The flat { fieldKey: value } answers to whatever fields the form
+  // schema said were required — AirwallexService maps these into the
+  // nested beneficiary-create body using that same schema's field paths.
+  @IsObject()
+  answers: Record<string, unknown>;
 }
 
 export class DebitWalletRequestDto {
