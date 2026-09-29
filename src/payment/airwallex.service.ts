@@ -7,7 +7,6 @@ export interface AirwallexFormSchemaField {
   path: string; // dot-path into the nested beneficiary-create body, e.g.
                  // "beneficiary.bank_details.account_number"
   required: boolean;
-  type: 'INPUT' | 'SELECT' | 'DYNAMIC_SELECT' | 'RADIO' | 'TRANSFER_METHOD';
   field: {
     key: string;
     label: string;
@@ -17,6 +16,16 @@ export interface AirwallexFormSchemaField {
     default?: string;
     example?: string;
     options?: { label: string; value: string }[];
+    // Confirmed live: this is where the real API actually puts the
+    // field's UI type — nested under `field`, not a sibling of `path`/
+    // `required` as this interface originally (wrongly) declared. Unused
+    // by buildBeneficiaryBody's own logic (it only reads `.path` and
+    // `.field.key`), so this mismatch never broke anything server-side —
+    // but it fooled the frontend's matching type into always rendering
+    // every field as a plain text input, including fixed-value SELECT
+    // fields like Nigeria's `state` (needs the ISO code "NG-LA", not a
+    // free-typed label). Fixed there too.
+    type: 'INPUT' | 'SELECT' | 'DYNAMIC_SELECT' | 'RADIO' | 'TRANSFER_METHOD';
   };
   rule?: { type?: string; pattern?: string };
 }
