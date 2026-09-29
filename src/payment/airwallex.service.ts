@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import axios, { AxiosError } from 'axios';
+import * as crypto from 'crypto';
 
 export interface AirwallexFormSchemaField {
   enabled: boolean;
@@ -67,10 +68,44 @@ export class AirwallexService {
   // keeps talking to the sandbox indefinitely.
   private readonly baseUrl =
     process.env.AIRWALLEX_BASE_URL || 'https://api-demo.airwallex.com';
+  private readonly webhookSecret = process.env.AIRWALLEX_WEBHOOK_SECRET;
 
   constructor() {
     if (!this.clientId || !this.apiKey) {
       throw new Error('AIRWALLEX_CLIENT_ID and AIRWALLEX_API_KEY must be set');
+    }
+  }
+
+  /**
+   * Verifies a webhook request per Airwallex's documented scheme (x-timestamp
+   * + x-signature headers, HMAC-SHA256 of `timestamp + rawBody` keyed by the
+   * notification URL's own secret, hex digest) — this exact scheme is not
+   * yet confirmed against a real delivered webhook (no event has been
+   * received in this app yet), only against Airwallex's own published docs,
+   * unlike everything else in this class which was validated live. Flag for
+   * re-confirmation the first time a real webhook actually arrives. Throws
+   * on a missing secret/headers or a mismatch — callers should treat that
+   * the same way an invalid Stripe signature is treated (acknowledge with
+   * 200 so the sender doesn't retry-storm, but don't process the payload).
+   */
+  verifyWebhookSignature(rawBody: Buffer, timestamp: string, signature: string): void {
+    if (!this.webhookSecret) {
+      throw new Error('AIRWALLEX_WEBHOOK_SECRET must be set');
+    }
+    if (!timestamp || !signature) {
+      throw new Error('Missing x-timestamp/x-signature headers');
+    }
+    const expected = crypto
+      .createHmac('sha256', this.webhookSecret)
+      .update(timestamp + rawBody.toString('utf8'))
+      .digest('hex');
+    const expectedBuf = Buffer.from(expected, 'hex');
+    const actualBuf = Buffer.from(signature, 'hex');
+    if (
+      expectedBuf.length !== actualBuf.length ||
+      !crypto.timingSafeEqual(expectedBuf, actualBuf)
+    ) {
+      throw new Error('Signature mismatch');
     }
   }
 
@@ -220,6 +255,17 @@ export class AirwallexService {
       );
     }
     const body = this.buildBeneficiaryBody(schema, params.answers);
+    // Required at the top level, but never collected as a user-editable
+    // form field — the merchant doesn't pick their own transfer method, the
+    // corridor implies it (see defaultAirwallexTransferMethod on the
+    // frontend), so buildBeneficiaryBody's flat-answers mapping never
+    // produces it on its own. Confirmed live: the real API rejects a
+    // beneficiary-create body missing this with a validation error on
+    // "transfer_methods" — and it's the plural, array-shaped field name,
+    // not the singular "transfer_method" the form schema's own field path
+    // uses (that field is about which schema to fetch, not the create
+    // body's real shape).
+    body.transfer_methods = [params.transferMethod];
     return this.authedRequest<AirwallexBeneficiary>(
       'post',
       '/api/v1/beneficiaries/create',

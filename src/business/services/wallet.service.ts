@@ -62,8 +62,17 @@ const AIRWALLEX_FEE_TABLE: Record<string, { amount: number; currency: string }> 
   // Confirmed live 2026-09-29: flat, not a percentage (identical on a $10
   // and a $500 test transfer).
   NG_SWIFT: { amount: 14.1, currency: 'USD' },
-  // Confirmed live 2026-09-29.
+  // Confirmed live 2026-09-29 — LOCAL transfers (SEPA for the euro
+  // countries, Faster Payments for the UK, ACH for the US) were fee-free
+  // across every corridor actually tested, unlike the SWIFT fallback above.
+  // Real per-corridor test transfers, not assumed from LOCAL being free in
+  // just one of them.
   US_LOCAL: { amount: 0, currency: 'USD' },
+  GB_LOCAL: { amount: 0, currency: 'GBP' },
+  DE_LOCAL: { amount: 0, currency: 'EUR' },
+  FR_LOCAL: { amount: 0, currency: 'EUR' },
+  ES_LOCAL: { amount: 0, currency: 'EUR' },
+  IE_LOCAL: { amount: 0, currency: 'EUR' },
 };
 
 // What KHS actually took out of a booking earning before crediting the

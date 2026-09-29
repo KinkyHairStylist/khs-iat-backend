@@ -13,6 +13,7 @@ import {
 import { Public } from 'src/business/middlewares/public.decorator';
 import { WebhookService } from '../services/webhook.service';
 import { StripeService } from 'src/payment/stripe.service';
+import { AirwallexService } from 'src/payment/airwallex.service';
 import { BookingService } from 'src/user/services/booking.service';
 import { MerchantSubscriptionService } from 'src/business/services/merchant-subscription.service';
 import { BusinessWalletService } from 'src/business/services/wallet.service';
@@ -31,6 +32,7 @@ export class WebhookController {
   constructor(
     private readonly webhookService: WebhookService,
     private readonly stripeService: StripeService,
+    private readonly airwallexService: AirwallexService,
     private readonly bookingService: BookingService,
     private readonly merchantSubscriptionService: MerchantSubscriptionService,
     private readonly businessWalletService: BusinessWalletService,
@@ -209,6 +211,116 @@ export class WebhookController {
         body: `Processing a Stripe webhook event threw — this covers payment succeeded/failed, subscription deleted, invoice payment failed/succeeded, and dispute closed. Stripe has already acted on this event; KHS's side effects (payout, status change, etc.) may not have happened.
 • Event type: ${event.type}
 • Event ID: ${event.id}
+• Error: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
+
+    return { received: true };
+  }
+
+  /**
+   * Airwallex webhook endpoint
+   * URL: POST /api/webhook/airwallex
+   *
+   * The real event name for a transfer status change was never confirmed
+   * this session — Airwallex webhooks can't be created via this account's
+   * API (POST /webhooks returns 405, dashboard-only), and the docs site is
+   * fully JS-rendered so it couldn't be scraped either. Rather than block
+   * on that, this handler is deliberately self-teaching: it logs the full
+   * payload of the FIRST real event it ever receives (via Slack, capped to
+   * a readable size) so the real event/field names can be read off that
+   * alert, then makes a best-effort, defensively-guarded attempt to extract
+   * a transfer id + status from a few plausible shapes. Tighten the
+   * matching once a real event has actually been seen — this is scaffolding
+   * for that moment, not a finished integration.
+   *
+   * Requires the raw request body (see the express.raw() middleware
+   * registered for this exact path in main.ts) — signature verification
+   * needs the literal transmitted bytes, not parsed JSON.
+   */
+  @Public()
+  @Post('/airwallex')
+  @HttpCode(HttpStatus.OK)
+  async handleAirwallexWebhook(
+    @Request() req,
+    @Headers('x-timestamp') timestamp: string,
+    @Headers('x-signature') signature: string,
+  ): Promise<{ received: boolean }> {
+    const rawBody: Buffer = req.body;
+    try {
+      this.airwallexService.verifyWebhookSignature(rawBody, timestamp, signature);
+    } catch (error) {
+      this.logger.error(`Airwallex webhook signature verification failed: ${error.message}`);
+      SlackService.notify({
+        node: SlackNode.PAYMENT,
+        provider: SlackProvider.SYSTEM,
+        severity: SlackSeverity.ERROR,
+        type: SlackEventType.ERROR_ALERT,
+        trigger: 'Airwallex webhook signature verification failed',
+        body: `An Airwallex webhook request failed signature verification (or AIRWALLEX_WEBHOOK_SECRET isn't set yet) and was ignored.
+• Error: ${error instanceof Error ? error.message : String(error)}`,
+      });
+      // Same reasoning as the Stripe handler: acknowledge so Airwallex
+      // doesn't retry-storm, but never process an unverified payload.
+      return { received: true };
+    }
+
+    let event: any;
+    try {
+      event = JSON.parse(rawBody.toString('utf8'));
+    } catch (error) {
+      this.logger.error(`Airwallex webhook payload was not valid JSON: ${error.message}`);
+      return { received: true };
+    }
+
+    const eventName = event?.name ?? event?.type ?? event?.event_type ?? '(unknown field)';
+    this.logger.log(`Airwallex webhook received: ${eventName}`);
+
+    // First-ever-seen logging: teaches us the real shape from the Slack
+    // alert. Loud on purpose — this should stop firing once the real event
+    // name is confirmed and this handler is tightened to match it exactly.
+    SlackService.notify({
+      node: SlackNode.PAYMENT,
+      provider: SlackProvider.SYSTEM,
+      severity: SlackSeverity.INFO,
+      type: SlackEventType.PAYMENT_SUCCESS,
+      trigger: `Airwallex webhook received: ${eventName}`,
+      body: `Use this to confirm the real event name/shape and tighten webhook.controller.ts's handleAirwallexWebhook accordingly.
+Payload: ${JSON.stringify(event).slice(0, 2000)}`,
+    });
+
+    try {
+      // Best-effort extraction across a few plausible shapes — not
+      // confirmed against a real event yet (see the method doc above).
+      const transferObject =
+        event?.data?.object ?? event?.data?.transfer ?? event?.data ?? event;
+      const transferId: string | undefined = transferObject?.id;
+      const status: string | undefined = transferObject?.status;
+      const failureType: string | undefined = transferObject?.failure_type;
+
+      if (transferId && status) {
+        await this.businessWalletService.handleAirwallexTransferStatus(
+          transferId,
+          status,
+          failureType,
+        );
+      } else {
+        this.logger.warn(
+          `Airwallex webhook ${eventName}: could not extract a transfer id/status from the payload — see the Slack alert above for the real shape.`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Error processing Airwallex webhook event ${eventName}: ${error.message}`,
+        error.stack,
+      );
+      SlackService.notify({
+        node: SlackNode.PAYMENT,
+        provider: SlackProvider.SYSTEM,
+        severity: SlackSeverity.ERROR,
+        type: SlackEventType.ERROR_ALERT,
+        trigger: `Airwallex webhook handler failed: ${eventName}`,
+        body: `Processing an Airwallex webhook event threw. A merchant's withdrawal status may not have been updated — check by hand, or use the "Refresh status" fallback.
 • Error: ${error instanceof Error ? error.message : String(error)}`,
       });
     }
