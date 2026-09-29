@@ -147,22 +147,20 @@ export class WithdrawalService {
     });
   }
 
-  // KHS accepts the request. If the payout account is a Stripe Connect
-  // account with payouts enabled, this now actually sends the money — a
-  // real stripe.transfers.create call, not just a status flip. Anything
-  // else (no Stripe account, not yet enabled, or the transfer itself
-  // throwing) falls back to exactly the historical manual behavior: only
-  // the status flips, an admin sends it by hand and marks it paid later.
+  // KHS accepts the request — this is purely the compliance/review sign-off,
+  // it never moves money itself. Once approved: a merchant with an enabled
+  // Stripe Connect payout method sees it as ready in their own wallet and
+  // claims it themselves (see BusinessWalletService.claimAutomaticPayout,
+  // called from a merchant-facing endpoint) — the actual transfer fires on
+  // THEIR action, not this one. Anyone without that fires nothing here
+  // either; an admin still sends it by hand and marks it paid, unchanged.
   async approve(id: string): Promise<Withdrawal> {
-    // Claim it under a row lock first, in its own short transaction — two
-    // concurrent Approve clicks (a slow double-click, two admins on the same
-    // queue) must not both pass the Pending check and both fire a real
-    // Stripe transfer. `loadEagerRelations: false` here on purpose: Postgres
-    // can't apply FOR UPDATE across bankDetails' outer join, so this locks
-    // only the withdrawals row itself — bankDetails is re-loaded via the
-    // plain findOne below, after the lock is already released. The transfer
-    // attempt further down intentionally happens outside this transaction
-    // entirely (an external HTTP call must never run inside a held row lock).
+    // Locked in its own short transaction — two concurrent Approve clicks (a
+    // slow double-click, two admins on the same queue) must not both pass
+    // the Pending check. `loadEagerRelations: false` here on purpose:
+    // Postgres can't apply FOR UPDATE across bankDetails' outer join, so
+    // this locks only the withdrawals row — bankDetails is re-loaded via
+    // the plain findOne below, after the lock is already released.
     await this.withdrawalRepo.manager.transaction(async (manager) => {
       const locked = await manager.findOne(Withdrawal, {
         where: { id },
@@ -177,93 +175,24 @@ export class WithdrawalService {
       await manager.save(Withdrawal, locked);
     });
 
-    const withdrawal = await this.findOne(id); // bankDetails eager-loaded here
-    const bank = withdrawal.bankDetails;
+    const saved = await this.findOne(id); // bankDetails eager-loaded here
     const canGoAutomatic =
       process.env.STRIPE_CONNECT_ENABLED === 'true' &&
-      bank?.type === PaymentMethodType.STRIPE_CONNECT &&
-      !!bank.stripeAccountId &&
-      bank.stripePayoutsEnabled;
-
-    if (canGoAutomatic) {
-      try {
-        // Only a failure of the transfer ITSELF should fall back to manual —
-        // once Stripe confirms the money actually moved, nothing after this
-        // point may undo payoutMethod/status back to 'manual', or a
-        // successful automatic payout would be mislabeled as one an admin
-        // still needs to send by hand.
-        const transfer = await this.stripeService.createTransfer({
-          amount: Math.round(Number(withdrawal.payoutAmount ?? withdrawal.amount) * 100),
-          currency: (withdrawal.payoutCurrency ?? withdrawal.currency).toLowerCase(),
-          destinationAccountId: bank.stripeAccountId,
-          metadata: { withdrawalId: withdrawal.id },
-        });
-        withdrawal.status = 'Completed';
-        withdrawal.payoutMethod = 'stripe';
-        withdrawal.payoutReference = transfer.id;
-        withdrawal.paidAt = new Date();
-      } catch (error) {
-        // Never leave it half-done — fall back to the manual path an admin
-        // can still complete by hand.
-        this.logger.error(
-          `Automatic payout failed for withdrawal ${id}, falling back to manual: ${error.message}`,
-          error.stack,
-        );
-        withdrawal.payoutMethod = 'manual';
-        SlackService.notify({
-          node: SlackNode.PAYMENT,
-          provider: SlackProvider.STRIPE,
-          severity: SlackSeverity.ERROR,
-          type: SlackEventType.ERROR_ALERT,
-          trigger: `Automatic payout failed: ${withdrawal.businessName}`,
-          body: `The automatic Stripe transfer for withdrawal ${withdrawal.id} (${withdrawal.businessName}) failed and fell back to manual. Send it by hand and mark it paid.
-Error: ${error.message}`,
-        });
-      }
-
-      // Separate from the transfer itself: a failure here means the transfer
-      // genuinely succeeded but our own bookkeeping didn't update — log and
-      // alert, but don't touch payoutMethod/status, which already correctly
-      // reflect that the money moved.
-      if (withdrawal.status === 'Completed' && withdrawal.transactionId) {
-        try {
-          await this.transactionRepo.update(
-            { id: withdrawal.transactionId },
-            { status: TransactionStatus.COMPLETED },
-          );
-        } catch (error) {
-          this.logger.error(
-            `Stripe transfer for withdrawal ${id} succeeded but updating its transaction record failed: ${error.message}`,
-            error.stack,
-          );
-          SlackService.notify({
-            node: SlackNode.PAYMENT,
-            provider: SlackProvider.STRIPE,
-            severity: SlackSeverity.ERROR,
-            type: SlackEventType.ERROR_ALERT,
-            trigger: `Bookkeeping update failed after a successful payout: ${withdrawal.businessName}`,
-            body: `The automatic Stripe transfer for withdrawal ${withdrawal.id} succeeded, but its linked transaction record could not be marked completed. Check transaction ${withdrawal.transactionId} by hand.
-Error: ${error.message}`,
-          });
-        }
-      }
-    }
-    // else: no automatic rail available — payoutMethod stays 'manual',
-    // status stays 'Processing', identical to today's behavior.
-
-    const saved = await this.withdrawalRepo.save(withdrawal);
+      saved.bankDetails?.type === PaymentMethodType.STRIPE_CONNECT &&
+      !!saved.bankDetails.stripeAccountId &&
+      saved.bankDetails.stripePayoutsEnabled;
 
     this.slack(
       saved,
-      saved.status === 'Completed'
-        ? `Payout sent automatically via Stripe: ${saved.businessName}`
+      canGoAutomatic
+        ? `Payout approved: ${saved.businessName}. Ready for the merchant to withdraw via Stripe.`
         : `Payout approved: ${saved.businessName}. It now needs to be sent and marked paid.`,
     );
     await this.tellMerchant(
       saved,
       'Your withdrawal was approved',
-      saved.status === 'Completed'
-        ? `Your withdrawal of $${saved.amount} has been sent. Reference: ${saved.payoutReference}.`
+      canGoAutomatic
+        ? `Your withdrawal request for $${saved.amount} has been approved and is ready — withdraw it to your Stripe account any time from your wallet.`
         : `Your withdrawal request for $${saved.amount} has been approved. We are preparing the transfer and will email you again, with a reference, as soon as it has been sent.`,
     );
     return saved;

@@ -438,6 +438,133 @@ export class BusinessWalletService {
     return { amount, ...conversion };
   }
 
+  /**
+   * The merchant pulls an admin-approved withdrawal to their own Stripe
+   * Connect account themselves — the actual transfer fires here, on their
+   * action, not when the admin approved it. Locked the same way
+   * WithdrawalService.approve is, for the same reason: two clicks on the
+   * same withdrawal must not both fire a real transfer.
+   */
+  async claimAutomaticPayout(withdrawalId: string, user: any): Promise<Withdrawal> {
+    await this.withdrawalRepository.manager.transaction(async (manager) => {
+      const locked = await manager.findOne(Withdrawal, {
+        where: { id: withdrawalId },
+        lock: { mode: 'pessimistic_write' },
+        loadEagerRelations: false,
+      });
+      if (!locked) throw new NotFoundException('Withdrawal not found');
+
+      // Same ownership check as cancelWithdrawal — the wallet's own owner,
+      // or staff.
+      const wallet = await manager.findOne(Wallet, { where: { businessId: locked.businessId } });
+      const userId = user?.id ?? user?.sub;
+      if (!user?.isStaff && (!wallet || !userId || wallet.ownerId !== userId)) {
+        throw new ForbiddenException('You can only withdraw your own business\'s requests');
+      }
+
+      if (locked.status !== 'Processing') {
+        throw new BadRequestException(
+          `This withdrawal is ${locked.status.toLowerCase()}, not ready to withdraw`,
+        );
+      }
+      // No further changes here — just holding the lock through the
+      // ownership/status check above so a second concurrent claim can't
+      // slip past it. The real state change happens below, after release.
+    });
+
+    const withdrawal = await this.withdrawalRepository.findOne({ where: { id: withdrawalId } });
+    if (!withdrawal) throw new NotFoundException('Withdrawal not found');
+
+    const bank = withdrawal.bankDetails;
+    const eligible =
+      process.env.STRIPE_CONNECT_ENABLED === 'true' &&
+      bank?.type === PaymentMethodType.STRIPE_CONNECT &&
+      !!bank.stripeAccountId &&
+      bank.stripePayoutsEnabled;
+
+    if (!eligible) {
+      throw new BadRequestException(
+        'This withdrawal is not set up for self-serve withdrawal — an admin will send it by hand',
+      );
+    }
+
+    try {
+      const transfer = await this.stripeService.createTransfer({
+        amount: Math.round(Number(withdrawal.payoutAmount ?? withdrawal.amount) * 100),
+        currency: (withdrawal.payoutCurrency ?? withdrawal.currency).toLowerCase(),
+        destinationAccountId: bank.stripeAccountId,
+        metadata: { withdrawalId: withdrawal.id },
+      });
+      withdrawal.status = 'Completed';
+      withdrawal.payoutMethod = 'stripe';
+      withdrawal.payoutReference = transfer.id;
+      withdrawal.paidAt = new Date();
+    } catch (error) {
+      this.logger.error(
+        `Merchant-claimed Stripe transfer failed for withdrawal ${withdrawalId}: ${error.message}`,
+        error.stack,
+      );
+      SlackService.notify({
+        node: SlackNode.PAYMENT,
+        provider: SlackProvider.STRIPE,
+        severity: SlackSeverity.ERROR,
+        type: SlackEventType.ERROR_ALERT,
+        trigger: `Merchant-claimed payout failed: ${withdrawal.businessName}`,
+        body: `The merchant tried to withdraw ${withdrawal.id} (${withdrawal.businessName}) to their connected Stripe account and it failed. It's still Processing — they can retry, or send it by hand.
+Error: ${error.message}`,
+      });
+      // Stays Processing — the merchant can see the error and retry, or an
+      // admin can still fall back to sending it by hand.
+      throw new BadRequestException(
+        `Could not send this withdrawal to your Stripe account: ${error.message}`,
+      );
+    }
+
+    const saved = await this.withdrawalRepository.save(withdrawal);
+
+    if (saved.transactionId) {
+      try {
+        await this.transactionRepository.update(
+          { id: saved.transactionId },
+          { status: TransactionStatus.COMPLETED },
+        );
+      } catch (error) {
+        this.logger.error(
+          `Merchant-claimed transfer for withdrawal ${withdrawalId} succeeded but updating its transaction record failed: ${error.message}`,
+          error.stack,
+        );
+        SlackService.notify({
+          node: SlackNode.PAYMENT,
+          provider: SlackProvider.STRIPE,
+          severity: SlackSeverity.ERROR,
+          type: SlackEventType.ERROR_ALERT,
+          trigger: `Bookkeeping update failed after a successful merchant-claimed payout: ${saved.businessName}`,
+          body: `Withdrawal ${saved.id} was successfully sent to the merchant's Stripe account, but its linked transaction record could not be marked completed. Check transaction ${saved.transactionId} by hand.
+Error: ${error.message}`,
+        });
+      }
+    }
+
+    this.slack(saved, `Merchant withdrew to their own Stripe account: ${saved.businessName}`);
+    return saved;
+  }
+
+  // Same Slack-notify shape WithdrawalService uses — kept local rather than
+  // shared, since the two classes don't otherwise depend on each other.
+  private slack(withdrawal: Withdrawal, trigger: string): void {
+    SlackService.notify({
+      node: SlackNode.PAYMENT,
+      provider: SlackProvider.SYSTEM,
+      severity: SlackSeverity.INFO,
+      type: SlackEventType.PAYMENT_SUCCESS,
+      trigger,
+      body: `${trigger}
+• Business: ${withdrawal.businessName}
+• Amount: $${withdrawal.amount}
+• Withdrawal ID: ${withdrawal.id}`,
+    });
+  }
+
   private async confirmWithdrawalRequested(withdrawal: Withdrawal): Promise<void> {
     try {
       const business = await this.walletRepository.manager.findOne(Business, {

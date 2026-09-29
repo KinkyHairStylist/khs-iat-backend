@@ -426,7 +426,14 @@ export class StripeService {
         type: 'express',
         country: payload.country,
         email: payload.email,
-        capabilities: { transfers: { requested: true } },
+        // card_payments is required alongside transfers for at least US
+        // accounts (confirmed against the real API, not assumed from docs)
+        // — Express accounts are conventionally created with both anyway,
+        // so this is requested unconditionally rather than per-country.
+        capabilities: {
+          transfers: { requested: true },
+          card_payments: { requested: true },
+        },
         metadata: {
           businessId: payload.businessId,
           payoutCurrency: payload.payoutCurrency ?? '',

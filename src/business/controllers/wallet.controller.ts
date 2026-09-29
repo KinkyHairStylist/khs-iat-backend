@@ -327,4 +327,14 @@ export class BusinessWalletController {
     const withdrawal = await this.walletService.cancelWithdrawal(withdrawalId, req.user);
     return { success: true, data: withdrawal, message: 'Withdrawal request cancelled' };
   }
+
+  // A salon pulls an admin-approved withdrawal to their own connected Stripe
+  // account, themselves — the real transfer fires here, not when the admin
+  // approved it. Only ever succeeds for a Stripe-Connect-eligible payout
+  // method; anything else still needs an admin to send it by hand.
+  @Patch('/withdrawals/:withdrawalId/claim')
+  async claimWithdrawal(@Request() req, @Param('withdrawalId') withdrawalId: string) {
+    const withdrawal = await this.walletService.claimAutomaticPayout(withdrawalId, req.user);
+    return { success: true, data: withdrawal, message: 'Withdrawal sent to your Stripe account' };
+  }
 }
