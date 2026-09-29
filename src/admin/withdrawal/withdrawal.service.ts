@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
@@ -24,6 +25,8 @@ import { EmailService } from 'src/email/email.service';
 import { TemplateService } from 'src/email/template.service';
 import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'src/notifications/notification.enum';
+import { StripeService } from 'src/payment/stripe.service';
+import { PaymentMethodType } from 'src/admin/payment/enums/wallet.enum';
 
 type WithdrawalStatus = Withdrawal['status'];
 
@@ -53,7 +56,10 @@ export class WithdrawalService {
     private readonly emailService: EmailService,
     private readonly templateService: TemplateService,
     private readonly notificationService: NotificationService,
+    private readonly stripeService: StripeService,
   ) {}
+
+  private readonly logger = new Logger(WithdrawalService.name);
 
   private assertStatus(withdrawal: Withdrawal, allowed: WithdrawalStatus[]): void {
     if (!allowed.includes(withdrawal.status)) {
@@ -141,20 +147,63 @@ export class WithdrawalService {
     });
   }
 
-  // KHS accepts the request. Nothing is sent yet.
+  // KHS accepts the request — this is purely the compliance/review sign-off,
+  // it never moves money itself. Once approved: a merchant with an enabled
+  // Stripe Connect payout method sees it as ready in their own wallet and
+  // claims it themselves (see BusinessWalletService.claimAutomaticPayout,
+  // called from a merchant-facing endpoint) — the actual transfer fires on
+  // THEIR action, not this one. Anyone without that fires nothing here
+  // either; an admin still sends it by hand and marks it paid, unchanged.
   async approve(id: string): Promise<Withdrawal> {
-    const withdrawal = await this.findOne(id);
-    this.assertStatus(withdrawal, ['Pending']);
+    // Locked in its own short transaction — two concurrent Approve clicks (a
+    // slow double-click, two admins on the same queue) must not both pass
+    // the Pending check. `loadEagerRelations: false` here on purpose:
+    // Postgres can't apply FOR UPDATE across bankDetails' outer join, so
+    // this locks only the withdrawals row — bankDetails is re-loaded via
+    // the plain findOne below, after the lock is already released.
+    await this.withdrawalRepo.manager.transaction(async (manager) => {
+      const locked = await manager.findOne(Withdrawal, {
+        where: { id },
+        lock: { mode: 'pessimistic_write' },
+        loadEagerRelations: false,
+      });
+      if (!locked) throw new NotFoundException('Withdrawal not found');
+      this.assertStatus(locked, ['Pending']);
 
-    withdrawal.status = 'Processing';
-    withdrawal.reviewedAt = new Date();
-    const saved = await this.withdrawalRepo.save(withdrawal);
+      locked.status = 'Processing';
+      locked.reviewedAt = new Date();
+      await manager.save(Withdrawal, locked);
+    });
 
-    this.slack(saved, `Payout approved: ${saved.businessName}. It now needs to be sent and marked paid.`);
+    const saved = await this.findOne(id); // bankDetails eager-loaded here
+    const stripeEligible =
+      process.env.STRIPE_CONNECT_ENABLED === 'true' &&
+      saved.bankDetails?.type === PaymentMethodType.STRIPE_CONNECT &&
+      !!saved.bankDetails.stripeAccountId &&
+      saved.bankDetails.stripePayoutsEnabled;
+    const airwallexEligible =
+      process.env.AIRWALLEX_ENABLED === 'true' &&
+      saved.bankDetails?.type === PaymentMethodType.AIRWALLEX_CONNECT &&
+      !!saved.bankDetails.airwallexBeneficiaryId;
+    // Neither rail moves money here — this only decides which
+    // Slack/merchant-facing message to send. The real transfer, for either
+    // rail, only fires when the merchant claims it (see
+    // BusinessWalletService.claimAutomaticPayout).
+    const canGoAutomatic = stripeEligible || airwallexEligible;
+    const railName = stripeEligible ? 'Stripe' : 'Airwallex';
+
+    this.slack(
+      saved,
+      canGoAutomatic
+        ? `Payout approved: ${saved.businessName}. Ready for the merchant to withdraw via ${railName}.`
+        : `Payout approved: ${saved.businessName}. It now needs to be sent and marked paid.`,
+    );
     await this.tellMerchant(
       saved,
       'Your withdrawal was approved',
-      `Your withdrawal request for $${saved.amount} has been approved. We are preparing the transfer and will email you again, with a reference, as soon as it has been sent.`,
+      canGoAutomatic
+        ? `Your withdrawal request for $${saved.amount} has been approved and is ready — withdraw it to your ${railName} account any time from your wallet.`
+        : `Your withdrawal request for $${saved.amount} has been approved. We are preparing the transfer and will email you again, with a reference, as soon as it has been sent.`,
     );
     return saved;
   }
@@ -167,6 +216,11 @@ export class WithdrawalService {
     }
 
     const withdrawal = await this.findOne(id);
+    if (withdrawal.payoutMethod !== 'manual') {
+      throw new BadRequestException(
+        'This payout was sent automatically — nothing to mark paid by hand',
+      );
+    }
     this.assertStatus(withdrawal, ['Processing']);
 
     withdrawal.status = 'Completed';

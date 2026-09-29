@@ -96,6 +96,15 @@ export class UpdateBusinessLocationDto {
   businessAddress?: string;
 
   @ApiProperty({
+    description: 'Country (ISO 3166-1 alpha-2, e.g. "AU")',
+    example: 'AU',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  country?: string;
+
+  @ApiProperty({
     description: 'Latitude coordinate',
     example: 40.7128,
     minimum: -90,
@@ -211,6 +220,15 @@ export class UpdateBusinessProfileDto {
   @MinLength(5)
   @MaxLength(200)
   businessAddress?: string;
+
+  @ApiProperty({
+    description: 'Country (ISO 3166-1 alpha-2, e.g. "AU")',
+    example: 'AU',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  country?: string;
 
   @ApiProperty({
     description: 'Latitude coordinate',

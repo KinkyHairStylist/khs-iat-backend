@@ -36,6 +36,13 @@ export class CreateBusinessDto {
   @IsNotEmpty({ message: 'Business address is required.' })
   readonly businessAddress: string;
 
+  // ISO2 (e.g. "AU"). Optional at signup — a merchant who skips it can set
+  // it later in Settings, but needs it before their first withdrawal so a
+  // default payout currency can be suggested.
+  @IsString()
+  @IsOptional()
+  readonly country?: string;
+
   @IsOptional()
   @IsNotEmpty({ message: 'address is required.' })
   readonly longitude: number;

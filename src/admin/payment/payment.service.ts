@@ -22,7 +22,7 @@ import {
   TransactionStatus,
   TransactionType,
 } from 'src/business/entities/transaction.entity';
-import { WalletCurrency } from './enums/wallet.enum';
+import { PLATFORM_LEDGER_CURRENCY, WalletCurrency } from './enums/wallet.enum';
 import {
   StripePaymentIntent,
   StripeEscrowStatus,
@@ -399,7 +399,7 @@ export class PaymentService {
         await this.businessWalletService.createWalletForBusiness({
           businessId,
           ownerId,
-          currency: WalletCurrency.USD,
+          currency: PLATFORM_LEDGER_CURRENCY,
           description: 'Business wallet - auto-created from booking',
         });
       }

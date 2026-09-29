@@ -18,7 +18,7 @@ import {
   TransactionStatus,
   PaymentMethod,
 } from 'src/business/entities/transaction.entity';
-import { WalletCurrency } from 'src/admin/payment/enums/wallet.enum';
+import { PLATFORM_LEDGER_CURRENCY, WalletCurrency } from 'src/admin/payment/enums/wallet.enum';
 import { StripeService } from 'src/payment/stripe.service';
 import { PurchaseMembershipPackageDto } from '../dtos/membership-package.dto';
 import { SlackService } from 'src/slack/slack.service';
@@ -65,7 +65,7 @@ export class MembershipPackagePurchaseService {
 
     const paymentIntent = await this.stripeService.createPaymentIntent({
       amount: Math.round(amount * 100),
-      currency: 'usd',
+      currency: PLATFORM_LEDGER_CURRENCY.toLowerCase(),
       customerEmail: purchaser.email,
       metadata: {
         packageId: pkg.id,

@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   IsBoolean,
   IsEnum,
+  IsIn,
   IsNumber,
   IsObject,
   IsOptional,
@@ -53,6 +54,9 @@ export class AddTransactionDto {
   @Min(0.01)
   amount: number;
 
+  // @deprecated ignored by WalletService.processTransaction/addFundsPending,
+  // which stamp the wallet's own `currency` instead — kept optional so old
+  // callers don't break, but setting this no longer has any effect.
   @IsOptional()
   @IsString()
   @MinLength(1)
@@ -142,6 +146,15 @@ export class AddPaymentMethodDto {
   accountNumber?: string;
 
   @IsOptional()
+  @IsEnum(WalletCurrency)
+  payoutCurrency?: WalletCurrency;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  country?: string;
+
+  @IsOptional()
   @IsString()
   @MinLength(1)
   last4Digits?: string;
@@ -161,9 +174,91 @@ export class CreateWithdrawalDto {
   currentBalance: number;
 }
 
+// Lets a merchant attach a payout currency to a bank/card they saved before
+// this feature existed, without having to re-enter the whole thing as a
+// duplicate payment method. Deliberately narrow — only the two payout
+// fields, never the bank/card details themselves.
+export class UpdatePayoutCurrencyDto {
+  @IsUUID()
+  walletId: string;
+
+  @IsEnum(WalletCurrency)
+  payoutCurrency: WalletCurrency;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  country?: string;
+}
+
+export class WithdrawalPreviewDto {
+  @IsUUID()
+  walletId: string;
+
+  @IsNumber()
+  @Min(0.01)
+  amount: number;
+
+  @IsUUID()
+  bankDetailsId: string;
+}
+
 export class WithdrawalDto {
   @IsUUID()
   bankDetailsId: string;
+}
+
+export class StripeConnectOnboardingDto {
+  @IsUUID()
+  walletId: string;
+
+  // What currency the merchant wants to be paid out in via this Stripe
+  // account — stashed onto the Stripe account's own metadata and read back
+  // once payouts are enabled (see StripeService.createConnectedAccount).
+  @IsOptional()
+  @IsEnum(WalletCurrency)
+  payoutCurrency?: WalletCurrency;
+}
+
+export class AirwallexFormSchemaDto {
+  @IsString()
+  @MinLength(2)
+  country: string;
+
+  @IsEnum(WalletCurrency)
+  currency: WalletCurrency;
+
+  @IsIn(['LOCAL', 'SWIFT'])
+  transferMethod: 'LOCAL' | 'SWIFT';
+
+  @IsOptional()
+  @IsString()
+  localClearingSystem?: string;
+}
+
+export class CreateAirwallexBeneficiaryDto {
+  @IsUUID()
+  walletId: string;
+
+  @IsString()
+  @MinLength(2)
+  country: string;
+
+  @IsEnum(WalletCurrency)
+  currency: WalletCurrency;
+
+  @IsIn(['LOCAL', 'SWIFT'])
+  transferMethod: 'LOCAL' | 'SWIFT';
+
+  @IsOptional()
+  @IsString()
+  localClearingSystem?: string;
+
+  // The flat { fieldKey: value } answers to whatever fields the form
+  // schema said were required — AirwallexService maps these into the
+  // nested beneficiary-create body using that same schema's field paths.
+  @IsObject()
+  answers: Record<string, unknown>;
 }
 
 export class DebitWalletRequestDto {

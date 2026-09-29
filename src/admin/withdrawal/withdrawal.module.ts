@@ -10,6 +10,7 @@ import { WithdrawalController } from './withdrawal.controller';
 import { EmailModule } from 'src/email/email.module';
 import { BusinessWalletModule } from 'src/business/wallet.module';
 import { NotificationModule } from 'src/notifications/notification.module';
+import { StripeService } from 'src/payment/stripe.service';
 
 @Module({
   imports: [
@@ -19,6 +20,6 @@ import { NotificationModule } from 'src/notifications/notification.module';
     NotificationModule,
   ],
   controllers: [WithdrawalController],
-  providers: [WithdrawalService],
+  providers: [WithdrawalService, StripeService],
 })
 export class WithdrawalModule {}
