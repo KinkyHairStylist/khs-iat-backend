@@ -63,6 +63,21 @@ export class WalletPaymentMethod {
   @Column({ type: 'varchar', length: 2, nullable: true })
   country: string;
 
+  // Only set on a type: STRIPE_CONNECT row. The merchant's own Stripe
+  // Express account id — their bank details live on Stripe's side, not in
+  // accountNumber/bankName above. See WithdrawalService.approve and
+  // BusinessWalletService.handleStripeAccountUpdated.
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  stripeAccountId: string;
+
+  // Flipped true by the account.updated webhook once Stripe's own review of
+  // this connected account completes. A stripe_connect row is deliberately
+  // left with payoutCurrency null until this is true, which is what makes
+  // it automatically unusable for withdrawal (see requestWithdrawal's
+  // existing payoutCurrency guard) without any extra check needed here.
+  @Column({ type: 'boolean', default: false })
+  stripePayoutsEnabled: boolean;
+
   // A card security code is never needed after it was entered and is never sent in a response.
   @Exclude({ toPlainOnly: true })
   @Column({ type: 'varchar', length: 100, nullable: true })

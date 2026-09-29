@@ -46,6 +46,7 @@ import { TemplateService } from 'src/email/template.service';
 import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'src/notifications/notification.enum';
 import { CurrencyConversionService } from './currency-conversion.service';
+import { StripeService } from 'src/payment/stripe.service';
 
 // What KHS actually took out of a booking earning before crediting the
 // merchant — surfaced on the transaction so they can see it, not just the
@@ -75,6 +76,7 @@ export class BusinessWalletService {
     private readonly templateService: TemplateService,
     private readonly notificationService: NotificationService,
     private readonly currencyConversionService: CurrencyConversionService,
+    private readonly stripeService: StripeService,
   ) {}
 
   async createWalletForBusiness(
@@ -857,6 +859,128 @@ export class BusinessWalletService {
         error: error.message,
         message: 'Failed to add payment method to business',
       };
+    }
+  }
+
+  /**
+   * A hosted Stripe onboarding link for automatic payouts. Creates a Stripe
+   * Express account (and its WalletPaymentMethod row) the first time this is
+   * called for a wallet; a not-yet-onboarded row is reused rather than
+   * creating a second stranded Stripe account. `payoutCurrency` is left null
+   * until the account.updated webhook confirms payouts are actually enabled
+   * (see handleStripeAccountUpdated) — that alone is what makes an
+   * in-progress connection unusable for withdrawal, via the same
+   * payoutCurrency guard requestWithdrawal already has.
+   */
+  async getOrCreateStripeConnectOnboardingLink(params: {
+    walletId: string;
+    businessId: string;
+    payoutCurrency?: WalletCurrency;
+  }): Promise<{ url?: string; alreadyConnected?: boolean }> {
+    const existing = await this.paymentMethodRepository.findOne({
+      where: {
+        walletId: params.walletId,
+        type: PaymentMethodType.STRIPE_CONNECT,
+        isActive: true,
+      },
+    });
+
+    if (existing?.stripePayoutsEnabled) {
+      return { alreadyConnected: true };
+    }
+
+    const frontendUrl = process.env.FRONTEND_URL || 'https://kinkyhairstylists.com';
+    const refreshUrl = `${frontendUrl}/merchant/dashboard/wallet?stripeRefresh=1`;
+    const returnUrl = `${frontendUrl}/merchant/dashboard/wallet?stripeReturn=1`;
+
+    let stripeAccountId = existing?.stripeAccountId;
+
+    if (!stripeAccountId) {
+      const business = await this.walletRepository.manager.findOne(Business, {
+        where: { id: params.businessId },
+      });
+      if (!business) throw new NotFoundException('Business not found');
+      if (!business.country) {
+        throw new BadRequestException(
+          'Add your country in Settings before connecting a payout account',
+        );
+      }
+
+      const account = await this.stripeService.createConnectedAccount({
+        businessId: params.businessId,
+        email: business.ownerEmail,
+        country: business.country,
+        payoutCurrency: params.payoutCurrency,
+      });
+      stripeAccountId = account.id;
+
+      if (existing) {
+        existing.stripeAccountId = stripeAccountId;
+        await this.paymentMethodRepository.save(existing);
+      } else {
+        await this.paymentMethodRepository.save(
+          this.paymentMethodRepository.create({
+            walletId: params.walletId,
+            type: PaymentMethodType.STRIPE_CONNECT,
+            stripeAccountId,
+            stripePayoutsEnabled: false,
+            country: business.country,
+            isActive: true,
+            isDefault: false,
+          }),
+        );
+      }
+    }
+
+    const url = await this.stripeService.createAccountLink({
+      accountId: stripeAccountId,
+      refreshUrl,
+      returnUrl,
+    });
+    return { url };
+  }
+
+  /**
+   * The account.updated webhook telling us a connected account's onboarding
+   * state changed. Never throws — an event for an account this app doesn't
+   * recognize is logged and ignored, not an error.
+   */
+  async handleStripeAccountUpdated(
+    stripeAccountId: string,
+    payoutsEnabled: boolean,
+    payoutCurrency?: string,
+  ): Promise<void> {
+    const method = await this.paymentMethodRepository.findOne({
+      where: { stripeAccountId, type: PaymentMethodType.STRIPE_CONNECT },
+    });
+    if (!method) {
+      this.logger.warn(`account.updated for unrecognized Stripe account ${stripeAccountId}`);
+      return;
+    }
+
+    const wasEnabled = method.stripePayoutsEnabled;
+    method.stripePayoutsEnabled = payoutsEnabled;
+    if (payoutsEnabled && !method.payoutCurrency && payoutCurrency) {
+      method.payoutCurrency = payoutCurrency;
+    }
+    await this.paymentMethodRepository.save(method);
+
+    if (payoutsEnabled && !wasEnabled) {
+      const wallet = await this.walletRepository.findOne({ where: { id: method.walletId } });
+      if (wallet) {
+        try {
+          await this.notificationService.create({
+            userId: wallet.ownerId,
+            type: NotificationType.SYSTEM,
+            title: 'Your Stripe payout account is ready',
+            message: 'Automatic payouts are now enabled — future approved withdrawals will be sent to it directly.',
+            link: '/merchant/dashboard/wallet',
+            metadata: { stripeAccountId },
+          });
+        } catch (error) {
+          this.logger.error(`Could not notify merchant of Stripe payouts enabled: ${error.message}`);
+        }
+      }
     }
   }
 

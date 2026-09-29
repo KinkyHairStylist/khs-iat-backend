@@ -26,6 +26,10 @@ export enum PaymentMethodType {
   CREDIT_CARD = 'credit_card',
   DEBIT_CARD = 'debit_card',
   DIGITAL_WALLET = 'digital_wallet',
+  // A Stripe Express connected account — the merchant's own payout details
+  // live on Stripe's side, not in accountNumber/bankName here. See
+  // stripeAccountId/stripePayoutsEnabled on WalletPaymentMethod.
+  STRIPE_CONNECT = 'stripe_connect',
 }
 export enum PaymentModeType {
   PAYSTACK = 'paystack',

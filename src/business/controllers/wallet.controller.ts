@@ -18,6 +18,7 @@ import {
   AddTransactionDto,
   CreateWalletDto,
   DebitWalletRequestDto,
+  StripeConnectOnboardingDto,
   TransactionFiltersDto,
   UpdatePayoutCurrencyDto,
   WithdrawalPreviewDto,
@@ -272,6 +273,25 @@ export class BusinessWalletController {
       bankDetailsId: body.bankDetailsId,
     });
     return { success: true, data: preview };
+  }
+
+  // A hosted Stripe onboarding URL for automatic payouts — the merchant is
+  // redirected to Stripe's own pages to connect (or finish connecting) an
+  // Express account; this app never collects their bank details directly
+  // for this path.
+  @Post('/stripe-connect/onboarding-link')
+  async getStripeConnectOnboardingLink(
+    @Request() req,
+    @Body() body: StripeConnectOnboardingDto,
+  ) {
+    await this.assertOwnsWalletById(body.walletId, req.user);
+    const wallet = await this.walletService.getWalletById(body.walletId);
+    const result = await this.walletService.getOrCreateStripeConnectOnboardingLink({
+      walletId: body.walletId,
+      businessId: wallet.businessId,
+      payoutCurrency: body.payoutCurrency,
+    });
+    return { success: true, data: result };
   }
 
   @Patch('/debit')

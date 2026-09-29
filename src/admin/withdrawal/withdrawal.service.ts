@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
@@ -24,6 +25,8 @@ import { EmailService } from 'src/email/email.service';
 import { TemplateService } from 'src/email/template.service';
 import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'src/notifications/notification.enum';
+import { StripeService } from 'src/payment/stripe.service';
+import { PaymentMethodType } from 'src/admin/payment/enums/wallet.enum';
 
 type WithdrawalStatus = Withdrawal['status'];
 
@@ -53,7 +56,10 @@ export class WithdrawalService {
     private readonly emailService: EmailService,
     private readonly templateService: TemplateService,
     private readonly notificationService: NotificationService,
+    private readonly stripeService: StripeService,
   ) {}
+
+  private readonly logger = new Logger(WithdrawalService.name);
 
   private assertStatus(withdrawal: Withdrawal, allowed: WithdrawalStatus[]): void {
     if (!allowed.includes(withdrawal.status)) {
@@ -141,20 +147,80 @@ export class WithdrawalService {
     });
   }
 
-  // KHS accepts the request. Nothing is sent yet.
+  // KHS accepts the request. If the payout account is a Stripe Connect
+  // account with payouts enabled, this now actually sends the money — a
+  // real stripe.transfers.create call, not just a status flip. Anything
+  // else (no Stripe account, not yet enabled, or the transfer itself
+  // throwing) falls back to exactly the historical manual behavior: only
+  // the status flips, an admin sends it by hand and marks it paid later.
   async approve(id: string): Promise<Withdrawal> {
     const withdrawal = await this.findOne(id);
     this.assertStatus(withdrawal, ['Pending']);
 
     withdrawal.status = 'Processing';
     withdrawal.reviewedAt = new Date();
+
+    const bank = withdrawal.bankDetails;
+    const canGoAutomatic =
+      process.env.STRIPE_CONNECT_ENABLED === 'true' &&
+      bank?.type === PaymentMethodType.STRIPE_CONNECT &&
+      !!bank.stripeAccountId &&
+      bank.stripePayoutsEnabled;
+
+    if (canGoAutomatic) {
+      try {
+        const transfer = await this.stripeService.createTransfer({
+          amount: Math.round(Number(withdrawal.payoutAmount ?? withdrawal.amount) * 100),
+          currency: (withdrawal.payoutCurrency ?? withdrawal.currency).toLowerCase(),
+          destinationAccountId: bank.stripeAccountId,
+          metadata: { withdrawalId: withdrawal.id },
+        });
+        withdrawal.status = 'Completed';
+        withdrawal.payoutMethod = 'stripe';
+        withdrawal.payoutReference = transfer.id;
+        withdrawal.paidAt = new Date();
+        if (withdrawal.transactionId) {
+          await this.transactionRepo.update(
+            { id: withdrawal.transactionId },
+            { status: TransactionStatus.COMPLETED },
+          );
+        }
+      } catch (error) {
+        // Never leave it half-done — fall back to the manual path an admin
+        // can still complete by hand.
+        this.logger.error(
+          `Automatic payout failed for withdrawal ${id}, falling back to manual: ${error.message}`,
+          error.stack,
+        );
+        withdrawal.payoutMethod = 'manual';
+        SlackService.notify({
+          node: SlackNode.PAYMENT,
+          provider: SlackProvider.STRIPE,
+          severity: SlackSeverity.ERROR,
+          type: SlackEventType.ERROR_ALERT,
+          trigger: `Automatic payout failed: ${withdrawal.businessName}`,
+          body: `The automatic Stripe transfer for withdrawal ${withdrawal.id} (${withdrawal.businessName}) failed and fell back to manual. Send it by hand and mark it paid.
+Error: ${error.message}`,
+        });
+      }
+    }
+    // else: no automatic rail available — payoutMethod stays 'manual',
+    // status stays 'Processing', identical to today's behavior.
+
     const saved = await this.withdrawalRepo.save(withdrawal);
 
-    this.slack(saved, `Payout approved: ${saved.businessName}. It now needs to be sent and marked paid.`);
+    this.slack(
+      saved,
+      saved.status === 'Completed'
+        ? `Payout sent automatically via Stripe: ${saved.businessName}`
+        : `Payout approved: ${saved.businessName}. It now needs to be sent and marked paid.`,
+    );
     await this.tellMerchant(
       saved,
       'Your withdrawal was approved',
-      `Your withdrawal request for $${saved.amount} has been approved. We are preparing the transfer and will email you again, with a reference, as soon as it has been sent.`,
+      saved.status === 'Completed'
+        ? `Your withdrawal of $${saved.amount} has been sent. Reference: ${saved.payoutReference}.`
+        : `Your withdrawal request for $${saved.amount} has been approved. We are preparing the transfer and will email you again, with a reference, as soon as it has been sent.`,
     );
     return saved;
   }
@@ -167,6 +233,11 @@ export class WithdrawalService {
     }
 
     const withdrawal = await this.findOne(id);
+    if (withdrawal.payoutMethod !== 'manual') {
+      throw new BadRequestException(
+        'This payout was sent automatically — nothing to mark paid by hand',
+      );
+    }
     this.assertStatus(withdrawal, ['Processing']);
 
     withdrawal.status = 'Completed';

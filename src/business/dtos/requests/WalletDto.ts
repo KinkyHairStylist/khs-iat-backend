@@ -207,6 +207,18 @@ export class WithdrawalDto {
   bankDetailsId: string;
 }
 
+export class StripeConnectOnboardingDto {
+  @IsUUID()
+  walletId: string;
+
+  // What currency the merchant wants to be paid out in via this Stripe
+  // account — stashed onto the Stripe account's own metadata and read back
+  // once payouts are enabled (see StripeService.createConnectedAccount).
+  @IsOptional()
+  @IsEnum(WalletCurrency)
+  payoutCurrency?: WalletCurrency;
+}
+
 export class DebitWalletRequestDto {
   @ValidateNested()
   @Type(() => AddTransactionDto)

@@ -177,6 +177,19 @@ export class WebhookController {
           }
           break;
         }
+        case 'account.updated': {
+          const account = event.data.object as {
+            id: string;
+            payouts_enabled?: boolean;
+            metadata?: { payoutCurrency?: string };
+          };
+          await this.businessWalletService.handleStripeAccountUpdated(
+            account.id,
+            account.payouts_enabled ?? false,
+            account.metadata?.payoutCurrency || undefined,
+          );
+          break;
+        }
         default:
           this.logger.log(`Unhandled Stripe event type: ${event.type}`);
       }
