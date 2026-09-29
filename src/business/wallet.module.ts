@@ -7,6 +7,7 @@ import { BusinessWalletController } from './controllers/wallet.controller';
 import { BusinessWalletService } from './services/wallet.service';
 import { WalletReleaseCronService } from './services/wallet-release-cron.service';
 import { CurrencyConversionService } from './services/currency-conversion.service';
+import { StripeService } from 'src/payment/stripe.service';
 import { Business } from './entities/business.entity';
 import { Withdrawal } from 'src/admin/withdrawal/entities/withdrawal.entity';
 import { StripePaymentIntent } from 'src/payment/entities/stripe-payment-intent.entity';
@@ -27,7 +28,7 @@ import { NotificationModule } from 'src/notifications/notification.module';
     NotificationModule,
   ],
   controllers: [BusinessWalletController],
-  providers: [BusinessWalletService, WalletReleaseCronService, CurrencyConversionService],
+  providers: [BusinessWalletService, WalletReleaseCronService, CurrencyConversionService, StripeService],
   exports: [BusinessWalletService],
 })
 export class BusinessWalletModule {}

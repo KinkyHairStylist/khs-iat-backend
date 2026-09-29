@@ -18,6 +18,7 @@ import {
   AddTransactionDto,
   CreateWalletDto,
   DebitWalletRequestDto,
+  StripeConnectOnboardingDto,
   TransactionFiltersDto,
   UpdatePayoutCurrencyDto,
   WithdrawalPreviewDto,
@@ -274,6 +275,25 @@ export class BusinessWalletController {
     return { success: true, data: preview };
   }
 
+  // A hosted Stripe onboarding URL for automatic payouts — the merchant is
+  // redirected to Stripe's own pages to connect (or finish connecting) an
+  // Express account; this app never collects their bank details directly
+  // for this path.
+  @Post('/stripe-connect/onboarding-link')
+  async getStripeConnectOnboardingLink(
+    @Request() req,
+    @Body() body: StripeConnectOnboardingDto,
+  ) {
+    await this.assertOwnsWalletById(body.walletId, req.user);
+    const wallet = await this.walletService.getWalletById(body.walletId);
+    const result = await this.walletService.getOrCreateStripeConnectOnboardingLink({
+      walletId: body.walletId,
+      businessId: wallet.businessId,
+      payoutCurrency: body.payoutCurrency,
+    });
+    return { success: true, data: result };
+  }
+
   @Patch('/debit')
   async debitWallet(@Request() req, @Body() body: DebitWalletRequestDto) {
     const ownerId = req.user.id || req.user.sub;
@@ -306,5 +326,15 @@ export class BusinessWalletController {
   async cancelWithdrawal(@Request() req, @Param('withdrawalId') withdrawalId: string) {
     const withdrawal = await this.walletService.cancelWithdrawal(withdrawalId, req.user);
     return { success: true, data: withdrawal, message: 'Withdrawal request cancelled' };
+  }
+
+  // A salon pulls an admin-approved withdrawal to their own connected Stripe
+  // account, themselves — the real transfer fires here, not when the admin
+  // approved it. Only ever succeeds for a Stripe-Connect-eligible payout
+  // method; anything else still needs an admin to send it by hand.
+  @Patch('/withdrawals/:withdrawalId/claim')
+  async claimWithdrawal(@Request() req, @Param('withdrawalId') withdrawalId: string) {
+    const withdrawal = await this.walletService.claimAutomaticPayout(withdrawalId, req.user);
+    return { success: true, data: withdrawal, message: 'Withdrawal sent to your Stripe account' };
   }
 }

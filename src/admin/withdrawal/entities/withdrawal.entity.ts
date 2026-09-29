@@ -88,7 +88,16 @@ export class Withdrawal {
   @Column({ nullable: true })
   timeAgo: string;
 
-  // The transfer reference KHS entered when it sent the money, and when.
+  // How this withdrawal actually went out — a permanent snapshot, since
+  // `bankDetails` is a live FK that can change or be removed later. 'manual'
+  // (the historical default, and still the only path when no automatic rail
+  // is available) means an admin sent it by hand; 'stripe' means
+  // WithdrawalService.approve sent it automatically via a Stripe transfer.
+  @Column({ type: 'varchar', length: 10, default: 'manual' })
+  payoutMethod: 'manual' | 'stripe';
+
+  // The transfer reference — an admin-typed bank reference for a manual
+  // payout, or the Stripe transfer id when payoutMethod is 'stripe'.
   @Column({ type: 'varchar', length: 120, nullable: true })
   payoutReference: string | null;
 
