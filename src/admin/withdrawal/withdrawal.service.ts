@@ -176,23 +176,33 @@ export class WithdrawalService {
     });
 
     const saved = await this.findOne(id); // bankDetails eager-loaded here
-    const canGoAutomatic =
+    const stripeEligible =
       process.env.STRIPE_CONNECT_ENABLED === 'true' &&
       saved.bankDetails?.type === PaymentMethodType.STRIPE_CONNECT &&
       !!saved.bankDetails.stripeAccountId &&
       saved.bankDetails.stripePayoutsEnabled;
+    const airwallexEligible =
+      process.env.AIRWALLEX_ENABLED === 'true' &&
+      saved.bankDetails?.type === PaymentMethodType.AIRWALLEX_CONNECT &&
+      !!saved.bankDetails.airwallexBeneficiaryId;
+    // Neither rail moves money here — this only decides which
+    // Slack/merchant-facing message to send. The real transfer, for either
+    // rail, only fires when the merchant claims it (see
+    // BusinessWalletService.claimAutomaticPayout).
+    const canGoAutomatic = stripeEligible || airwallexEligible;
+    const railName = stripeEligible ? 'Stripe' : 'Airwallex';
 
     this.slack(
       saved,
       canGoAutomatic
-        ? `Payout approved: ${saved.businessName}. Ready for the merchant to withdraw via Stripe.`
+        ? `Payout approved: ${saved.businessName}. Ready for the merchant to withdraw via ${railName}.`
         : `Payout approved: ${saved.businessName}. It now needs to be sent and marked paid.`,
     );
     await this.tellMerchant(
       saved,
       'Your withdrawal was approved',
       canGoAutomatic
-        ? `Your withdrawal request for $${saved.amount} has been approved and is ready — withdraw it to your Stripe account any time from your wallet.`
+        ? `Your withdrawal request for $${saved.amount} has been approved and is ready — withdraw it to your ${railName} account any time from your wallet.`
         : `Your withdrawal request for $${saved.amount} has been approved. We are preparing the transfer and will email you again, with a reference, as soon as it has been sent.`,
     );
     return saved;

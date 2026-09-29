@@ -73,11 +73,20 @@ export class Withdrawal {
   @Column({ type: 'decimal', precision: 14, scale: 2, nullable: true })
   payoutAmount: number | null;
 
-  // Pending: waiting for KHS to review. Processing: approved, KHS is sending the money. Completed: KHS
-  // has sent it (payoutReference says how to trace it). Rejected: KHS refused (rejectionReason says
+  // Pending: waiting for KHS to review. Processing: approved, KHS is sending the money (or, for an
+  // automatic rail, waiting for the merchant to claim it). Submitted: the merchant claimed it and an
+  // Airwallex transfer was accepted, but Airwallex's own async settlement hasn't confirmed it yet —
+  // Stripe never needs this state, since its transfer call is final immediately. Completed: the money
+  // has gone out (payoutReference says how to trace it). Rejected: KHS refused (rejectionReason says
   // why) and the amount went back to the wallet. Cancelled: the salon withdrew the request first.
   @Column({ default: 'Pending' })
-  status: 'Pending' | 'Processing' | 'Completed' | 'Rejected' | 'Cancelled';
+  status:
+    | 'Pending'
+    | 'Processing'
+    | 'Submitted'
+    | 'Completed'
+    | 'Rejected'
+    | 'Cancelled';
 
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
   currentBalance: number;
@@ -92,12 +101,15 @@ export class Withdrawal {
   // `bankDetails` is a live FK that can change or be removed later. 'manual'
   // (the historical default, and still the only path when no automatic rail
   // is available) means an admin sent it by hand; 'stripe' means
-  // WithdrawalService.approve sent it automatically via a Stripe transfer.
+  // BusinessWalletService.claimAutomaticPayout sent it via a Stripe transfer;
+  // 'airwallex' means the same method sent it via an Airwallex transfer
+  // (which may still be Submitted, not yet Completed — see status above).
   @Column({ type: 'varchar', length: 10, default: 'manual' })
-  payoutMethod: 'manual' | 'stripe';
+  payoutMethod: 'manual' | 'stripe' | 'airwallex';
 
   // The transfer reference — an admin-typed bank reference for a manual
-  // payout, or the Stripe transfer id when payoutMethod is 'stripe'.
+  // payout, the Stripe transfer id when payoutMethod is 'stripe', or the
+  // Airwallex transfer id when payoutMethod is 'airwallex'.
   @Column({ type: 'varchar', length: 120, nullable: true })
   payoutReference: string | null;
 
