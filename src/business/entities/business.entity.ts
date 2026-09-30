@@ -96,6 +96,11 @@ export class Business {
   @Column({ nullable: true })
   businessAddress: string;
 
+  // ISO 3166-1 alpha-2 (e.g. "AU", "NG"). Drives the default payout currency
+  // offered when the merchant adds a payment method — see WalletPaymentMethod.
+  @Column({ type: 'varchar', length: 2, nullable: true })
+  country: string;
+
   @Column({ type: 'jsonb', nullable: true })
   businessImage?: string[];
 

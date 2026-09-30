@@ -407,6 +407,109 @@ export class StripeService {
     }
   }
 
+  // ---- Stripe Connect: automatic merchant payouts ----
+
+  /** A Stripe Express account for a merchant to receive automatic payouts.
+   * The merchant's own bank details are collected by Stripe's hosted
+   * onboarding, never by this app — see createAccountLink. payoutCurrency
+   * is stashed in metadata because Stripe's own account.default_currency
+   * isn't guaranteed to match one of this platform's 5 supported
+   * WalletCurrency values; it's read back by the account.updated webhook. */
+  async createConnectedAccount(payload: {
+    businessId: string;
+    email?: string;
+    country: string;
+    payoutCurrency?: string;
+  }): Promise<Stripe.Account> {
+    try {
+      return await this.stripe.accounts.create({
+        type: 'express',
+        country: payload.country,
+        email: payload.email,
+        // card_payments is required alongside transfers for at least US
+        // accounts (confirmed against the real API, not assumed from docs)
+        // — Express accounts are conventionally created with both anyway,
+        // so this is requested unconditionally rather than per-country.
+        capabilities: {
+          transfers: { requested: true },
+          card_payments: { requested: true },
+        },
+        metadata: {
+          businessId: payload.businessId,
+          payoutCurrency: payload.payoutCurrency ?? '',
+        },
+      });
+    } catch (error) {
+      throw new BadRequestException(
+        `Unable to create Stripe connected account: ${error.message}`,
+      );
+    }
+  }
+
+  /** A one-time hosted onboarding URL for a connected account. These expire
+   * quickly — always mint a fresh one, never cache the URL. */
+  async createAccountLink(payload: {
+    accountId: string;
+    refreshUrl: string;
+    returnUrl: string;
+  }): Promise<string> {
+    try {
+      const link = await this.stripe.accountLinks.create({
+        account: payload.accountId,
+        refresh_url: payload.refreshUrl,
+        return_url: payload.returnUrl,
+        type: 'account_onboarding',
+      });
+      return link.url;
+    } catch (error) {
+      throw new BadRequestException(
+        `Unable to create Stripe account link: ${error.message}`,
+      );
+    }
+  }
+
+  /** On-demand read of a connected account's current state — a manual
+   * fallback if an account.updated webhook is ever missed. */
+  async retrieveConnectedAccount(accountId: string): Promise<Stripe.Account> {
+    try {
+      return await this.stripe.accounts.retrieve(accountId);
+    } catch (error) {
+      throw new BadRequestException(
+        `Unable to read Stripe connected account: ${error.message}`,
+      );
+    }
+  }
+
+  /** Moves money out of KHS's own Stripe balance into a connected account's
+   * balance — this IS the automatic payout for a stripe_connect payment
+   * method. A successful call is treated as final for this platform's own
+   * withdrawal record; the connected account's subsequent payout to its
+   * real bank is Stripe's/the merchant's own concern from there. */
+  async createTransfer(payload: {
+    amount: number; // smallest currency unit (cents), same convention as createPaymentIntent
+    currency: string;
+    destinationAccountId: string;
+    metadata?: Record<string, string>;
+  }): Promise<Stripe.Transfer> {
+    if (!Number.isInteger(payload.amount) || payload.amount <= 0) {
+      throw new BadRequestException(
+        'Amount must be a positive integer (smallest currency unit)',
+      );
+    }
+    try {
+      return await this.stripe.transfers.create({
+        amount: payload.amount,
+        currency: payload.currency,
+        destination: payload.destinationAccountId,
+        metadata: payload.metadata,
+      });
+    } catch (error) {
+      throw new BadRequestException(
+        `Unable to create Stripe transfer: ${error.message}`,
+      );
+    }
+  }
+
   /** Verifies and parses a webhook payload — requires the raw request body, not parsed JSON */
   constructWebhookEvent(rawBody: Buffer, signature: string): Stripe.Event {
     if (!this.webhookSecret) {

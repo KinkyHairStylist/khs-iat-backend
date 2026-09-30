@@ -48,11 +48,45 @@ export class Withdrawal {
   @Column('decimal', { precision: 10, scale: 2 })
   amount: number;
 
-  // Pending: waiting for KHS to review. Processing: approved, KHS is sending the money. Completed: KHS
-  // has sent it (payoutReference says how to trace it). Rejected: KHS refused (rejectionReason says
+  // The wallet's ledger currency at the moment this request was made (a
+  // snapshot — see PLATFORM_LEDGER_CURRENCY in wallet.enum.ts for what new
+  // wallets default to today).
+  @Column({ type: 'varchar', length: 3, default: 'USD' })
+  currency: string;
+
+  // What the merchant will actually be paid in, and the numbers used to get
+  // there — all three stamped once at request time by
+  // WalletService.requestWithdrawal and never recomputed, so a later change
+  // in the live FX rate can't retroactively alter a past request. Null when
+  // the payout currency equals the ledger currency (no conversion needed).
+  @Column({ type: 'varchar', length: 3, nullable: true })
+  payoutCurrency: string | null;
+
+  @Column({ type: 'decimal', precision: 18, scale: 8, nullable: true })
+  exchangeRate: number | null;
+
+  // Wider than `amount` on purpose: converting into a currency with a large
+  // exchange rate (e.g. USD->NGN) can multiply the digit count well past a
+  // typical withdrawal's size, and this should fail loudly at the DTO/service
+  // layer with a clear error rather than at the database with a silent
+  // truncation or a thrown numeric-overflow error.
+  @Column({ type: 'decimal', precision: 14, scale: 2, nullable: true })
+  payoutAmount: number | null;
+
+  // Pending: waiting for KHS to review. Processing: approved, KHS is sending the money (or, for an
+  // automatic rail, waiting for the merchant to claim it). Submitted: the merchant claimed it and an
+  // Airwallex transfer was accepted, but Airwallex's own async settlement hasn't confirmed it yet —
+  // Stripe never needs this state, since its transfer call is final immediately. Completed: the money
+  // has gone out (payoutReference says how to trace it). Rejected: KHS refused (rejectionReason says
   // why) and the amount went back to the wallet. Cancelled: the salon withdrew the request first.
   @Column({ default: 'Pending' })
-  status: 'Pending' | 'Processing' | 'Completed' | 'Rejected' | 'Cancelled';
+  status:
+    | 'Pending'
+    | 'Processing'
+    | 'Submitted'
+    | 'Completed'
+    | 'Rejected'
+    | 'Cancelled';
 
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
   currentBalance: number;
@@ -63,7 +97,19 @@ export class Withdrawal {
   @Column({ nullable: true })
   timeAgo: string;
 
-  // The transfer reference KHS entered when it sent the money, and when.
+  // How this withdrawal actually went out — a permanent snapshot, since
+  // `bankDetails` is a live FK that can change or be removed later. 'manual'
+  // (the historical default, and still the only path when no automatic rail
+  // is available) means an admin sent it by hand; 'stripe' means
+  // BusinessWalletService.claimAutomaticPayout sent it via a Stripe transfer;
+  // 'airwallex' means the same method sent it via an Airwallex transfer
+  // (which may still be Submitted, not yet Completed — see status above).
+  @Column({ type: 'varchar', length: 10, default: 'manual' })
+  payoutMethod: 'manual' | 'stripe' | 'airwallex';
+
+  // The transfer reference — an admin-typed bank reference for a manual
+  // payout, the Stripe transfer id when payoutMethod is 'stripe', or the
+  // Airwallex transfer id when payoutMethod is 'airwallex'.
   @Column({ type: 'varchar', length: 120, nullable: true })
   payoutReference: string | null;
 

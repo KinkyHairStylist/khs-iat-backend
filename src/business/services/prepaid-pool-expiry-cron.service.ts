@@ -15,7 +15,7 @@ import {
   TransactionStatus,
   PaymentMethod,
 } from '../entities/transaction.entity';
-import { WalletCurrency } from 'src/admin/payment/enums/wallet.enum';
+import { PLATFORM_LEDGER_CURRENCY, WalletCurrency } from 'src/admin/payment/enums/wallet.enum';
 import { BusinessWalletService } from './wallet.service';
 import { SlackService } from 'src/services/slack.service';
 import {
@@ -227,7 +227,7 @@ export class PrepaidPoolExpiryCronService {
         await this.walletService.createWalletForBusiness({
           businessId,
           ownerId,
-          currency: WalletCurrency.USD,
+          currency: PLATFORM_LEDGER_CURRENCY,
           description: 'Business wallet - auto-created from prepaid-pool expiry split',
         });
       }
