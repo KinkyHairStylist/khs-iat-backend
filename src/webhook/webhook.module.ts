@@ -8,7 +8,7 @@ import { EmailModule } from 'src/email/email.module';
 import { WebhookController } from './controller/webhook.controller';
 import { PaystackWebhookController } from './controller/paystack_webhook_controller';
 import { WebhookService } from './services/webhook.service';
-import { PaymentModule } from 'src/admin/payment/payment.module';
+import { PaymentModule } from 'src/payment/payment.module';
 import { WalletPaymentMethod } from 'src/business/entities/payment-method.entity';
 import { StripeService } from 'src/payment/stripe.service';
 import { AirwallexService } from 'src/payment/airwallex.service';

@@ -12,7 +12,7 @@ import {
   MinLength,
 } from 'class-validator';
 import { ProductCategory, ShippingStatus } from '../enum/marketplace.enum';
-import { WalletCurrency } from 'src/admin/payment/enums/wallet.enum';
+import { WalletCurrency } from 'src/payment/enums/wallet.enum';
 
 export class CreateProductDto {
   @IsString()

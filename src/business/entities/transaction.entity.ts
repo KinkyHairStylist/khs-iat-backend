@@ -11,7 +11,7 @@ import {
 
 import { User } from 'src/all_user_entities/user.entity';
 import { Wallet } from './wallet.entity';
-import { WalletCurrency } from 'src/admin/payment/enums/wallet.enum';
+import { WalletCurrency } from 'src/payment/enums/wallet.enum';
 
 // --------------------------
 // Transaction Enums

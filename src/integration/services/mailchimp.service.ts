@@ -6,7 +6,7 @@ import { createHash } from 'crypto';
 import { MailchimpCredentials } from '../entities/mail-chimp.entity';
 import { Appointment } from 'src/business/entities/appointment.entity';
 import { BusinessOwnerSettingsService } from 'src/business/services/business-owner-settings.service';
-import { decrypt, encrypt } from 'src/admin/platform-settings/utils/settings-encryption.util';
+import { decrypt, encrypt } from 'src/platform-settings/utils/settings-encryption.util';
 import { IntegrationAccessService } from './integration-access.service';
 import { IntegrationAuthError, mailchimpDataCentre } from '../integration.helpers';
 

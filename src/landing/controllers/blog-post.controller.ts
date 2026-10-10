@@ -1,31 +1,16 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  Param,
-  Patch,
-  Post,
-  UploadedFile,
-  UseGuards,
-  UseInterceptors,
-} from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
-import { ApiTags, ApiBearerAuth, ApiOperation, ApiConsumes } from '@nestjs/swagger';
+import { Controller, Get, Param } from '@nestjs/common';
+import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { BlogPostService } from '../services/blog-post.service';
-import { CreateBlogPostDto, UpdateBlogPostDto } from '../dtos/blog-post.dto';
-import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
 import { Public } from 'src/business/middlewares/public.decorator';
-import { FirebaseStorageService } from 'src/shared/services/firebase-storage.service';
-import { fileUploadOptions } from 'src/middleware/file-upload.middleware';
 
 @ApiTags('Landing - Blog')
 @Controller('landing/blog')
 export class BlogPostController {
-  constructor(
-    private readonly blogPostService: BlogPostService,
-    private readonly firebaseStorageService: FirebaseStorageService,
-  ) {}
+  constructor(private readonly blogPostService: BlogPostService) {}
+
+  // Managing this content (drafts, create, edit, delete, uploads) moved to
+  // khs-iat-staff-be. Here those routes only checked for a login, so any
+  // customer account could use them. Only the public routes remain.
 
   @Get()
   @Public()
@@ -34,56 +19,10 @@ export class BlogPostController {
     return this.blogPostService.findPublished();
   }
 
-  @Get('all')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth('access-token')
-  @ApiOperation({ summary: 'Get all blog posts including drafts (admin)' })
-  findAll() {
-    return this.blogPostService.findAll();
-  }
-
   @Get(':slug')
   @Public()
   @ApiOperation({ summary: 'Get a published blog post by slug (public)' })
   findBySlug(@Param('slug') slug: string) {
     return this.blogPostService.findBySlug(slug);
-  }
-
-  @Post('upload-image')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth('access-token')
-  @UseInterceptors(FileInterceptor('file', fileUploadOptions()))
-  @ApiConsumes('multipart/form-data')
-  @ApiOperation({ summary: 'Upload a blog post cover image (admin)' })
-  async uploadImage(@UploadedFile() file: Express.Multer.File) {
-    const { imageUrl } = await this.firebaseStorageService.uploadFromBuffer(
-      file,
-      'KHS/landing/blog',
-    );
-    return { success: true, data: { url: imageUrl } };
-  }
-
-  @Post()
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth('access-token')
-  @ApiOperation({ summary: 'Create a blog post (admin)' })
-  create(@Body() dto: CreateBlogPostDto) {
-    return this.blogPostService.create(dto);
-  }
-
-  @Patch(':id')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth('access-token')
-  @ApiOperation({ summary: 'Update a blog post (admin)' })
-  update(@Param('id') id: string, @Body() dto: UpdateBlogPostDto) {
-    return this.blogPostService.update(id, dto);
-  }
-
-  @Delete(':id')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth('access-token')
-  @ApiOperation({ summary: 'Delete a blog post (admin)' })
-  remove(@Param('id') id: string) {
-    return this.blogPostService.remove(id);
   }
 }

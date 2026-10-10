@@ -5,7 +5,7 @@ import { Wallet } from '../src/business/entities/wallet.entity';
 import {
   WalletCurrency,
   WalletStatus,
-} from '../src/admin/payment/enums/wallet.enum';
+} from '../src/payment/enums/wallet.enum';
 import {
   Transaction,
   TransactionType,

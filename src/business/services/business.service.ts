@@ -50,7 +50,7 @@ import { ClientSchema } from '../entities/client.entity';
 import { Address } from '../entities/address.entity';
 import { EditStaffDto } from '../dtos/requests/EditStaffDto';
 import { GoogleCalendarService } from 'src/integration/services/google-calendar.service';
-import { PLATFORM_LEDGER_CURRENCY, WalletCurrency } from 'src/admin/payment/enums/wallet.enum';
+import { PLATFORM_LEDGER_CURRENCY, WalletCurrency } from 'src/payment/enums/wallet.enum';
 import { BusinessWalletService } from './wallet.service';
 import { MailchimpService } from 'src/integration/services/mailchimp.service';
 import { BusinessOwnerSettingsService } from './business-owner-settings.service';

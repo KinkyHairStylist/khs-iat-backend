@@ -1,19 +1,8 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  Param,
-  Patch,
-  Post,
-  UseGuards,
-} from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { Controller, Get } from '@nestjs/common';
+import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { LandingStatService } from '../services/landing-stat.service';
-import { CreateLandingStatDto, UpdateLandingStatDto } from '../dtos/landing-stat.dto';
-import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
 import { Public } from 'src/business/middlewares/public.decorator';
-import { PlatformSettingsService } from 'src/admin/platform-settings/platform-settings.service';
+import { PlatformSettingsService } from 'src/platform-settings/platform-settings.service';
 
 @ApiTags('Landing - Statistics')
 @Controller('landing/statistics')
@@ -22,6 +11,10 @@ export class LandingStatController {
     private readonly landingStatService: LandingStatService,
     private readonly platformSettingsService: PlatformSettingsService,
   ) {}
+
+  // Managing this content (drafts, create, edit, delete, uploads) moved to
+  // khs-iat-staff-be. Here those routes only checked for a login, so any
+  // customer account could use them. Only the public routes remain.
 
   // Public — so a merchant pricing/landing page can be built against real
   // data. priceId is deliberately omitted from the public response; only
@@ -47,37 +40,5 @@ export class LandingStatController {
   @ApiOperation({ summary: 'Get all active statistics (public)' })
   findActive() {
     return this.landingStatService.findActive();
-  }
-
-  @Get('all')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth('access-token')
-  @ApiOperation({ summary: 'Get all statistics including inactive (admin)' })
-  findAll() {
-    return this.landingStatService.findAll();
-  }
-
-  @Post()
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth('access-token')
-  @ApiOperation({ summary: 'Create a statistic card (admin)' })
-  create(@Body() dto: CreateLandingStatDto) {
-    return this.landingStatService.create(dto);
-  }
-
-  @Patch(':id')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth('access-token')
-  @ApiOperation({ summary: 'Update a statistic card (admin)' })
-  update(@Param('id') id: string, @Body() dto: UpdateLandingStatDto) {
-    return this.landingStatService.update(id, dto);
-  }
-
-  @Delete(':id')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth('access-token')
-  @ApiOperation({ summary: 'Delete a statistic card (admin)' })
-  remove(@Param('id') id: string) {
-    return this.landingStatService.remove(id);
   }
 }

@@ -17,7 +17,7 @@ import { Roles } from 'src/middleware/roles.decorator';
 import { Business, BusinessPlanTier } from '../entities/business.entity';
 import { isPlanTier } from 'src/helpers/merchant-plans.helper';
 import { MerchantSubscriptionService } from '../services/merchant-subscription.service';
-import { PlatformSettingsService } from 'src/admin/platform-settings/platform-settings.service';
+import { PlatformSettingsService } from 'src/platform-settings/platform-settings.service';
 
 @ApiTags('Merchant Subscription')
 @ApiBearerAuth('access-token')

@@ -4,7 +4,7 @@ import { Wallet } from '../entities/wallet.entity';
 import { WalletPaymentMethod } from '../entities/payment-method.entity';
 import { Business } from '../entities/business.entity';
 import { Transaction, TransactionStatus, TransactionType } from '../entities/transaction.entity';
-import { Withdrawal } from 'src/admin/withdrawal/entities/withdrawal.entity';
+import { Withdrawal } from 'src/business/entities/withdrawal.entity';
 
 // Slack posts go over the network; the tests don't need them.
 jest.mock('src/services/slack.service', () => ({ SlackService: { notify: jest.fn() } }));

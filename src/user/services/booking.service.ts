@@ -21,8 +21,8 @@ import {
   PaymentMethod,
   TransactionStatus as TxnStatus,
 } from 'src/business/entities/transaction.entity';
-import { PLATFORM_LEDGER_CURRENCY, WalletCurrency } from 'src/admin/payment/enums/wallet.enum';
-import { PlatformSettingsService } from 'src/admin/platform-settings/platform-settings.service';
+import { PLATFORM_LEDGER_CURRENCY, WalletCurrency } from 'src/payment/enums/wallet.enum';
+import { PlatformSettingsService } from 'src/platform-settings/platform-settings.service';
 import {
   DEFAULT_CANCELLATION_WINDOW_HOURS,
   resolveCancellationWindowHours,
@@ -72,7 +72,7 @@ import { BusinessWalletService } from 'src/business/services/wallet.service';
 import { ClientSchema, ClientType } from 'src/business/entities/client.entity';
 import { BusinessClientAcquisition } from 'src/business/entities/business-client-acquisition.entity';
 import { Wallet } from 'src/business/entities/wallet.entity';
-import { WalletStatus } from 'src/admin/payment/enums/wallet.enum';
+import { WalletStatus } from 'src/payment/enums/wallet.enum';
 import { MerchantMembershipPackage } from 'src/business/entities/merchant-membership-package.entity';
 import {
   MerchantMembershipPurchase,

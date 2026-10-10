@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import axios from 'axios';
-import { PLATFORM_LEDGER_CURRENCY } from 'src/admin/payment/enums/wallet.enum';
+import { PLATFORM_LEDGER_CURRENCY } from 'src/payment/enums/wallet.enum';
 
 export interface ConversionResult {
   ledgerCurrency: string;

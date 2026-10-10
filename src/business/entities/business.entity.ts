@@ -22,7 +22,7 @@ import { Product } from '../../marketplace/entity/product.entity';
 import { BusinessGiftCard } from './business-giftcard.entity';
 import { BusinessOwnerSettings } from './business-owner-settings.entity';
 import { MerchantSubscription } from './merchant-subscription.entity';
-import { Withdrawal } from 'src/admin/withdrawal/entities/withdrawal.entity';
+import { Withdrawal } from 'src/business/entities/withdrawal.entity';
 
 export enum BusinessStatus {
   PENDING = 'pending',

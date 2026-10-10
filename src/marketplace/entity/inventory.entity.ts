@@ -6,7 +6,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { DEFAULTPRODUCTCATEGORIES } from '../enum/marketplace.enum';
-import { WalletCurrency } from 'src/admin/payment/enums/wallet.enum';
+import { WalletCurrency } from 'src/payment/enums/wallet.enum';
 
 @Entity('platform_inventory')
 export class PlatformInventory {

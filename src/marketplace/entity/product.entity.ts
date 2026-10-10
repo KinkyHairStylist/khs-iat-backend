@@ -10,7 +10,7 @@ import {
 } from 'typeorm';
 import { ShippingStatus } from '../enum/marketplace.enum';
 import { Business } from '../../business/entities/business.entity';
-import { WalletCurrency } from 'src/admin/payment/enums/wallet.enum';
+import { WalletCurrency } from 'src/payment/enums/wallet.enum';
 
 @Entity('inventory_products')
 export class Product {

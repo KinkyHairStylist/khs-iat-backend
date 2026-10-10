@@ -3,7 +3,7 @@ import axios from 'axios';
 import { MailchimpService } from './mailchimp.service';
 
 jest.mock('axios');
-jest.mock('src/admin/platform-settings/utils/settings-encryption.util', () => ({
+jest.mock('src/platform-settings/utils/settings-encryption.util', () => ({
   encrypt: (v: string) => `enc(${v})`,
   decrypt: (v: string) => v.replace(/^enc\((.*)\)$/, '$1'),
 }));

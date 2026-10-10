@@ -1,17 +1,6 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  Param,
-  Patch,
-  Post,
-  UseGuards,
-} from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { Controller, Get } from '@nestjs/common';
+import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { FaqService } from '../services/faq.service';
-import { CreateFaqDto, UpdateFaqDto } from '../dtos/faq.dto';
-import { JwtAuthGuard } from 'src/middleware/jwt-auth.guard';
 import { Public } from 'src/business/middlewares/public.decorator';
 
 @ApiTags('Landing - FAQ')
@@ -19,42 +8,14 @@ import { Public } from 'src/business/middlewares/public.decorator';
 export class FaqController {
   constructor(private readonly faqService: FaqService) {}
 
+  // Managing this content (drafts, create, edit, delete, uploads) moved to
+  // khs-iat-staff-be. Here those routes only checked for a login, so any
+  // customer account could use them. Only the public routes remain.
+
   @Get()
   @Public()
   @ApiOperation({ summary: 'Get all active FAQs (public)' })
   findActive() {
     return this.faqService.findActive();
-  }
-
-  @Get('all')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth('access-token')
-  @ApiOperation({ summary: 'Get all FAQs including inactive (admin)' })
-  findAll() {
-    return this.faqService.findAll();
-  }
-
-  @Post()
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth('access-token')
-  @ApiOperation({ summary: 'Create a FAQ (admin)' })
-  create(@Body() dto: CreateFaqDto) {
-    return this.faqService.create(dto);
-  }
-
-  @Patch(':id')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth('access-token')
-  @ApiOperation({ summary: 'Update a FAQ (admin)' })
-  update(@Param('id') id: string, @Body() dto: UpdateFaqDto) {
-    return this.faqService.update(id, dto);
-  }
-
-  @Delete(':id')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth('access-token')
-  @ApiOperation({ summary: 'Delete a FAQ (admin)' })
-  remove(@Param('id') id: string) {
-    return this.faqService.remove(id);
   }
 }

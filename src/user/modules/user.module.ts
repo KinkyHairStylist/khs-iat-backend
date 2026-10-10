@@ -48,7 +48,7 @@ import { PaystackService } from 'src/payment/paystack.service';
 import { StripeService } from 'src/payment/stripe.service';
 import { BusinessModule } from 'src/business/business.module';
 import { BusinessWalletModule } from 'src/business/wallet.module';
-import { PlatformSettingsModule } from '../../admin/platform-settings/platform-settings.module';
+import { PlatformSettingsModule } from 'src/platform-settings/platform-settings.module';
 import { AdminChatModule } from './admin-chat.module';
 import { NotificationModule } from 'src/notifications/notification.module';
 import { SlackModule } from 'src/slack/slack.module';

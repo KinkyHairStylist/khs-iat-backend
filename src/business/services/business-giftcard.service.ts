@@ -32,8 +32,8 @@ import {
   PaymentMethod,
   TransactionStatus as TxnStatus,
 } from '../entities/transaction.entity';
-import { PLATFORM_LEDGER_CURRENCY, WalletCurrency } from '../../admin/payment/enums/wallet.enum';
-import { PlatformSettingsService } from '../../admin/platform-settings/platform-settings.service';
+import { PLATFORM_LEDGER_CURRENCY, WalletCurrency } from 'src/payment/enums/wallet.enum';
+import { PlatformSettingsService } from 'src/platform-settings/platform-settings.service';
 import { BusinessWalletService } from './wallet.service';
 import { SlackService } from 'src/services/slack.service';
 import {

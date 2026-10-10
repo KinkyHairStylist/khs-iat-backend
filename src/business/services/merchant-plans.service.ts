@@ -5,7 +5,7 @@ import { Business, BusinessPlanTier, BusinessStatus } from '../entities/business
 import { MerchantSubscriptionKind, MerchantSubscriptionStatus } from '../entities/merchant-subscription.entity';
 import { SlackService } from 'src/services/slack.service';
 import { SlackEventType, SlackNode, SlackProvider, SlackSeverity } from 'src/utils/enum';
-import { PlatformSettingsService } from 'src/admin/platform-settings/platform-settings.service';
+import { PlatformSettingsService } from 'src/platform-settings/platform-settings.service';
 import { StripeService } from 'src/payment/stripe.service';
 import { MerchantSubscriptionService } from './merchant-subscription.service';
 import {

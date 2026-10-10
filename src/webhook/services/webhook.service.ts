@@ -7,7 +7,7 @@ import {
 import * as crypto from 'crypto';
 import axios from 'axios';
 import { BusinessWalletService } from 'src/business/services/wallet.service';
-import { PaymentService } from 'src/admin/payment/payment.service';
+import { PaymentService } from 'src/payment/payment.service';
 
 // PayPal Webhook Event Types
 export enum PayPalWebhookEvent {

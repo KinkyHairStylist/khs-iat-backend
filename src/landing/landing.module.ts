@@ -21,8 +21,8 @@ import { FaqController } from './controllers/faq.controller';
 import { StoryController } from './controllers/story.controller';
 import { TestimonialController } from './controllers/testimonial.controller';
 import { LandingStatController } from './controllers/landing-stat.controller';
-import { PlatformSettingsEntity } from 'src/admin/platform-settings/entities/platform-settings.entity';
-import { PlatformSettingsService } from 'src/admin/platform-settings/platform-settings.service';
+import { PlatformSettingsEntity } from 'src/platform-settings/entities/platform-settings.entity';
+import { PlatformSettingsService } from 'src/platform-settings/platform-settings.service';
 
 @Module({
   imports: [

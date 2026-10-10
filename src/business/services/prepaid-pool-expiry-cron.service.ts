@@ -15,7 +15,7 @@ import {
   TransactionStatus,
   PaymentMethod,
 } from '../entities/transaction.entity';
-import { PLATFORM_LEDGER_CURRENCY, WalletCurrency } from 'src/admin/payment/enums/wallet.enum';
+import { PLATFORM_LEDGER_CURRENCY, WalletCurrency } from 'src/payment/enums/wallet.enum';
 import { BusinessWalletService } from './wallet.service';
 import { SlackService } from 'src/services/slack.service';
 import {

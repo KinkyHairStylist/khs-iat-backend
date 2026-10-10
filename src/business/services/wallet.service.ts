@@ -29,9 +29,9 @@ import {
   PLATFORM_LEDGER_CURRENCY,
   WalletCurrency,
   WalletStatus,
-} from 'src/admin/payment/enums/wallet.enum';
+} from 'src/payment/enums/wallet.enum';
 import { WalletPaymentMethod } from '../entities/payment-method.entity';
-import { Withdrawal } from 'src/admin/withdrawal/entities/withdrawal.entity';
+import { Withdrawal } from 'src/business/entities/withdrawal.entity';
 import { Business } from '../entities/business.entity';
 import { StripePaymentIntent } from 'src/payment/entities/stripe-payment-intent.entity';
 import { SlackService } from 'src/services/slack.service';

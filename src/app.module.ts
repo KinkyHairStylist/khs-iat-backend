@@ -5,12 +5,8 @@ import { JwtModule } from '@nestjs/jwt';
 import { EmailModule } from './email/email.module';
 import { SlackModule } from './slack/slack.module';
 import { BusinessModule } from './business/business.module';
-import { AdminModule } from './admin/admin.module';
-import { GiftcardModule } from './admin/giftcard/admin_giftcard.module';
-import { PaymentModule } from './admin/payment/payment.module';
-import { WithdrawalModule } from './admin/withdrawal/withdrawal.module';
-import { AlertsModule } from './admin/alerts/alerts.module';
-import { WalletModule } from './admin/wallet/wallet.module';
+import { PaymentModule } from './payment/payment.module';
+import { AlertsModule } from './alerts/alerts.module';
 import { SalonModule } from './user/modules/salon.module';
 import { BookingModule } from './user/modules/booking.module';
 import { BusinessServicesModule } from './user/modules/business-services.module';
@@ -24,10 +20,8 @@ import { JwtAuthGuard } from './middleware/jwt-auth.guard';
 import { ReferralModule } from './user/modules/referral.module';
 import { MembershipModule } from './user/modules/membership-tier.module';
 import { CardModule } from './user/modules/card.module';
-import { ModerationModule } from './admin/moderation/moderation.module';
-import { ChatModule } from './admin/live-chat/chat.module';
-import { PlatformSettingsModule } from './admin/platform-settings/platform-settings.module';
-import { GuidelinesModule } from './admin/guidelines/guidelines.module';
+import { ChatModule } from './chat/chat.module';
+import { PlatformSettingsModule } from './platform-settings/platform-settings.module';
 import { NotificationSettingsModule } from './user/modules/notification-settings.module';
 import { NotificationModule } from './notifications/notification.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
@@ -94,12 +88,8 @@ import { FirebaseStorageModule } from './shared/firebase-storage.module';
     EmailModule,
     SlackModule,
     BusinessModule,
-    AdminModule,
-    GiftcardModule,
     PaymentModule,
-    WithdrawalModule,
     AlertsModule,
-    WalletModule,
     ClientModule,
     ReminderModule,
     CustomMessageModule,
@@ -116,10 +106,8 @@ import { FirebaseStorageModule } from './shared/firebase-storage.module';
     ReferralModule,
     MembershipModule,
     CardModule,
-    ModerationModule,
     ChatModule,
     PlatformSettingsModule,
-    GuidelinesModule,
     NotificationSettingsModule,
     NotificationModule,
     ProductModule,

@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, Repository } from 'typeorm';
 import Stripe from 'stripe';
 import { User } from 'src/all_user_entities/user.entity';
-import { PlatformSettingsService } from 'src/admin/platform-settings/platform-settings.service';
+import { PlatformSettingsService } from 'src/platform-settings/platform-settings.service';
 import { StripeService } from 'src/payment/stripe.service';
 import { Business, BusinessPlanTier } from '../entities/business.entity';
 import { MerchantSubscription } from '../entities/merchant-subscription.entity';

@@ -10,7 +10,7 @@ import { CurrencyConversionService } from './services/currency-conversion.servic
 import { StripeService } from 'src/payment/stripe.service';
 import { AirwallexService } from 'src/payment/airwallex.service';
 import { Business } from './entities/business.entity';
-import { Withdrawal } from 'src/admin/withdrawal/entities/withdrawal.entity';
+import { Withdrawal } from 'src/business/entities/withdrawal.entity';
 import { StripePaymentIntent } from 'src/payment/entities/stripe-payment-intent.entity';
 import { EmailModule } from 'src/email/email.module';
 import { NotificationModule } from 'src/notifications/notification.module';

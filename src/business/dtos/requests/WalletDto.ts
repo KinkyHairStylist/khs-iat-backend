@@ -15,7 +15,7 @@ import {
 import {
   PaymentMethodType,
   WalletCurrency,
-} from 'src/admin/payment/enums/wallet.enum';
+} from 'src/payment/enums/wallet.enum';
 import {
   PaymentMethod,
   TransactionType,

@@ -18,7 +18,7 @@ import {
   PaymentMethod,
 } from 'src/business/entities/transaction.entity';
 import { BusinessWalletService } from 'src/business/services/wallet.service';
-import { WalletCurrency } from 'src/admin/payment/enums/wallet.enum';
+import { WalletCurrency } from 'src/payment/enums/wallet.enum';
 import { PaystackService } from 'src/payment/paystack.service';
 import { StripeService } from 'src/payment/stripe.service';
 import {
@@ -30,7 +30,7 @@ import {
   BusinessGiftCardSoldStatus,
   BusinessGiftCardStatus,
 } from 'src/business/enum/gift-card.enum';
-import { PlatformSettingsService } from '../../admin/platform-settings/platform-settings.service';
+import { PlatformSettingsService } from 'src/platform-settings/platform-settings.service';
 import { EmailService } from '../../email/email.service';
 import { SlackService } from 'src/slack/slack.service';
 import { NotificationService } from 'src/notifications/notification.service';
