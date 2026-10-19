@@ -1,0 +1,78 @@
+/api/v1/salons:
+  get:
+    tags: [Salons]
+    summary: Search approved salons
+    description: Public. Unreadable filter values are ignored rather than rejected.
+    security: []
+    parameters:
+      - $ref: "#/components/parameters/PageParam"
+      - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100, default: 10 } }
+      - { in: query, name: search, schema: { type: string }, description: Name or description }
+      - { in: query, name: location, schema: { type: string }, description: Part of the address }
+      - { in: query, name: minRating, schema: { type: number, minimum: 0, maximum: 5 } }
+      - { in: query, name: isLuxury, schema: { type: boolean }, description: "Admin-flagged luxury, or rated 4.5+ with no admin decision" }
+      - { in: query, name: services, schema: { type: array, items: { type: string } }, style: form, explode: true, description: "Service types the salon must all offer, e.g. braiding" }
+      - { in: query, name: sortBy, schema: { type: string, enum: [bestMatch, topRated, distance], default: bestMatch } }
+      - { in: query, name: lat, schema: { type: number }, description: For sortBy=distance }
+      - { in: query, name: lng, schema: { type: number }, description: For sortBy=distance }
+      - { in: query, name: date, schema: { type: string, example: "2026-07-14" }, description: Open on this day }
+      - { in: query, name: time, schema: { type: string, example: "14:30" }, description: "Open at this time (with date)" }
+    responses:
+      "200":
+        description: "data: { data: [salon with serviceList], total, page, limit }"
+
+/api/v1/salons/service-types:
+  get:
+    tags: [Salons]
+    summary: Every service type
+    security: []
+    responses:
+      "200":
+        description: "data: [{ value: 'women-haircut', label: 'Women Haircut' }, ...]"
+
+/api/v1/salons/locations:
+  get:
+    tags: [Salons]
+    summary: Cities approved salons are in
+    security: []
+    responses:
+      "200":
+        description: "data: ['Melbourne', 'Sydney', ...]"
+
+/api/v1/salons/{id}:
+  get:
+    tags: [Salons]
+    summary: An approved salon's page
+    description: >
+      Public. The salon, its services (each with the active staff who can do it), its active team,
+      opening hours, booking rules, and the timing of upcoming blocked slots and appointments for the
+      booking calendar. Staff contact details and appointment details are never included.
+    security: []
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    responses:
+      "200": { description: "data: salon + { serviceList, staff, bookingHours, blockedSlots, appointments, bookingRules }" }
+      "404": { description: Unknown or not approved }
+
+/api/v1/salons/{id}/reviews:
+  get:
+    tags: [Salons]
+    summary: A salon's reviews
+    description: Public. The newest 100 reviews; the average and per-star counts cover every review.
+    security: []
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    responses:
+      "200": { description: "data: { reviews: [...], average, total, breakdown: [{ stars, count }] }" }
+      "404": { description: Unknown or not approved }
+
+/api/v1/salons/{id}/similar:
+  get:
+    tags: [Salons]
+    summary: Up to 4 other approved salons sharing a category, best rated first
+    security: []
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    responses:
+      "200": { description: "data: [salon with serviceList]" }
+      "404": { description: Unknown or not approved }

@@ -1,0 +1,36 @@
+/api/v1/customer/transactions:
+  get:
+    tags: [Billing]
+    summary: The customer's billing history, newest first, a page at a time
+    description: Payments they made, fees they paid on top (card processing, gift card fee) and money paid to them (referral rewards). Attempts that never charged and payments abandoned over a day ago are left out.
+    parameters:
+      - { in: query, name: cursor, schema: { type: string, format: uuid }, description: "nextCursor from the previous page" }
+      - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 100, default: 30 } }
+    responses:
+      "200": { description: "data: { transactions: [{ id, kind: salon|membership|gift-card|fee|credit, description, reference, amount, currency, status: paid|pending|refunded|partially_refunded, refundedAmount, refundRequested, canRequestRefund, createdAt }], nextCursor }" }
+
+/api/v1/customer/transactions/summary:
+  get:
+    tags: [Billing]
+    summary: A year's totals over the whole history
+    parameters:
+      - { in: query, name: year, schema: { type: integer }, description: Defaults to this year }
+    responses:
+      "200": { description: "data: { year, totalSpent, successfulPayments, totalRefunded }" }
+
+/api/v1/customer/transactions/{id}/refund-request:
+  post:
+    tags: [Billing]
+    summary: Ask for a refund of a payment (within 30 days; card payments are refunded to the card)
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema: { type: object, required: [reason], properties: { reason: { type: string, minLength: 10, maxLength: 1000 } } }
+    responses:
+      "200": { description: "data: the transaction (refundRequested: true)" }
+      "400": { description: "NOT_REFUNDABLE or REFUND_WINDOW_PASSED" }
+      "404": { description: Not this customer's payment }
+      "409": { description: REFUND_ALREADY_REQUESTED }

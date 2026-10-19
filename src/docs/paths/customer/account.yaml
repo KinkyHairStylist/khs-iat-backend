@@ -1,0 +1,88 @@
+/api/v1/alerts/active:
+  get:
+    tags: [Account]
+    summary: Platform alerts customers should see now
+    description: Active, for customers or everyone, not expired. Public.
+    security: []
+    responses:
+      "200": { description: "data: [{ id, title, message, severity }]" }
+
+/api/v1/customer/favorites/ids:
+  get:
+    tags: [Account]
+    summary: Ids of every service the customer has favourited
+    responses:
+      "200": { description: "data: [serviceId, ...]" }
+
+/api/v1/customer/favorites:
+  get:
+    tags: [Account]
+    summary: The customer's favourite services, newest first, with their salon (null when no longer approved)
+    responses:
+      "200": { description: "data: [{ id, createdAt, service: { id, name, price, priceType, minPrice, maxPrice, duration, images, business } }]" }
+  post:
+    tags: [Account]
+    summary: Favourite a service
+    description: Already a favourite is fine.
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema: { type: object, required: [serviceId], properties: { serviceId: { type: string, format: uuid } } }
+    responses:
+      "200": { description: Added }
+      "404": { description: No such service }
+
+/api/v1/customer/favorites/service/{serviceId}:
+  delete:
+    tags: [Account]
+    summary: Remove a favourite
+    description: Not a favourite is fine.
+    parameters: [{ in: path, name: serviceId, required: true, schema: { type: string, format: uuid } }]
+    responses:
+      "200": { description: Removed }
+
+/api/v1/customer/preferences:
+  get:
+    tags: [Account]
+    summary: The customer's app preferences
+    responses:
+      "200": { description: "data: { language, timeZone, profileVisibility, locationServices }" }
+
+/api/v1/customer/salons/{id}/reviews/helpful:
+  get:
+    tags: [Account]
+    summary: Which of the salon's listed reviews the customer has marked helpful
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    responses:
+      "200": { description: "data: [reviewId, ...]" }
+
+/api/v1/customer/reviews/{reviewId}/helpful:
+  post:
+    tags: [Account]
+    summary: Mark a review helpful
+    description: Counted once per customer; marking it again returns the same count.
+    parameters:
+      - { in: path, name: reviewId, required: true, schema: { type: string, format: uuid } }
+    responses:
+      "200": { description: "data: { likes }" }
+      "404": { description: No such review }
+
+/api/v1/customer/dashboard:
+  get:
+    tags: [Account]
+    summary: Everything the customer dashboard shows
+    description: >
+      Spending (completed payments), bookings (upcoming, per-status counts, paid amount per month for
+      the last 6 months), referrals (counts and earnings as credited, and the referral link — a code is
+      created if the customer has none), the KHS membership and gift cards (active, expiring within 30 days).
+    responses:
+      "200": { description: "data: { spending, bookings, referrals, membership, giftCards }" }
+
+/api/v1/customer/referrals:
+  get:
+    tags: [Account]
+    summary: The referral page — totals as credited, the customer's code and link, and who they referred
+    responses:
+      "200": { description: "data: { totalReferrals, completedReferrals, pendingReferrals, totalEarnings, pendingEarnings, code, link, referrals: [{ id, name, date, amount, status }] }" }

@@ -1,0 +1,176 @@
+/api/v1/bookings:
+  get:
+    tags: [Bookings]
+    summary: The customer's appointments (one per service booked), including ones a salon booked for them
+    description: Unpaid holds older than 30 minutes are marked cancelled first.
+    responses:
+      "200": { description: "data: [{ appointmentId, orderId, businessId, serviceId, serviceName, date, time, duration, amount, status, paymentStatus, cancelledAt, ownBooking, salonName, salonAddress, salonImage, stylistName, hasReview }]" }
+  post:
+    tags: [Bookings]
+    summary: Book services at a salon (holds the time while the customer pays)
+    description: >
+      One Pending/Unpaid appointment per service under one order id. Prices come from the
+      database. Checks the salon's booking rules and picks the stylist (the one asked for,
+      or a free one). The hold lasts 30 minutes.
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [salonId, serviceIds, date, time]
+            properties:
+              salonId: { type: string, format: uuid }
+              serviceIds: { type: array, items: { type: string, format: uuid }, minItems: 1, maxItems: 10 }
+              date: { type: string, example: "2026-10-20" }
+              time: { type: string, example: "9:30 AM" }
+              timezoneOffsetMinutes: { type: integer, description: "The browser's Date.getTimezoneOffset()" }
+              staffId: { type: string, format: uuid, description: "Left out for any stylist" }
+    responses:
+      "201": { description: "data: { orderId }" }
+      "400": { description: A rule broken, a service not offered here, or the stylist busy }
+      "404": { description: Unknown or not approved salon }
+
+/api/v1/bookings/{orderId}:
+  get:
+    tags: [Bookings]
+    summary: One of the customer's bookings, for the payment page
+    parameters:
+      - { in: path, name: orderId, required: true, schema: { type: string, example: BKID-1234567 } }
+    responses:
+      "200": { description: "data: { orderId, status, paymentStatus, date, time, totalMinutes, serviceTotal, holdExpiresAt, salon, stylist, services, payment }" }
+      "404": { description: Not the customer's booking }
+
+/api/v1/bookings/{orderId}/pay:
+  post:
+    tags: [Bookings]
+    summary: Start paying
+    description: >
+      Free bookings and bookings a gift card fully covers are confirmed at once (kind "confirmed").
+      Otherwise a Stripe card payment is started (kind "card") and its client secret returned for
+      Stripe Elements; earlier unpaid attempts for the order are cancelled. A deposit is half the
+      service price and can't be combined with a gift card. Paying by card adds the card processing fee.
+    parameters:
+      - { in: path, name: orderId, required: true, schema: { type: string } }
+    requestBody:
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              depositOnly: { type: boolean, default: false }
+              giftCard: { type: string, description: Gift card code }
+              membershipPurchaseId: { type: string, format: uuid, description: "Pay with sessions from a membership the customer owns (not with a deposit or gift card)" }
+    responses:
+      "200": { description: "data: { kind: confirmed|card, clientSecret?, paymentIntentId?, quote: { depositOnly, serviceTotal, giftCardApplied, processingFee, payNow, balanceDue } }" }
+      "400": { description: "HOLD_EXPIRED, BOOKING_CANCELLED, GIFT_CARD_UNUSABLE, deposit not allowed, under the card minimum" }
+      "409": { description: ALREADY_CONFIRMED }
+
+/api/v1/bookings/{orderId}/pay/complete:
+  post:
+    tags: [Bookings]
+    summary: Settle the card payment after Stripe Elements confirmed it in the browser
+    parameters:
+      - { in: path, name: orderId, required: true, schema: { type: string } }
+    responses:
+      "200": { description: "data: { confirmed: true } or { confirmed: false, status } while Stripe is still processing" }
+
+/api/v1/bookings/{orderId}/abandon:
+  post:
+    tags: [Bookings]
+    summary: Leave without paying — cancels the unpaid booking and frees the time
+    parameters:
+      - { in: path, name: orderId, required: true, schema: { type: string } }
+    responses:
+      "200": { description: Released }
+      "409": { description: ALREADY_CONFIRMED (it was paid) }
+
+/api/v1/bookings/{orderId}/cancel:
+  post:
+    tags: [Bookings]
+    summary: Cancel the whole booking
+    description: >
+      At least the salon's cancellation window before the appointment: the card payment is refunded
+      minus the platform's early-cancellation fee. Inside the window: nothing is refunded; the salon
+      keeps its share (platform setting) and KHS the rest. Gift card and membership payments aren't given back.
+    parameters:
+      - { in: path, name: orderId, required: true, schema: { type: string } }
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [acceptedTerms]
+            properties:
+              acceptedTerms: { type: boolean, enum: [true] }
+              reason: { type: string, maxLength: 1000 }
+              timezoneOffsetMinutes: { type: integer }
+    responses:
+      "200": { description: "data: { cancelledCount, refund?: { amount, currency, cancellationFeeWithheld }, forfeiture?: { amount, currency, stylistShare, khsShare } }" }
+      "400": { description: "Already cancelled / finished, or NOTHING_TO_REFUND" }
+
+/api/v1/bookings/{orderId}/reschedule:
+  post:
+    tags: [Bookings]
+    summary: Move a booking to a new day and time (or bring a cancelled one back at a new time)
+    description: >
+      Every appointment in the booking moves; the slot and stylist are checked like a new booking.
+      A paid booking stays paid (status Rescheduled). A cancelled one comes back held for payment
+      (requiresPayment true). A completed booking can't be moved (BOOKING_FINISHED).
+    parameters:
+      - { in: path, name: orderId, required: true, schema: { type: string } }
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [date, time]
+            properties:
+              date: { type: string, example: "2026-10-22" }
+              time: { type: string, example: "2:30 PM" }
+              timezoneOffsetMinutes: { type: integer }
+    responses:
+      "200": { description: "data: { requiresPayment, businessId }" }
+
+/api/v1/bookings/{orderId}/restore:
+  post:
+    tags: [Bookings]
+    summary: Bring a cancelled booking back at its original time (at least 24 hours away), held for payment
+    parameters:
+      - { in: path, name: orderId, required: true, schema: { type: string } }
+    responses:
+      "200": { description: "data: { requiresPayment: true, businessId }" }
+      "400": { description: TOO_CLOSE_TO_RESTORE, or not cancelled }
+
+/api/v1/bookings/{orderId}/confirm-availability:
+  post:
+    tags: [Bookings]
+    summary: Tell the salon the customer will attend (once)
+    parameters:
+      - { in: path, name: orderId, required: true, schema: { type: string } }
+    responses:
+      "200": { description: "data: { clientConfirmedAt }" }
+
+/api/v1/bookings/{orderId}/review:
+  post:
+    tags: [Bookings]
+    summary: Review a completed booking (once); the salon's rating is recalculated
+    parameters:
+      - { in: path, name: orderId, required: true, schema: { type: string } }
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [rating]
+            properties:
+              rating: { type: integer, minimum: 1, maximum: 5 }
+              comment: { type: string, maxLength: 2000 }
+              staffRating: { type: integer, minimum: 1, maximum: 5 }
+    responses:
+      "201": { description: "data: { id, rating, comment, createdAt }" }
+      "400": { description: NOT_COMPLETED }
+      "409": { description: ALREADY_REVIEWED }

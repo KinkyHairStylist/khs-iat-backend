@@ -1,0 +1,84 @@
+/api/v1/support/staff:
+  get:
+    tags: [Support]
+    summary: Team members a customer can talk to
+    description: "No email or phone. Live: user_status socket events update isOnline."
+    responses:
+      "200": { description: "data: [{ id, name, initials, avatarUrl, isOnline, lastSeen }]" }
+
+/api/v1/support/tickets/open:
+  get:
+    tags: [Support]
+    summary: The customer's open conversations (at most 2)
+    responses:
+      "200": { description: "data: [ticket]" }
+
+/api/v1/support/tickets/history:
+  get:
+    tags: [Support]
+    summary: Every conversation the customer has had
+    responses:
+      "200": { description: "data: [ticket]" }
+
+/api/v1/support/tickets:
+  post:
+    tags: [Support]
+    summary: Start a conversation with a team member
+    requestBody:
+      content:
+        application/json:
+          schema: { type: object, properties: { assignedAdminId: { type: string, format: uuid } } }
+    responses:
+      "201": { description: "data: { id, ticketNumber, status, ... }" }
+      "400": { description: "TOO_MANY_OPEN_TICKETS or INVALID_STAFF" }
+
+/api/v1/support/tickets/{id}/messages:
+  get:
+    tags: [Support]
+    summary: One conversation's messages, oldest first
+    parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+    responses:
+      "200": { description: "data: [{ id, messages, imageUrl, read, createdAt, sender: { id, name, avatarUrl }, receiver: { id } }]" }
+      "404": { description: Not this customer's conversation }
+
+/api/v1/support/tickets/{id}/read:
+  patch:
+    tags: [Support]
+    summary: Mark the team's messages in it as read
+    parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+    responses:
+      "200": { description: Marked }
+
+/api/v1/support/tickets/{id}/close:
+  patch:
+    tags: [Support]
+    summary: Close one of the customer's conversations
+    parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+    responses:
+      "200": { description: "data: ticket (status closed)" }
+
+/api/v1/support/messages:
+  post:
+    tags: [Support]
+    summary: Send a message (text and/or one image up to 1 MB)
+    description: "Goes into ticketId, or the only open conversation (one is opened if none). Staff get it live over the chat bridge."
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              ticketId: { type: string, format: uuid }
+              receiverId: { type: string, format: uuid }
+              message: { type: string, maxLength: 5000 }
+              imageBase64: { type: string, description: "data:image/...;base64,..." }
+    responses:
+      "201": { description: "data: the saved message" }
+      "400": { description: "EMPTY_MESSAGE, TICKET_REQUIRED, INVALID_STAFF or UNSUPPORTED_IMAGE" }
+      "409": { description: TICKET_CLOSED }
+      "413": { description: FILE_TOO_LARGE }
+
+# Live updates: connect socket.io to this server (path /socket.io, websocket,
+# with the session cookie). Events: receive_message (a team reply),
+# ticket_closed, user_status ({ userId, isOnline } for team members).

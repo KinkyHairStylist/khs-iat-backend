@@ -1,0 +1,1779 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model FavoriteService {
+  id        String   @id(map: "PK_3f2b7e3156c35d3b3f50db89bd7") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId    String   @db.Uuid
+  serviceId String   @db.Uuid
+  createdAt DateTime @default(now()) @db.Timestamp(6)
+  Service   Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_c30201655876f94be7b971afb99")
+  user      user     @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_e6fc821e2ee1d669dca3a41f2cd")
+
+  @@unique([userId, serviceId], map: "UQ_a4f47d8bfbf4b25fdebcab8aa80")
+}
+
+model Service {
+  id                           String                         @id(map: "PK_c77cf540affcc8a04962fc6e9f8") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name                         String?                        @db.VarChar
+  category                     Service_category_enum?
+  serviceType                  Service_servicetype_enum?
+  description                  String?                        @db.VarChar
+  price                        Decimal?                       @db.Decimal(10, 2)
+  duration                     String?                        @db.VarChar
+  images                       String[]
+  createdAt                    DateTime                       @default(now()) @db.Timestamp(6)
+  updatedAt                    DateTime                       @default(now()) @db.Timestamp(6)
+  advertisementPlanId          String?                        @db.Uuid
+  businessId                   String?                        @db.Uuid
+  priceType                    price_type_enum?               @default(fixed)
+  minPrice                     Decimal?                       @db.Decimal(10, 2)
+  maxPrice                     Decimal?                       @db.Decimal(10, 2)
+  FavoriteService              FavoriteService[]
+  advertising_plans            advertising_plans?             @relation(fields: [advertisementPlanId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_0dbfc81a9ae57f22413fa9b6aa1")
+  businesses                   businesses?                    @relation(fields: [businessId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_13a98eaeac1a8b35f39becb777f")
+  appointments                 appointments[]
+  merchant_membership_packages merchant_membership_packages[]
+  service_staff                service_staff[]
+}
+
+model addresses {
+  id        String  @id(map: "PK_745d8f43d3af10ab8247465e450") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name      String  @db.VarChar
+  location  String  @db.VarChar
+  isPrimary Boolean @default(false)
+  staff_id  String? @db.Uuid
+  staff     staff?  @relation(fields: [staff_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_eecb8b3906959f898eee3b617f0")
+}
+
+model admin_invite {
+  id          String   @id(map: "PK_a94bc8efb5ec3a28cc5462b9f2c") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  email       String   @db.VarChar
+  expiresAt   DateTime @db.Timestamp(6)
+  createdAt   DateTime @default(now()) @db.Timestamp(6)
+  invitedById String?  @db.Uuid
+  user        user?    @relation(fields: [invitedById], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_cac5abcbdc87a534c9f637062ef")
+}
+
+model advertising_plans {
+  id            String    @id(map: "PK_3d094b2aa396e011662af51fb69") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  planName      String    @db.VarChar
+  price         Float
+  description   String?   @db.VarChar
+  features      String[]  @default([])
+  payable       String?   @db.VarChar
+  isRecommended Boolean   @default(false)
+  boost         String?   @db.VarChar
+  durationDays  Int?
+  createdAt     DateTime  @default(now()) @db.Timestamp(6)
+  updatedAt     DateTime  @default(now()) @db.Timestamp(6)
+  Service       Service[]
+}
+
+model appointment_staff {
+  appointment_id String       @db.Uuid
+  staff_id       String       @db.Uuid
+  appointments   appointments @relation(fields: [appointment_id], references: [id], onDelete: Cascade, map: "FK_0e7b101c2ce71b09d3b442b4996")
+  staff          staff        @relation(fields: [staff_id], references: [id], onDelete: Cascade, map: "FK_0fa061689c0540892c2abcf3094")
+
+  @@id([appointment_id, staff_id], map: "PK_e3f27a0c8e7e9e3b401ab29a72d")
+  @@index([appointment_id], map: "IDX_0e7b101c2ce71b09d3b442b499")
+  @@index([staff_id], map: "IDX_0fa061689c0540892c2abcf309")
+}
+
+model appointments {
+  id                       String                          @id(map: "PK_4a437a9a27e948726b8bb3e36ad") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  orderId                  String?                         @db.VarChar
+  googleEventId            String?                         @db.VarChar
+  serviceName              String                          @db.VarChar
+  date                     String                          @db.VarChar
+  time                     String                          @db.VarChar
+  duration                 String                          @db.VarChar
+  status                   appointments_status_enum        @default(Pending)
+  amount                   Float                           @default(0)
+  paymentStatus            appointments_paymentstatus_enum @default(Unpaid)
+  specialRequests          String?
+  cancellationsNote        String?
+  timeline                 Json?                           @default("[]")
+  createdAt                DateTime                        @default(now()) @db.Timestamp(6)
+  updatedAt                DateTime                        @default(now()) @db.Timestamp(6)
+  zohoInvoiceId            String?                         @db.VarChar
+  zohoCustomerId           String?                         @db.VarChar
+  client_id                String?                         @db.Uuid
+  business_id              String?                         @db.Uuid
+  service_id               String?                         @db.Uuid
+  cancelledAt              DateTime?                       @db.Timestamptz(6)
+  pendingRebookDate        String?                         @db.VarChar
+  pendingRebookTime        String?                         @db.VarChar
+  business_client_id       String?                         @db.Uuid
+  clientConfirmedAt        DateTime?                       @db.Timestamptz(6)
+  serviceStartedNotifiedAt DateTime?                       @db.Timestamptz(6)
+  appointment_staff        appointment_staff[]
+  businesses               businesses?                     @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_1496c752231bd35c97041862bd4")
+  Service                  Service?                        @relation(fields: [service_id], references: [id], onUpdate: NoAction, map: "FK_2a2088e8eaa8f28d8de2bdbb857")
+  user                     user?                           @relation(fields: [client_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_ccc5bbce58ad6bc96faa428b1e4")
+  dispute                  dispute[]
+}
+
+model articles {
+  id        String                @id(map: "PK_0a6e2c450d83e0b6052c2793334") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  section   articles_section_enum @default(get_started)
+  title     String                @db.VarChar
+  content   String
+  fileUrl   String?               @db.VarChar
+  createdAt DateTime              @default(now()) @db.Timestamp(6)
+  authorId  String?               @db.Uuid
+  user      user?                 @relation(fields: [authorId], references: [id], onUpdate: NoAction, map: "FK_65d9ccc1b02f4d904e90bd76a34")
+}
+
+model blocked_time_slots {
+  id          String      @id(map: "PK_56e326c56f2add38c3947e63ca8") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  type        String?     @db.VarChar
+  title       String?     @db.VarChar
+  date        DateTime    @db.Date
+  startTime   DateTime    @db.Time(6)
+  endTime     DateTime    @db.Time(6)
+  teamMember  String?     @db.VarChar
+  description String?     @db.VarChar
+  businessId  String?     @db.Uuid
+  businesses  businesses? @relation(fields: [businessId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_934f3490ee3283ceb9decd8afbb")
+}
+
+model blog_posts {
+  id          String    @id(map: "PK_dd2add25eac93daefc93da9d387") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  title       String    @db.VarChar
+  slug        String    @unique(map: "UQ_5b2818a2c45c3edb9991b1c7a51") @db.VarChar
+  excerpt     String?
+  content     String
+  coverImage  String?   @db.VarChar
+  author      String?   @db.VarChar
+  isPublished Boolean   @default(false)
+  publishedAt DateTime? @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @db.Timestamp(6)
+  updatedAt   DateTime  @default(now()) @db.Timestamp(6)
+}
+
+model booking_days {
+  id         String      @id(map: "PK_62a74591d9f56a10a4a4cc235c8") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  day        String      @db.VarChar
+  isOpen     Boolean     @default(false)
+  startTime  DateTime    @default(dbgenerated("'09:00:00'::time without time zone")) @db.Time(6)
+  endTime    DateTime    @default(dbgenerated("'17:00:00'::time without time zone")) @db.Time(6)
+  businessId String?     @db.Uuid
+  businesses businesses? @relation(fields: [businessId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_7b16b7c5c7763c3caaefc92774b")
+}
+
+model booking_policies {
+  id                   String      @id(map: "PK_5ad4c7966f3c0f82511f56754de") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  minimumLeadTime      Int
+  bufferTime           Int
+  cancellationWindow   Int
+  requireDepositAmount Boolean     @default(false)
+  businessId           String?     @unique(map: "REL_e1195423c26937d1499abbeea1") @db.Uuid
+  businesses           businesses? @relation(fields: [businessId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_e1195423c26937d1499abbeea19")
+}
+
+model business_client_acquisitions {
+  id         String     @id(map: "PK_business_client_acquisitions") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  businessId String     @db.Uuid
+  clientId   String?    @db.Uuid
+  orderId    String?    @db.VarChar
+  createdAt  DateTime   @default(now()) @db.Timestamp(6)
+  businesses businesses @relation(fields: [businessId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_bca_business")
+  user       user?      @relation(fields: [clientId], references: [id], onUpdate: NoAction, map: "FK_bca_client")
+
+  @@unique([businessId, clientId], map: "UQ_business_client_acquisitions_business_client")
+}
+
+model business_gift_cards {
+  id                    String                              @id(map: "PK_40790cbe688473fe196091d8cc0") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  ownerId               String?                             @db.Uuid
+  ownerEmail            String?                             @db.VarChar(255)
+  ownerFullName         String?                             @db.VarChar(255)
+  businessId            String                              @db.Uuid
+  title                 String                              @db.VarChar(255)
+  description           String?
+  amount                Decimal                             @db.Decimal(10, 2)
+  remainingAmount       Decimal                             @default(0) @db.Decimal(10, 2)
+  benefits              String
+  code                  String                              @unique(map: "UQ_446a91c09c39322b43493cdcfa5") @db.VarChar(50)
+  cardId                String?                             @db.Uuid
+  template              business_gift_cards_template_enum
+  expiryInDays          Int                                 @default(365)
+  expiresAt             DateTime?                           @db.Timestamp(6)
+  redeemedAt            DateTime?                           @db.Timestamp(6)
+  status                business_gift_cards_status_enum     @default(Active)
+  soldStatus            business_gift_cards_soldstatus_enum @default(available)
+  sentStatus            business_gift_cards_sentstatus_enum @default(sent)
+  recipientName         String                              @db.VarChar(255)
+  recipientEmail        String                              @db.VarChar(255)
+  message               String?
+  currency              String?                             @default("AUD")
+  senderName            String?                             @db.VarChar(255)
+  comment               String?                             @db.VarChar
+  clientPersonalMessage String?                             @db.VarChar
+  createdAt             DateTime                            @default(now()) @db.Timestamptz(6)
+  updatedAt             DateTime                            @default(now()) @db.Timestamptz(6)
+  deactivatedBy         String?                             @db.VarChar(255)
+  deactivatedByRole     String?                             @db.VarChar(20)
+  deactivatedAt         DateTime?                           @db.Timestamptz(6)
+  businesses            businesses                          @relation(fields: [businessId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_1802393e3b92e6771ec91d2fce3")
+  user                  user?                               @relation(fields: [ownerId], references: [id], onUpdate: NoAction, map: "FK_1b9c1af27f62cf0ffefa0626d17")
+  card                  card?                               @relation(fields: [cardId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_90c8f5b11adba87da96a03fa3d9")
+
+  @@index([businessId], map: "IDX_1802393e3b92e6771ec91d2fce")
+  @@index([ownerId], map: "IDX_1b9c1af27f62cf0ffefa0626d1")
+  @@index([cardId], map: "IDX_90c8f5b11adba87da96a03fa3d")
+  @@index([ownerEmail], map: "IDX_b5cd3c092802db972978271d71")
+}
+
+model business_guidelines {
+  id        String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  title     String
+  items     Json     @default("[]")
+  position  Int      @default(0)
+  updatedAt DateTime @default(now()) @db.Timestamp(6)
+}
+
+model business_owner_settings {
+  id                                                    String     @id(map: "PK_39bc3037112b3f222e694fb114a") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  ownerId                                               String     @db.Uuid
+  businessId                                            String     @unique(map: "REL_034b10afe0b2a282da430c54eb") @db.Uuid
+  apiKey                                                String?
+  createdAt                                             DateTime   @default(now()) @db.Timestamp(6)
+  updatedAt                                             DateTime   @default(now()) @db.Timestamp(6)
+  notificationsEnableautomatedreminders                 Boolean    @default(false)
+  notificationsReminderrules                            Json?
+  notificationsBusinessNotificationsNewbookingalerts    Boolean    @default(true)
+  notificationsBusinessNotificationsCancellationalerts  Boolean    @default(true)
+  notificationsBusinessNotificationsDailysummaryreports Boolean    @default(false)
+  bookingRulesMinimumleadtimehours                      Int        @default(24)
+  bookingRulesBuffertimebetweenappointmentsminutes      Int        @default(0)
+  bookingRulesMaximumadvancebookingdays                 Int        @default(90)
+  bookingRulesSamedaybookingcutoff                      String?    @db.VarChar
+  bookingRulesEnablewaitlist                            Boolean    @default(false)
+  bookingRulesAutonotifywaitlist                        Boolean    @default(false)
+  bookingRulesAllowdoublebookings                       Boolean    @default(false)
+  clientManagementNoshowlimit                           Int        @default(3)
+  clientManagementRestrictionperioddays                 Int        @default(30)
+  clientManagementRequirephoneverification              Boolean    @default(false)
+  clientManagementAllowguestbooking                     Boolean    @default(true)
+  clientManagementCollectclientfeedback                 Boolean    @default(false)
+  clientManagementWeeklynoshowreports                   Boolean    @default(false)
+  clientManagementClientnoshowpattern                   Boolean    @default(false)
+  clientManagementReportrecipients                      Json?
+  onlinePresenceEnableonlinebooking                     Boolean?   @default(false)
+  onlinePresenceBookingpageurl                          String?
+  onlinePresenceWebsiteembedcode                        String?
+  onlinePresenceSeobusinessdescription                  String?
+  onlinePresenceSeoprimarycolor                         String?
+  onlinePresenceSeoaccentcolor                          String?
+  pricingPoliciesCancellationwindow                     Int?       @default(24)
+  pricingPoliciesCancellationfee                        Int?       @default(5)
+  pricingPoliciesCancellationfeetype                    String?    @default("%")
+  pricingPoliciesNoshowfee                              Int?       @default(10)
+  pricingPoliciesNoshowfeetype                          String?    @default("%")
+  pricingPoliciesDepositrequired                        Boolean?   @default(false)
+  pricingPoliciesDepositpercentagerequired              Int?       @default(25)
+  pricingPoliciesCancellationpolicytext                 String?
+  pricingPoliciesAcceptcardpayment                      Boolean?   @default(false)
+  pricingPoliciesAcceptcashpayment                      Boolean?   @default(false)
+  integrationsGooglecalendar                            Boolean?   @default(false)
+  integrationsMailchimp                                 Boolean?   @default(false)
+  integrationsZohobooks                                 Boolean?   @default(false)
+  pricingPoliciesAllowdepositpayment                    Boolean?   @default(true)
+  businesses                                            businesses @relation(fields: [businessId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_034b10afe0b2a282da430c54eb0")
+
+  @@index([businessId], map: "IDX_034b10afe0b2a282da430c54eb")
+  @@index([apiKey], map: "IDX_4bafc52a460d133fd7bc9970cd")
+}
+
+model business_wallets {
+  id                     String                         @id(map: "PK_da9aeb2f6d49ed5b958c4042189") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  businessId             String                         @unique(map: "REL_dee8d1a52566c66ae22f950339") @db.Uuid
+  ownerId                String                         @db.Uuid
+  balance                Decimal                        @default(0) @db.Decimal(12, 2)
+  totalIncome            Decimal                        @default(0) @db.Decimal(12, 2)
+  totalExpenses          Decimal                        @default(0) @db.Decimal(12, 2)
+  currency               business_wallets_currency_enum
+  status                 business_wallets_status_enum   @default(active)
+  pendingBalance         Decimal                        @default(0) @db.Decimal(12, 2)
+  isVerified             Boolean                        @default(false)
+  description            String?                        @db.VarChar(500)
+  createdAt              DateTime                       @default(now()) @db.Timestamp(6)
+  updatedAt              DateTime                       @default(now()) @db.Timestamp(6)
+  businesses             businesses                     @relation(fields: [businessId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_dee8d1a52566c66ae22f950339f")
+  transactions           transactions[]
+  wallet_payment_methods wallet_payment_methods[]
+
+  @@index([ownerId], map: "IDX_311590c921e640715ef2de21e0")
+  @@index([businessId], map: "IDX_dee8d1a52566c66ae22f950339")
+}
+
+model businesses {
+  id                           String                         @id(map: "PK_bc1bf63498dd2368ce3dc8686e8") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  businessName                 String                         @db.VarChar
+  description                  String                         @db.VarChar
+  owner_id                     String                         @db.Uuid
+  ownerName                    String?                        @db.VarChar
+  ownerEmail                   String?                        @db.VarChar
+  ownerPhone                   String?                        @db.VarChar
+  primaryAudience              String                         @db.VarChar
+  service                      String[]                       @default([])
+  category                     Json?
+  businessAddress              String?                        @db.VarChar
+  businessImage                Json?
+  longitude                    Float?
+  latitude                     Float?
+  companySize                  businesses_companysize_enum
+  howDidYouHear                String[]                       @default([])
+  status                       businesses_status_enum         @default(pending)
+  isLuxury                     Boolean                        @default(false)
+  revenue                      Float                          @default(0)
+  bookings                     Int                            @default(0)
+  plan                         String                         @default("Free") @db.VarChar
+  performance                  Json?                          @default("{\"rating\": 0, \"reviews\": 0, \"completionRate\": 0, \"avgResponseMins\": 0}")
+  createdAt                    DateTime                       @default(now()) @db.Timestamp(6)
+  updatedAt                    DateTime                       @default(now()) @db.Timestamp(6)
+  luxuryOverride               Boolean?
+  revenueGoal                  Decimal?                       @default(10000.00) @db.Decimal(10, 2)
+  country                      String?                        @db.VarChar
+  stripeAccountId              String?                        @db.VarChar
+  stripeOnboardingComplete     Boolean                        @default(false)
+  planTier                     businesses_plantier_enum       @default(Starter)
+  Service                      Service[]
+  appointments                 appointments[]
+  blocked_time_slots           blocked_time_slots[]
+  booking_days                 booking_days[]
+  booking_policies             booking_policies?
+  business_client_acquisitions business_client_acquisitions[]
+  business_gift_cards          business_gift_cards[]
+  business_owner_settings      business_owner_settings?
+  business_wallets             business_wallets?
+  user                         user                           @relation(fields: [owner_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_8881b96819252080592fe1592ea")
+  google_credentials           google_credentials[]
+  inventory_products           inventory_products[]
+  mailchimp_credentials        mailchimp_credentials[]
+  merchant_membership_packages merchant_membership_packages[]
+  merchant_subscriptions       merchant_subscriptions?
+  quickbooks_credentials       quickbooks_credentials[]
+  staff                        staff[]
+  staff_commission_earnings    staff_commission_earnings[]
+  withdrawals                  withdrawals[]
+  zohobooks_credentials        zohobooks_credentials[]
+}
+
+model card {
+  id                        String                @id(map: "PK_9451069b6f1199730791a7f4ae4") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  providerName              String                @db.VarChar
+  type                      String                @db.VarChar
+  cardHolderName            String                @db.VarChar
+  cardNumber                String?               @db.VarChar
+  expiryMonth               String                @db.VarChar
+  expiryYear                String                @db.VarChar
+  cvv                       String?               @db.VarChar
+  billingAddress            String?               @db.VarChar
+  lastFourDigits            String?               @db.VarChar
+  createdAt                 DateTime              @default(now()) @db.Timestamp(6)
+  updatedAt                 DateTime              @default(now()) @db.Timestamp(6)
+  isDefault                 Boolean               @default(false)
+  paystackAuthorizationCode String?               @db.VarChar
+  paystackEmail             String?               @db.VarChar
+  userId                    String?               @db.Uuid
+  business_gift_cards       business_gift_cards[]
+  user                      user?                 @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_77d7cc9d95dccd574d71ba221b0")
+  gift_card                 gift_card[]
+}
+
+model chat_messages {
+  id                                  String   @id(map: "PK_40c55ee0e571e268b0d3cd37d10") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  message                             String?
+  imageUrl                            String?  @db.VarChar(500)
+  read                                Boolean  @default(false)
+  createdAt                           DateTime @default(now()) @db.Timestamp(6)
+  updatedAt                           DateTime @default(now()) @db.Timestamp(6)
+  senderId                            String?  @db.Uuid
+  receiverId                          String?  @db.Uuid
+  ticketId                            String?  @db.Uuid
+  user_chat_messages_receiverIdTouser user?    @relation("chat_messages_receiverIdTouser", fields: [receiverId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_9a197c82c9ea44d75bc145a6e2c")
+  user_chat_messages_senderIdTouser   user?    @relation("chat_messages_senderIdTouser", fields: [senderId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_fc6b58e41e9a871dacbe9077def")
+}
+
+model client_addresses {
+  id           String   @id(map: "PK_1df84115ce2e00312a3cca277e9") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  client_id    String   @db.Uuid
+  addressName  String?  @default("No address") @db.VarChar
+  addressLine1 String?  @default("No address") @db.VarChar
+  addressLine2 String?  @default("No address") @db.VarChar
+  location     String?  @default("No address") @db.VarChar
+  city         String?  @db.VarChar
+  state        String?  @db.VarChar
+  zipCode      String?  @db.VarChar
+  country      String   @default("Australia") @db.VarChar
+  isPrimary    Boolean  @default(false)
+  createdAt    DateTime @default(now()) @db.Timestamp(6)
+  updatedAt    DateTime @default(now()) @db.Timestamp(6)
+  clients      clients  @relation(fields: [client_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_a88557f9d4f0eebd10e1c46af73")
+
+  @@index([client_id], map: "IDX_a88557f9d4f0eebd10e1c46af7")
+}
+
+model client_settings {
+  id                 String                          @id(map: "PK_69ec4c74e074907c807f8ab7d40") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  client_id          String                          @unique(map: "REL_47a304c26461503e53a2ed6e73") @db.Uuid
+  emailNotifications Boolean                         @default(true)
+  smsNotifications   Boolean                         @default(true)
+  marketingEmails    Boolean                         @default(false)
+  clientType         client_settings_clienttype_enum @default(regular)
+  notes              String?
+  preferences        Json                            @default("{\"language\": \"en\", \"timezone\": \"Australia/Sydney\", \"preferredContactMethod\": \"email\"}")
+  createdAt          DateTime                        @default(now()) @db.Timestamp(6)
+  updatedAt          DateTime                        @default(now()) @db.Timestamp(6)
+  clients            clients                         @relation(fields: [client_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_47a304c26461503e53a2ed6e737")
+
+  @@index([clientType], map: "IDX_f22a5616de7d7c4a54c7be9cd9")
+}
+
+model clients {
+  id                        String                      @id(map: "PK_f1ab7cf3a5714dbc6bb4e1c28a4") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  firstName                 String                      @db.VarChar
+  lastName                  String                      @db.VarChar
+  email                     String                      @db.VarChar
+  phone                     String                      @db.VarChar
+  phoneCode                 String?                     @db.VarChar
+  clientType                clients_clienttype_enum     @default(regular)
+  dateOfBirth               String?                     @db.VarChar
+  gender                    clients_gender_enum?
+  pronouns                  clients_pronouns_enum?
+  occupation                String?                     @db.VarChar
+  clientSource              clients_clientsource_enum   @default(walk_in)
+  profileImage              String?                     @db.VarChar
+  owner_id                  String                      @db.Uuid
+  isActive                  Boolean                     @default(true)
+  createdAt                 DateTime                    @default(now()) @db.Timestamp(6)
+  updatedAt                 DateTime                    @default(now()) @db.Timestamp(6)
+  client_addresses          client_addresses[]
+  client_settings           client_settings?
+  user                      user                        @relation(fields: [owner_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_fe0ecb806e3c381981349ac237b")
+  emergency_contacts_schema emergency_contacts_schema[]
+
+  @@unique([email, owner_id], map: "IDX_ac3e7f4a0f8d9e590cd8890261")
+  @@index([owner_id], map: "IDX_fe0ecb806e3c381981349ac237")
+}
+
+model communications {
+  id             String                          @id(map: "PK_29ec793018d5d5ca19d40149e87") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  clientId       String?                         @db.VarChar
+  businessId     String?                         @db.VarChar
+  clientName     String?                         @db.VarChar
+  clientEmail    String?                         @db.VarChar
+  message        String                          @db.VarChar
+  messageSubject String                          @db.VarChar
+  recipients     Json?
+  messageType    communications_messagetype_enum @default(email)
+  sent           Boolean                         @default(false)
+  createdAt      DateTime                        @default(now()) @db.Timestamp(6)
+}
+
+model customMessages {
+  id             String                          @id(map: "PK_925c0d60fcc7534bcd06dd9175f") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  clientId       String                          @db.VarChar
+  businessId     String?                         @db.VarChar
+  clientName     String                          @db.VarChar
+  clientEmail    String                          @db.VarChar
+  clientPhone    String                          @db.VarChar
+  message        String                          @db.VarChar
+  messageSubject String                          @db.VarChar
+  messageType    customMessages_messagetype_enum @default(sms)
+  sent           Boolean                         @default(false)
+  createdAt      DateTime                        @default(now()) @db.Timestamp(6)
+}
+
+model dispute {
+  id               String                   @id(map: "PK_e2f1f4741f2094ce789b0a7c5b3") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  status           dispute_status_enum      @default(OPEN)
+  disputeType      dispute_disputetype_enum @default(PAYMENT_ISSUE)
+  resolutionAction String?                  @db.VarChar
+  resolutionNotes  String?
+  createdAt        DateTime                 @default(now()) @db.Timestamp(6)
+  updatedAt        DateTime                 @default(now()) @db.Timestamp(6)
+  appointmentId    String?                  @db.Uuid
+  appointments     appointments?            @relation(fields: [appointmentId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_3563cf069a41909d6cf4d2d80b8")
+}
+
+model email_verifications {
+  id        String   @id(map: "PK_c1ea2921e767f83cd44c0af203f") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  email     String   @unique(map: "IDX_44e5cfea68f87243cad38bb1b1") @db.VarChar
+  otp       String   @db.VarChar(64)
+  expiresAt DateTime @db.Timestamptz(6)
+  trials    Int      @default(0)
+  maxTrials Int      @default(5)
+  createdAt DateTime @default(now()) @db.Timestamp(6)
+  updatedAt DateTime @default(now()) @db.Timestamp(6)
+}
+
+model emergency_contacts {
+  id           String  @id(map: "PK_8be191845b6fca1c4e5ba5bd7d1") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  firstName    String  @db.VarChar
+  lastName     String? @db.VarChar
+  relationship String? @db.VarChar
+  email        String? @db.VarChar
+  phoneNumber  String? @db.VarChar
+  staff_id     String? @db.Uuid
+  staff        staff?  @relation(fields: [staff_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_918c97933c667e1d5fa52eead3b")
+}
+
+model emergency_contacts_schema {
+  id                 String   @id(map: "PK_ce523ae1d146feb8f3a706258cb") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  client_id          String?  @db.Uuid
+  firstName          String?  @default("No Name") @db.VarChar
+  lastName           String?  @default("No Name") @db.VarChar
+  email              String?  @default("No Email") @db.VarChar
+  relationship       String?  @default("None") @db.VarChar
+  phone              String?  @default("None") @db.VarChar
+  emergencyPhoneCode String?  @default("None") @db.VarChar
+  createdAt          DateTime @default(now()) @db.Timestamp(6)
+  updatedAt          DateTime @default(now()) @db.Timestamp(6)
+  staff_id           String?  @db.Uuid
+  staff              staff?   @relation(fields: [staff_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_6422f9dfcd23a47b42676e16b5e")
+  clients            clients? @relation(fields: [client_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_b13e56d395b8c1af403c60e3872")
+}
+
+model faqs {
+  id           String   @id(map: "PK_2ddf4f2c910f8e8fa2663a67bf0") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  question     String   @db.VarChar
+  answer       String
+  category     String?  @db.VarChar
+  displayOrder Int      @default(0)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now()) @db.Timestamp(6)
+  updatedAt    DateTime @default(now()) @db.Timestamp(6)
+}
+
+model flagged_content {
+  id                                    String   @id(map: "PK_769913e428c89bc5d4f54dc3ab7") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  ref                                   String   @unique(map: "UQ_0eb24ab9ceded238a8d8589ae22") @db.VarChar
+  type                                  String   @db.VarChar
+  preview                               String
+  reporterId                            String?  @db.Uuid
+  reportedId                            String?  @db.Uuid
+  reporterType                          String   @default("Admin System") @db.VarChar
+  reason                                String?
+  severity                              String?  @db.VarChar
+  status                                String   @default("Pending") @db.VarChar
+  createdAt                             DateTime @default(now()) @db.Timestamp(6)
+  user_flagged_content_reporterIdTouser user?    @relation("flagged_content_reporterIdTouser", fields: [reporterId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_c3af5e40c8f1de72ccc96172ae9")
+  user_flagged_content_reportedIdTouser user?    @relation("flagged_content_reportedIdTouser", fields: [reportedId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_c3c0a161ab6f2032779b149fd08")
+}
+
+model gift_card {
+  id              String                @id(map: "PK_af4e338d2d41035042843ad641f") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  recipientName   String                @db.VarChar
+  recipientEmail  String                @db.VarChar
+  senderName      String                @db.VarChar
+  personalMessage String?               @db.VarChar
+  amount          Decimal               @db.Decimal(10, 2)
+  currentBalance  Float?
+  purchaseDate    DateTime?             @db.Date
+  status          gift_card_status_enum @default(Active)
+  expiresAt       DateTime?             @db.Timestamp(6)
+  usedAt          DateTime?             @db.Timestamp(6)
+  createdAt       DateTime              @default(now()) @db.Timestamp(6)
+  code            String                @unique(map: "UQ_53cb5605fa42e82b4d47b47bda9") @db.VarChar
+  comment         String?               @db.VarChar
+  senderId        String?               @db.Uuid
+  cardId          String?               @db.Uuid
+  card            card?                 @relation(fields: [cardId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_090d8776bb559f942bd5022637d")
+  user            user?                 @relation(fields: [senderId], references: [id], onUpdate: NoAction, map: "FK_82cd8202dc238e9a8065aaddbf0")
+}
+
+model google_credentials {
+  id           String      @id(map: "PK_7a6d9466fd05f8c23d7642a7b24") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  accessToken  String
+  refreshToken String
+  calendarId   String?
+  expiryDate   BigInt
+  createdAt    DateTime    @default(now()) @db.Timestamp(6)
+  updatedAt    DateTime    @default(now()) @db.Timestamp(6)
+  business_id  String?     @db.Uuid
+  businesses   businesses? @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_b95658cc3abaada2d1f9bfa16c5")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model inventory_products {
+  id                String                                 @id(map: "PK_f0025e3643d268bfda5f6cf9028") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  productName       String                                 @db.VarChar(255)
+  ownerId           String                                 @db.Uuid
+  businessId        String                                 @db.Uuid
+  sellingPrice      Decimal                                @db.Decimal(10, 2)
+  costPrice         Decimal                                @db.Decimal(10, 2)
+  currency          inventory_products_currency_enum?      @default(AUD)
+  sku               String                                 @unique(map: "UQ_ce1be0c7a9500f1f0d6ba34ed1c") @db.VarChar(100)
+  stockQuantity     Int                                    @default(0)
+  category          String?                                @db.VarChar(100)
+  shippingStatus    inventory_products_shippingstatus_enum @default(not_shipped)
+  shippingProgress  Int                                    @default(0)
+  shippingDays      Int?                                   @default(0)
+  shippingOrders    Int?                                   @default(0)
+  description       String?
+  productImage      String?                                @db.VarChar(500)
+  lowStockThreshold Int                                    @default(10)
+  isActive          Boolean                                @default(true)
+  createdAt         DateTime                               @default(now()) @db.Timestamp(6)
+  updatedAt         DateTime                               @default(now()) @db.Timestamp(6)
+  businesses        businesses                             @relation(fields: [businessId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_0ac08c719c913c5597f653920d6")
+
+  @@index([businessId], map: "IDX_0ac08c719c913c5597f653920d")
+}
+
+model landing_statistics {
+  id           String   @id(map: "PK_ff9efcf922724c3013d25e53da7") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  label        String   @db.VarChar
+  description  String
+  icon         String?  @db.VarChar
+  displayOrder Int      @default(0)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now()) @db.Timestamp(6)
+  updatedAt    DateTime @default(now()) @db.Timestamp(6)
+}
+
+model mailchimp_credentials {
+  id           String      @id(map: "PK_c4dedf2b99909f81027d7bb2ee1") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  apiKey       String
+  serverPrefix String      @db.VarChar
+  audienceId   String?     @db.VarChar
+  createdAt    DateTime    @default(now()) @db.Timestamp(6)
+  business_id  String?     @db.Uuid
+  businesses   businesses? @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_a7405a2a9f78d08746ee11da616")
+}
+
+model membership_plan {
+  id                String         @id(map: "PK_e270c516189a3f2609c413ca451") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name              String         @db.VarChar
+  tier              String         @db.VarChar
+  price             Decimal        @db.Decimal(10, 2)
+  saving            Int
+  sessions          Int
+  features          String?
+  isPopular         Boolean        @default(false)
+  cancellation      String?        @db.VarChar
+  activeSubscribers Int
+  description       String         @db.VarChar
+  billingCycle      String         @db.VarChar
+  isActive          Boolean        @default(true)
+  createdAt         DateTime       @default(now()) @db.Timestamp(6)
+  updatedAt         DateTime       @default(now()) @db.Timestamp(6)
+  subscription      subscription[]
+}
+
+model membership_subscription {
+  id                String          @id(map: "PK_8ceda9a7458d6e8333f3e4bfbf5") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId            String          @db.Uuid
+  tierId            String          @db.Uuid
+  startDate         DateTime        @db.Date
+  endDate           DateTime        @db.Date
+  remainingSessions Int             @default(0)
+  status            String          @default("active") @db.VarChar
+  nextBillingDate   DateTime?       @db.Timestamp(6)
+  monthlyCost       Decimal         @db.Decimal(10, 2)
+  cancelledAt       DateTime?       @db.Timestamp(6)
+  createdAt         DateTime        @default(now()) @db.Timestamp(6)
+  updatedAt         DateTime        @default(now()) @db.Timestamp(6)
+  membership_tier   membership_tier @relation(fields: [tierId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_117e1531461b3768feb3e286e00")
+  user              user            @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_f832eb0ba92c454f2a46cc9cbfc")
+}
+
+model membership_tier {
+  id                      String                    @id(map: "PK_05cbfb4d900f5684295f2ec6602") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name                    String                    @db.VarChar
+  description             String?
+  initialPrice            Decimal                   @db.Decimal(10, 2)
+  availablePrice          Decimal                   @db.Decimal(10, 2)
+  durationDays            Int                       @default(30)
+  session                 Int                       @default(0)
+  features                String?
+  isRecommended           Boolean                   @default(false)
+  createdAt               DateTime                  @default(now()) @db.Timestamp(6)
+  membership_subscription membership_subscription[]
+}
+
+model merchant_membership_packages {
+  id                            String                          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  businessId                    String                          @db.Uuid
+  serviceId                     String                          @db.Uuid
+  pricePerSession               Decimal                         @db.Decimal(10, 2)
+  sessionCount                  Int
+  expiryDays                    Int                             @default(365)
+  isActive                      Boolean                         @default(true)
+  createdAt                     DateTime                        @default(now()) @db.Timestamptz(6)
+  updatedAt                     DateTime                        @default(now()) @db.Timestamptz(6)
+  businesses                    businesses                      @relation(fields: [businessId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  Service                       Service                         @relation(fields: [serviceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  merchant_membership_purchases merchant_membership_purchases[]
+
+  @@index([businessId], map: "IDX_mmp_business")
+  @@index([serviceId], map: "IDX_mmp_service")
+}
+
+model merchant_membership_purchases {
+  id                           String                                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  packageId                    String                                   @db.Uuid
+  businessId                   String                                   @db.Uuid
+  clientId                     String                                   @db.Uuid
+  remainingSessions            Int
+  purchasedAt                  DateTime                                 @db.Timestamptz(6)
+  expiresAt                    DateTime                                 @db.Timestamptz(6)
+  status                       merchant_membership_purchase_status_enum @default(ACTIVE)
+  createdAt                    DateTime                                 @default(now()) @db.Timestamptz(6)
+  updatedAt                    DateTime                                 @default(now()) @db.Timestamptz(6)
+  stripePaymentIntentId        String?                                  @db.VarChar(255)
+  user                         user                                     @relation(fields: [clientId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  merchant_membership_packages merchant_membership_packages             @relation(fields: [packageId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([businessId], map: "IDX_mmpu_business")
+  @@index([clientId], map: "IDX_mmpu_client")
+  @@index([packageId], map: "IDX_mmpu_package")
+  @@index([stripePaymentIntentId], map: "IDX_mmpu_spi")
+}
+
+model merchant_subscriptions {
+  id                      String                             @id(map: "PK_merchant_subscriptions") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  businessId              String                             @unique(map: "UQ_merchant_subscriptions_businessId") @db.Uuid
+  status                  merchant_subscriptions_status_enum @default(trialing)
+  trialEndsAt             DateTime?                          @db.Timestamptz(6)
+  currentPeriodEnd        DateTime?                          @db.Timestamptz(6)
+  pastDueSince            DateTime?                          @db.Timestamptz(6)
+  stripeCustomerId        String?                            @db.VarChar
+  stripeSubscriptionId    String?                            @unique(map: "UQ_merchant_subscriptions_stripeSubscriptionId") @db.VarChar
+  cancelReason            String?                            @db.VarChar
+  createdAt               DateTime                           @default(now()) @db.Timestamp(6)
+  updatedAt               DateTime                           @default(now()) @db.Timestamp(6)
+  kind                    String                             @default("trial") @db.VarChar(20)
+  trialReminder5DaySentAt DateTime?                          @db.Timestamptz(6)
+  trialReminder1DaySentAt DateTime?                          @db.Timestamptz(6)
+  businesses              businesses                         @relation(fields: [businessId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_merchant_subscriptions_business")
+
+  @@index([businessId], map: "IDX_merchant_subscriptions_businessId")
+}
+
+model moderation_settings {
+  id              String  @id(map: "PK_f8991bbeb265cb2a512f3811fe2") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  bannedWords     String
+  Reviews         Boolean @default(true)
+  UserProfile     Boolean @default(true)
+  businessProfile Boolean @default(false)
+  images          Boolean @default(false)
+}
+
+model newsletter_subscribers {
+  id           String   @id(map: "PK_38f9333e9961b2fdb589128d19b") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  email        String   @unique(map: "UQ_0dc48416511f011f7de7b2a8f83") @db.VarChar
+  subscribedAt DateTime @default(now()) @db.Timestamp(6)
+}
+
+model notifications {
+  id        String                  @id(map: "PK_notifications_id") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId    String                  @db.Uuid
+  type      notifications_type_enum
+  title     String                  @db.VarChar
+  message   String                  @db.VarChar
+  link      String?                 @db.VarChar
+  isRead    Boolean                 @default(false)
+  readAt    DateTime?               @db.Timestamp(6)
+  metadata  Json?
+  createdAt DateTime                @default(now()) @db.Timestamp(6)
+  user      user                    @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_notifications_userId")
+
+  @@index([userId, createdAt], map: "IDX_notifications_userId_createdAt")
+  @@index([userId, isRead], map: "IDX_notifications_userId_isRead")
+}
+
+model payment {
+  id                             String                 @id(map: "PK_fcaec7df5adf9cac408c686b2ab") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  businessId                     String                 @db.VarChar
+  senderId                       String?                @db.Uuid
+  recipientId                    String?                @db.Uuid
+  amount                         Decimal                @db.Decimal(10, 2)
+  method                         payment_method_enum?
+  status                         String                 @default("pending") @db.VarChar
+  fee                            Decimal?               @db.Decimal(10, 2)
+  refundType                     String?                @db.VarChar
+  mode                           String?                @db.VarChar
+  currency                       payment_currency_enum?
+  reason                         String?                @db.VarChar
+  gatewayTransactionId           String?                @db.VarChar
+  appointmentId                  String?                @db.VarChar
+  createdAt                      DateTime               @default(now()) @db.Timestamp(6)
+  updatedAt                      DateTime               @default(now()) @db.Timestamp(6)
+  user_payment_senderIdTouser    user?                  @relation("payment_senderIdTouser", fields: [senderId], references: [id], onUpdate: NoAction, map: "FK_07d0260210e4a41a97aaa077a3d")
+  user_payment_recipientIdTouser user?                  @relation("payment_recipientIdTouser", fields: [recipientId], references: [id], onUpdate: NoAction, map: "FK_5a18e089eca6a2d84cfe3f313d9")
+
+  @@index([senderId], map: "IDX_07d0260210e4a41a97aaa077a3")
+  @@index([recipientId], map: "IDX_5a18e089eca6a2d84cfe3f313d")
+}
+
+model phone_verifications {
+  id          String   @id(map: "PK_11ef2c1c5ed828b9636472db666") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  phoneNumber String   @unique(map: "IDX_e5410ab84bfc47b4aca5e2a6a0") @db.VarChar
+  otp         String   @db.VarChar(6)
+  expiresAt   DateTime @db.Timestamptz(6)
+  trials      Int      @default(0)
+  maxTrials   Int      @default(5)
+  createdAt   DateTime @default(now()) @db.Timestamp(6)
+  updatedAt   DateTime @default(now()) @db.Timestamp(6)
+
+  @@index([phoneNumber], map: "IDX_phone_verifications_phoneNumber")
+}
+
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model platform_inventory {
+  id                  String                            @id(map: "PK_0964dc2c48f2bbd4abc90ae129e") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  totalRevenue        Decimal                           @default(0) @db.Decimal(15, 2)
+  totalInventoryValue Decimal                           @default(0) @db.Decimal(15, 2)
+  totalStock          Int                               @default(0)
+  currency            platform_inventory_currency_enum? @default(AUD)
+  lowStockItemsCount  Int                               @default(0)
+  categoriesList      Json                              @default("[\"brow\", \"lash\", \"tools_equipment\", \"hair_care\", \"styling_products\", \"color_treatment\", \"nail_care\", \"skin_care\", \"other\"]")
+  totalProducts       Int                               @default(0)
+  totalBusinesses     Int                               @default(0)
+  activeProducts      Int                               @default(0)
+  outOfStockProducts  Int                               @default(0)
+  categoryBreakdown   Json?
+  createdAt           DateTime                          @default(now()) @db.Timestamp(6)
+  updatedAt           DateTime                          @default(now()) @db.Timestamp(6)
+}
+
+model platform_settings {
+  id            String @id(map: "PK_2934aeb70ec285196dcab4a2e96") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  general       Json   @default("{}")
+  notifications Json   @default("{}")
+  payments      Json   @default("{}")
+  features      Json   @default("{}")
+  integrations  Json   @default("{}")
+}
+
+model promotions {
+  id             String                       @id(map: "PK_380cecbbe3ac11f0e5a7c452c34") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  clientId       String                       @db.VarChar
+  businessId     String?                      @db.VarChar
+  clientName     String                       @db.VarChar
+  clientEmail    String                       @db.VarChar
+  clientPhone    String?                      @db.VarChar
+  discount       String?                      @db.VarChar
+  promotionTitle String                       @db.VarChar
+  promotionCode  String                       @db.VarChar
+  expiryDate     String                       @db.VarChar
+  description    String                       @db.VarChar
+  discountType   promotions_discounttype_enum @default(percent)
+  sent           Boolean                      @default(false)
+  createdAt      DateTime                     @default(now()) @db.Timestamp(6)
+}
+
+model quickbooks_credentials {
+  id           String      @id(map: "PK_c106516ae7a42e4459140aa1fec") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  accessToken  String
+  refreshToken String
+  realmId      String      @db.VarChar
+  expiryDate   BigInt
+  createdAt    DateTime    @default(now()) @db.Timestamp(6)
+  business_id  String?     @db.Uuid
+  businesses   businesses? @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_10ba328ab46ec3d73b88fb6abf7")
+}
+
+model referral {
+  id             String   @id(map: "PK_a2d3e935a6591168066defec5ad") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  referrerId     String   @db.Uuid
+  referredEmail  String?  @db.VarChar
+  referredUserId String?  @db.Uuid
+  status         String   @default("pending") @db.VarChar
+  referralCode   String?  @db.VarChar
+  earning        Decimal  @default(20) @db.Decimal(10, 2)
+  isPaid         Boolean  @default(false)
+  createdAt      DateTime @default(now()) @db.Timestamp(6)
+  user           user     @relation(fields: [referrerId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_ec295d220eaab068ed5147e8582")
+}
+
+model refresh_tokens {
+  id        String   @id(map: "PK_7d8bee0204106019488c4c50ffa") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tokenHash String   @unique(map: "UQ_c25bc63d248ca90e8dcc1d92d06") @db.VarChar
+  createdAt DateTime @default(now()) @db.Timestamp(6)
+  updatedAt DateTime @default(now()) @db.Timestamp(6)
+  user_id   String?  @db.Uuid
+  user      user?    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_3ddc983c5f7bcf132fd8732c3f4")
+}
+
+model refunds {
+  id                 String                     @id(map: "PK_5106efb01eeda7e49a78b869738") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  transactionId      String                     @unique(map: "REL_b2b8c0c33487a5b9a573767355") @db.Uuid
+  userId             String                     @db.Uuid
+  amount             Decimal                    @db.Decimal(10, 2)
+  currency           String?                    @db.VarChar(3)
+  reason             String
+  adminNote          String?
+  status             refunds_status_enum        @default(pending)
+  refundMethod       refunds_refundmethod_enum?
+  bankName           String?                    @db.VarChar(255)
+  accountNumber      String?                    @db.VarChar(50)
+  accountHolderName  String?                    @db.VarChar(255)
+  routingNumber      String?                    @db.VarChar(100)
+  bankAddress        String?                    @db.VarChar(100)
+  swiftCode          String?                    @db.VarChar(100)
+  cardLastFourDigits String?                    @db.VarChar(100)
+  createdAt          DateTime                   @default(now()) @db.Timestamp(6)
+  updatedAt          DateTime                   @default(now()) @db.Timestamp(6)
+  transactions       transactions               @relation(fields: [transactionId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_b2b8c0c33487a5b9a573767355f")
+  user               user                       @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_be8d9d517a91f237ba098909c16")
+}
+
+model reminders {
+  id           String                      @id(map: "PK_38715fec7f634b72c6cf7ea4893") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  clientId     String                      @db.VarChar
+  businessId   String?                     @db.VarChar
+  clientName   String                      @db.VarChar
+  clientEmail  String                      @db.VarChar
+  clientPhone  String?                     @db.VarChar
+  date         String                      @db.VarChar
+  time         String                      @db.VarChar
+  message      String                      @db.VarChar
+  mode         reminders_mode_enum         @default(email)
+  reminderType reminders_remindertype_enum @default(upcoming)
+  sent         Boolean                     @default(false)
+  createdAt    DateTime                    @default(now()) @db.Timestamp(6)
+}
+
+model reviews {
+  id                 String                  @id(map: "PK_231ae565c273ee700b283f15c1d") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  clientId           String                  @db.VarChar
+  ownerId            String                  @db.VarChar
+  businessId         String?                 @db.Uuid
+  rating             Decimal                 @db.Decimal(2, 1)
+  comment            String
+  reply              String?
+  replyTime          DateTime?               @db.Timestamptz(6)
+  replyBy            String?
+  likes              Int                     @default(0)
+  clientName         String                  @db.VarChar(255)
+  clientProfileImage String?
+  service            String                  @db.VarChar
+  clientType         reviews_clienttype_enum
+  createdAt          DateTime                @default(now()) @db.Timestamp(6)
+  updatedAt          DateTime                @default(now()) @db.Timestamp(6)
+  orderId            String?                 @db.VarChar
+  staffId            String?                 @db.Uuid
+  staffRating        Decimal?                @db.Decimal(2, 1)
+
+  @@index([staffId], map: "IDX_reviews_staffId")
+}
+
+model service_staff {
+  serviceId String  @db.Uuid
+  staffId   String  @db.Uuid
+  Service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_service_staff_service")
+  staff     staff   @relation(fields: [staffId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_service_staff_staff")
+
+  @@id([serviceId, staffId], map: "PK_service_staff")
+}
+
+model staff {
+  id                        String                      @id(map: "PK_e4ee98bb552756c180aec1e854a") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  firstName                 String?                     @db.VarChar
+  lastName                  String?                     @db.VarChar
+  email                     String?                     @unique(map: "UQ_902985a964245652d5e3a0f5f6a") @db.VarChar
+  phoneNumber               String?                     @db.VarChar
+  gender                    String?                     @db.VarChar
+  dob                       String?                     @db.VarChar
+  jobTitle                  String?                     @db.VarChar
+  role                      staff_role_enum             @default(stylist)
+  userId                    String?                     @unique(map: "UQ_eba76c23bcfc9dad2479b7fd2ad") @db.VarChar
+  specialization            String?                     @db.VarChar
+  avatar                    String?                     @db.VarChar
+  experienceYears           Int?
+  isActive                  Boolean                     @default(true)
+  employmentType            String?                     @db.VarChar
+  startDate                 DateTime?                   @db.Timestamp(6)
+  settings                  Json?                       @default("{}")
+  servicesAssigned          String?
+  business_id               String?                     @db.Uuid
+  commissionRate            Decimal?                    @db.Decimal(5, 2)
+  addresses                 addresses[]
+  appointment_staff         appointment_staff[]
+  emergency_contacts        emergency_contacts[]
+  emergency_contacts_schema emergency_contacts_schema[]
+  service_staff             service_staff[]
+  businesses                businesses?                 @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_c78e4999feaf19a95765ef79d94")
+  staff_commission_earnings staff_commission_earnings[]
+}
+
+model staff_commission_earnings {
+  id               String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  staffId          String     @db.Uuid
+  businessId       String     @db.Uuid
+  orderId          String     @db.VarChar(100)
+  netAmount        Decimal    @db.Decimal(12, 2)
+  commissionRate   Decimal    @db.Decimal(5, 2)
+  commissionAmount Decimal    @db.Decimal(12, 2)
+  createdAt        DateTime   @default(now()) @db.Timestamptz(6)
+  businesses       businesses @relation(fields: [businessId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  staff            staff      @relation(fields: [staffId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([businessId], map: "IDX_sce_business")
+  @@index([orderId], map: "IDX_sce_order")
+  @@index([staffId], map: "IDX_sce_staff")
+}
+
+model stories {
+  id          String   @id(map: "PK_bb6f880b260ed96c452b32a39f0") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name        String   @db.VarChar
+  role        String?  @db.VarChar
+  quote       String
+  image       String?  @db.VarChar
+  isPublished Boolean  @default(false)
+  createdAt   DateTime @default(now()) @db.Timestamp(6)
+  updatedAt   DateTime @default(now()) @db.Timestamp(6)
+}
+
+model stripe_payment_intents {
+  id                         String                             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId                    String                             @db.VarChar(100)
+  businessId                 String                             @db.Uuid
+  userId                     String                             @db.Uuid
+  stripePaymentIntentId      String                             @unique(map: "IDX_stripe_payment_intents_stripePaymentIntentId") @db.VarChar(255)
+  stripeChargeId             String?                            @db.VarChar(255)
+  amount                     Decimal                            @db.Decimal(12, 2)
+  currency                   String                             @default("usd") @db.VarChar(3)
+  bookingAmount              Decimal                            @db.Decimal(12, 2)
+  feeAmount                  Decimal                            @default(0) @db.Decimal(12, 2)
+  status                     stripe_payment_intents_status_enum @default(pending)
+  heldAt                     DateTime?                          @db.Timestamptz(6)
+  releasedAt                 DateTime?                          @db.Timestamptz(6)
+  refundedAt                 DateTime?                          @db.Timestamptz(6)
+  transactionId              String?                            @db.Uuid
+  createdAt                  DateTime                           @default(now()) @db.Timestamptz(6)
+  updatedAt                  DateTime                           @default(now()) @db.Timestamptz(6)
+  acquisitionFeeAmount       Decimal                            @default(0) @db.Decimal(12, 2)
+  commissionFeeAmount        Decimal                            @default(0) @db.Decimal(12, 2)
+  stripePassthroughFeeAmount Decimal                            @default(0) @db.Decimal(12, 2)
+  isDeposit                  Boolean                            @default(false)
+
+  @@index([businessId], map: "IDX_stripe_payment_intents_businessId")
+  @@index([orderId], map: "IDX_stripe_payment_intents_orderId")
+}
+
+model subscription {
+  id              String                   @id(map: "PK_8c3e00ebd02103caa1174cd5d9d") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  duration        Int
+  nextBilling     DateTime                 @db.Timestamptz(6)
+  startDate       DateTime                 @db.Timestamptz(6)
+  status          subscription_status_enum @default(Active)
+  createdAt       DateTime                 @default(now()) @db.Timestamp(6)
+  updatedAt       DateTime                 @default(now()) @db.Timestamp(6)
+  userId          String?                  @db.Uuid
+  planId          String?                  @db.Uuid
+  membership_plan membership_plan?         @relation(fields: [planId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_6b6d0e4dc88105a4a11103dd2cd")
+  user            user?                    @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_cc906b4bc892b048f1b654d2aa0")
+}
+
+model system_alerts {
+  id        String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title     String                     @db.VarChar(200)
+  message   String
+  severity  system_alert_severity_enum @default(info)
+  audience  system_alert_audience_enum @default(all)
+  isActive  Boolean                    @default(true)
+  createdBy String?                    @db.Uuid
+  expiresAt DateTime?                  @db.Timestamptz(6)
+  createdAt DateTime                   @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime                   @default(now()) @db.Timestamptz(6)
+
+  @@index([isActive], map: "IDX_system_alerts_active")
+  @@index([audience], map: "IDX_system_alerts_audience")
+}
+
+model testimonials {
+  id         String   @id(map: "PK_63b03c608bd258f115a0a4a1060") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name       String   @db.VarChar
+  role       String?  @db.VarChar
+  content    String
+  rating     Int      @default(5)
+  avatar     String?  @db.VarChar
+  isApproved Boolean  @default(false)
+  isRejected Boolean  @default(false)
+  createdAt  DateTime @default(now()) @db.Timestamp(6)
+  updatedAt  DateTime @default(now()) @db.Timestamp(6)
+}
+
+model tickets {
+  id              String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ticketNumber    String              @unique @db.VarChar
+  customerId      String              @db.Uuid
+  assignedAdminId String?             @db.Uuid
+  status          tickets_status_enum @default(open)
+  closedById      String?             @db.Uuid
+  closedAt        DateTime?           @db.Timestamp(6)
+  createdAt       DateTime            @default(now()) @db.Timestamp(6)
+  updatedAt       DateTime            @default(now()) @db.Timestamp(6)
+}
+
+model transaction_fee_config {
+  id                String   @id(map: "PK_e7547cf02fdd935d9f6d70736a7") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  bookingPercent    Decimal  @default(5) @db.Decimal(5, 2)
+  bookingFixed      Decimal  @default(0.5) @db.Decimal(10, 2)
+  bookingMin        Decimal  @default(1) @db.Decimal(10, 2)
+  bookingMax        Decimal  @default(50) @db.Decimal(10, 2)
+  withdrawalPercent Decimal  @default(3) @db.Decimal(5, 2)
+  withdrawalFixed   Decimal  @default(2) @db.Decimal(10, 2)
+  withdrawalMin     Decimal  @default(5) @db.Decimal(10, 2)
+  withdrawalMax     Decimal  @default(100) @db.Decimal(10, 2)
+  premiumDiscount   Decimal  @default(10) @db.Decimal(5, 2)
+  vipDiscount       Decimal  @default(20) @db.Decimal(5, 2)
+  newBizDiscount    Decimal  @default(50) @db.Decimal(5, 2)
+  volumeDiscounts   Boolean  @default(true)
+  applyToRefunds    Boolean  @default(false)
+  notes             String?
+  createdAt         DateTime @default(now()) @db.Timestamp(6)
+}
+
+model transaction_fee_config_history {
+  id        String   @id(map: "PK_f93c816961f7ef07eb168f8e95c") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  configId  String   @db.Uuid
+  updatedBy String   @db.Uuid
+  changes   Json
+  createdAt DateTime @default(now()) @db.Timestamp(6)
+}
+
+model transactions {
+  id                                  String                      @id(map: "PK_a219afd8dd77ed80f5a862f1db9") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  senderId                            String?                     @db.Uuid
+  recipientId                         String?                     @db.Uuid
+  amount                              Decimal                     @db.Decimal(12, 2)
+  reason                              String?                     @db.VarChar(255)
+  currency                            transactions_currency_enum?
+  type                                transactions_type_enum
+  description                         String                      @db.VarChar(255)
+  service                             String?                     @db.VarChar(255)
+  customerName                        String?                     @db.VarChar(255)
+  mode                                String?                     @db.VarChar(255)
+  referenceId                         String?                     @db.VarChar(100)
+  status                              transactions_status_enum    @default(pending)
+  method                              transactions_method_enum?
+  createdAt                           DateTime                    @default(now()) @db.Timestamp(6)
+  updatedAt                           DateTime                    @default(now()) @db.Timestamp(6)
+  walletId                            String?                     @db.Uuid
+  feeSubtype                          String?                     @db.VarChar(30)
+  availableAt                         DateTime?                   @db.Timestamptz(6)
+  refunds                             refunds?
+  user_transactions_recipientIdTouser user?                       @relation("transactions_recipientIdTouser", fields: [recipientId], references: [id], onUpdate: NoAction, map: "FK_027bc0e7f0e511822fd3019859f")
+  user_transactions_senderIdTouser    user?                       @relation("transactions_senderIdTouser", fields: [senderId], references: [id], onUpdate: NoAction, map: "FK_3ba3c7d2c3c63436e2ccceef807")
+  business_wallets                    business_wallets?           @relation(fields: [walletId], references: [id], onUpdate: NoAction, map: "FK_a88f466d39796d3081cf96e1b66")
+
+  @@index([recipientId], map: "IDX_027bc0e7f0e511822fd3019859")
+  @@index([senderId], map: "IDX_3ba3c7d2c3c63436e2ccceef80")
+  @@index([referenceId], map: "IDX_8ca2fddf4ca18ce7429730ff20")
+  @@index([walletId], map: "IDX_a88f466d39796d3081cf96e1b6")
+}
+
+model user {
+  id                                               String                          @id(map: "PK_cace4a159ff9f2512dd42373760") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  avatarUrl                                        String?                         @db.VarChar
+  email                                            String                          @unique(map: "UQ_e12875dfb3b1d92d7d7c5377e22") @db.VarChar
+  addresses                                        Json?
+  password                                         String?                         @db.VarChar
+  firstName                                        String?                         @db.VarChar
+  surname                                          String?                         @db.VarChar
+  phoneNumber                                      String?                         @db.VarChar
+  gender                                           user_gender_enum?
+  dateOfBirth                                      DateTime?                       @db.Date
+  suspensionHistory                                String                          @default(".") @db.VarChar
+  isSuspended                                      Boolean                         @default(false)
+  isVerified                                       Boolean                         @default(false)
+  verificationCode                                 String?                         @db.VarChar
+  verificationExpires                              DateTime?                       @db.Timestamp(6)
+  resetCode                                        String?                         @db.VarChar
+  resetCodeExpires                                 DateTime?                       @db.Timestamp(6)
+  booking                                          Int                             @default(0)
+  spent                                            Int                             @default(0)
+  longitude                                        Int?                            @default(0)
+  latitude                                         Int?                            @default(0)
+  city                                             String?                         @db.VarChar
+  state                                            String?                         @db.VarChar
+  country                                          String?                         @db.VarChar
+  createdAt                                        DateTime                        @default(now()) @db.Timestamp(6)
+  updatedAt                                        DateTime                        @default(now()) @db.Timestamp(6)
+  activity                                         String                          @default("just now") @db.VarChar
+  totalEarnings                                    Decimal                         @default(0) @db.Decimal(10, 2)
+  availableEarnings                                Decimal                         @default(0) @db.Decimal(10, 2)
+  referralCode                                     String?                         @unique(map: "UQ_bf0e513b5cd8b4e937fa0702311") @db.VarChar
+  isStaff                                          Boolean                         @default(false)
+  adminRole                                        user_adminrole_enum?
+  isMerchant                                       Boolean                         @default(false)
+  isBusinessStaff                                  Boolean                         @default(false)
+  businessStaffRole                                user_businessstaffrole_enum?
+  isCustomer                                       Boolean                         @default(true)
+  isAdmin                                          Boolean                         @default(false)
+  isBusiness                                       Boolean                         @default(false)
+  isBusinessAdmin                                  Boolean                         @default(false)
+  isClient                                         Boolean                         @default(true)
+  isManager                                        Boolean                         @default(false)
+  isSuperAdmin                                     Boolean                         @default(false)
+  FavoriteService                                  FavoriteService[]
+  admin_invite                                     admin_invite[]
+  appointments                                     appointments[]
+  articles                                         articles[]
+  business_client_acquisitions                     business_client_acquisitions[]
+  business_gift_cards                              business_gift_cards[]
+  businesses                                       businesses[]
+  card                                             card[]
+  chat_messages_chat_messages_receiverIdTouser     chat_messages[]                 @relation("chat_messages_receiverIdTouser")
+  chat_messages_chat_messages_senderIdTouser       chat_messages[]                 @relation("chat_messages_senderIdTouser")
+  clients                                          clients[]
+  flagged_content_flagged_content_reporterIdTouser flagged_content[]               @relation("flagged_content_reporterIdTouser")
+  flagged_content_flagged_content_reportedIdTouser flagged_content[]               @relation("flagged_content_reportedIdTouser")
+  gift_card                                        gift_card[]
+  membership_subscription                          membership_subscription[]
+  merchant_membership_purchases                    merchant_membership_purchases[]
+  notifications                                    notifications[]
+  payment_payment_senderIdTouser                   payment[]                       @relation("payment_senderIdTouser")
+  payment_payment_recipientIdTouser                payment[]                       @relation("payment_recipientIdTouser")
+  referral                                         referral[]
+  refresh_tokens                                   refresh_tokens[]
+  refunds                                          refunds[]
+  subscription                                     subscription[]
+  transactions_transactions_recipientIdTouser      transactions[]                  @relation("transactions_recipientIdTouser")
+  transactions_transactions_senderIdTouser         transactions[]                  @relation("transactions_senderIdTouser")
+  user_address                                     user_address[]
+  user_notification_settings                       user_notification_settings?
+  user_preferences                                 user_preferences?
+  user_status                                      user_status?
+}
+
+model user_address {
+  id          String   @id(map: "PK_302d96673413455481d5ff4022a") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  type        String   @db.VarChar
+  fullAddress String   @db.VarChar
+  createdAt   DateTime @default(now()) @db.Timestamp(6)
+  updatedAt   DateTime @default(now()) @db.Timestamp(6)
+  userId      String?  @db.Uuid
+  user        user?    @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_1abd8badc4a127b0f357d9ecbc2")
+}
+
+model user_notification_settings {
+  id                        String  @id(map: "PK_a195de67d093e096152f387afbd") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  emailBookingConfirmations Boolean @default(true)
+  emailAppointmentReminders Boolean @default(true)
+  emailMarketingPromotions  Boolean @default(false)
+  emailSpecialOffers        Boolean @default(false)
+  emailNewSalonAlerts       Boolean @default(false)
+  smsBookingConfirmations   Boolean @default(false)
+  smsAppointmentReminders   Boolean @default(false)
+  smsMarketingPromotions    Boolean @default(false)
+  smsSpecialOffers          Boolean @default(false)
+  smsNewSalonAlerts         Boolean @default(false)
+  userId                    String? @unique(map: "REL_984f3e1d8fe9c03831b20b8d7a") @db.Uuid
+  user                      user?   @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_984f3e1d8fe9c03831b20b8d7a4")
+}
+
+model user_preferences {
+  id                 String                         @id(map: "PK_e8cfb5b31af61cd363a6b6d7c25") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  language           user_preferences_language_enum @default(en)
+  time_zone          String                         @default("UTC") @db.VarChar
+  profile_visibility Boolean                        @default(true)
+  location_services  Boolean                        @default(true)
+  userId             String?                        @unique(map: "REL_b6202d1cacc63a0b9c8dac2abd") @db.Uuid
+  user               user?                          @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_b6202d1cacc63a0b9c8dac2abd4")
+}
+
+model user_role {
+  id              String  @id(map: "PK_fb2e442d14add3cefbdf33c4561") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  isSuperAdmin    Boolean @default(false)
+  isAdmin         Boolean @default(false)
+  isBusiness      Boolean @default(false)
+  isClient        Boolean @default(true)
+  isStaff         Boolean @default(false)
+  isManager       Boolean @default(false)
+  isBusinessAdmin Boolean @default(false)
+}
+
+model user_status {
+  id       String  @id(map: "PK_892a2061d6a04a7e2efe4c26d6f") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  isOnline Boolean @default(false)
+  userId   String  @unique(map: "REL_3f59e14edbec8fbf03dc4f4348") @db.Uuid
+  user     user    @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_3f59e14edbec8fbf03dc4f4348e")
+}
+
+model wallet_payment_methods {
+  id                          String                           @id(map: "PK_d9e007a549a84986cc13bc3eb9f") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  walletId                    String                           @db.Uuid
+  type                        wallet_payment_methods_type_enum
+  provider                    String?                          @db.VarChar(255)
+  accountNumber               String?                          @db.VarChar(100)
+  accountHolderName           String?                          @db.VarChar(100)
+  bankName                    String?                          @db.VarChar(100)
+  cardExpiryDate              String?                          @db.VarChar(100)
+  cardNumber                  String?                          @db.VarChar(100)
+  cardHolderName              String?                          @db.VarChar(100)
+  sortCode                    String?                          @db.VarChar(100)
+  cvv                         String?                          @db.VarChar(100)
+  last4Digits                 String?                          @db.VarChar(50)
+  isDefault                   Boolean                          @default(false)
+  isActive                    Boolean                          @default(true)
+  createdAt                   DateTime                         @default(now()) @db.Timestamp(6)
+  updatedAt                   DateTime                         @default(now()) @db.Timestamp(6)
+  stripeAccountId             String?                          @db.VarChar(64)
+  stripePayoutsEnabled        Boolean                          @default(false)
+  airwallexBeneficiaryId      String?                          @db.VarChar(64)
+  airwallexBeneficiaryDetails Json?
+  airwallexTransferMethod     String?                          @db.VarChar(10)
+  payoutCurrency              String?                          @db.VarChar(3)
+  country                     String?                          @db.VarChar(2)
+  business_wallets            business_wallets                 @relation(fields: [walletId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_ddf9a31694fcbe7ad6756fb98ba")
+  withdrawals                 withdrawals[]
+}
+
+model withdrawals {
+  id                     String                  @id(map: "PK_9871ec481baa7755f8bd8b7c7e9") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  businessId             String?                 @db.Uuid
+  businessName           String                  @db.VarChar
+  bankDetailsId          String?                 @db.Uuid
+  amount                 Decimal                 @db.Decimal(10, 2)
+  status                 String                  @default("Pending") @db.VarChar
+  currentBalance         Decimal                 @default(0) @db.Decimal(10, 2)
+  requestDate            String?                 @db.VarChar
+  timeAgo                String?                 @db.VarChar
+  createdAt              DateTime                @default(now()) @db.Timestamp(6)
+  updatedAt              DateTime                @default(now()) @db.Timestamp(6)
+  payoutReference        String?                 @db.VarChar(120)
+  paidAt                 DateTime?               @db.Timestamptz(6)
+  rejectionReason        String?
+  reviewedAt             DateTime?               @db.Timestamptz(6)
+  transactionId          String?                 @db.Uuid
+  payoutMethod           String                  @default("manual") @db.VarChar(10)
+  currency               String                  @default("USD") @db.VarChar(3)
+  payoutCurrency         String?                 @db.VarChar(3)
+  exchangeRate           Decimal?                @db.Decimal(18, 8)
+  payoutAmount           Decimal?                @db.Decimal(14, 2)
+  businesses             businesses?             @relation(fields: [businessId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_7d10a34d9731d39e0deeaaed5c6")
+  wallet_payment_methods wallet_payment_methods? @relation(fields: [bankDetailsId], references: [id], onUpdate: NoAction, map: "FK_f0f12b2f6e543cdc886ad818a67")
+
+  @@index([businessId], map: "IDX_7d10a34d9731d39e0deeaaed5c")
+}
+
+model zohobooks_credentials {
+  id             String      @id(map: "PK_6760dbd966a0303ecb7d93978bc") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  accessToken    String
+  refreshToken   String
+  organizationId String      @db.VarChar
+  expiryDate     BigInt
+  dataCenter     String      @default("com") @db.VarChar
+  createdAt      DateTime    @default(now()) @db.Timestamp(6)
+  updatedAt      DateTime    @default(now()) @db.Timestamp(6)
+  business_id    String?     @db.Uuid
+  businesses     businesses? @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "FK_4952fa2661e622311cfed89fddd")
+}
+
+enum Service_category_enum {
+  hair_services   @map("hair-services")
+  nail_services   @map("nail-services")
+  makeup_services @map("makeup-services")
+  spa_treatments  @map("spa-treatments")
+  barbering
+  skincare
+  lashes_brows    @map("lashes-brows")
+  body_care       @map("body-care")
+}
+
+enum Service_servicetype_enum {
+  women_haircut         @map("women-haircut")
+  men_haircut           @map("men-haircut")
+  hair_coloring         @map("hair-coloring")
+  hair_treatment        @map("hair-treatment")
+  blow_dry              @map("blow-dry")
+  braiding
+  manicure
+  pedicure
+  gel_polish            @map("gel-polish")
+  acrylic_nails         @map("acrylic-nails")
+  bridal_makeup         @map("bridal-makeup")
+  party_makeup          @map("party-makeup")
+  natural_glam          @map("natural-glam")
+  facial
+  body_scrub            @map("body-scrub")
+  massage
+  beard_trim            @map("beard-trim")
+  fade_cut              @map("fade-cut")
+  deep_cleansing_facial @map("deep-cleansing-facial")
+  acne_treatment        @map("acne-treatment")
+  lash_extension        @map("lash-extension")
+  brow_shaping          @map("brow-shaping")
+  brow_tint             @map("brow-tint")
+  waxing
+  body_polish           @map("body-polish")
+}
+
+enum appointments_paymentstatus_enum {
+  Paid
+  Unpaid
+}
+
+enum appointments_status_enum {
+  Confirmed
+  Pending
+  Cancelled
+  Completed
+  Rescheduled
+  No_Show     @map("No Show")
+}
+
+enum articles_section_enum {
+  get_started
+  payment_method
+  booking_management
+}
+
+enum business_gift_cards_sentstatus_enum {
+  pending
+  sent
+  delivered
+  failed
+}
+
+enum business_gift_cards_soldstatus_enum {
+  available
+  pending
+  purchased
+  failed
+}
+
+enum business_gift_cards_status_enum {
+  Active
+  Inactive
+  Used
+  Expired
+  deleted
+}
+
+enum business_gift_cards_template_enum {
+  valentine
+  birthday
+  anniversary
+  general
+  mothers
+  fathers
+  christmas
+  wedding
+  graduation
+  custom
+}
+
+enum business_wallets_currency_enum {
+  USD
+  EUR
+  AUD
+  GBP
+  NGN
+}
+
+enum business_wallets_status_enum {
+  active
+  suspended
+  closed
+}
+
+enum businesses_companysize_enum {
+  solo
+  small_team  @map("small-team")
+  multi_staff @map("multi-staff")
+}
+
+enum businesses_plantier_enum {
+  Starter
+  Growth
+  Pro
+}
+
+enum businesses_status_enum {
+  pending
+  approved
+  rejected
+  under_review
+  suspended
+}
+
+enum client_settings_clienttype_enum {
+  regular
+  vip
+  new
+  all
+}
+
+enum clients_clientsource_enum {
+  walk_in   @map("walk-in")
+  referral
+  instagram
+  website
+  facebook
+  other
+}
+
+enum clients_clienttype_enum {
+  regular
+  vip
+  new
+  all
+}
+
+enum clients_gender_enum {
+  MALE
+  FEMALE
+  CUSTOM
+  PREFER_NOT_TO_SAY
+}
+
+enum clients_pronouns_enum {
+  he_him    @map("he-him")
+  she_her   @map("she-her")
+  they_them @map("they-them")
+  other
+}
+
+enum communications_messagetype_enum {
+  email
+}
+
+enum customMessages_messagetype_enum {
+  email
+  sms
+  email_sms
+}
+
+enum dispute_disputetype_enum {
+  SERVICE_ISSUE
+  PAYMENT_ISSUE
+  SCHEDULING_ISSUE
+  OTHER
+}
+
+enum dispute_status_enum {
+  OPEN
+  RESOLVED
+  CLOSED
+}
+
+enum gift_card_status_enum {
+  Active
+  Inactive
+  Used
+  Expired
+}
+
+enum inventory_products_currency_enum {
+  USD
+  EUR
+  AUD
+  GBP
+  NGN
+}
+
+enum inventory_products_shippingstatus_enum {
+  not_shipped
+  processing
+  shipped
+  in_transit
+  delivered
+  cancelled
+}
+
+enum merchant_membership_purchase_status_enum {
+  ACTIVE
+  EXPIRED
+  FULLY_REDEEMED
+}
+
+enum merchant_subscriptions_status_enum {
+  trialing
+  active
+  past_due
+  canceled
+}
+
+enum notifications_type_enum {
+  BOOKING_CONFIRMED
+  BOOKING_CANCELLED
+  MESSAGE_RECEIVED
+  SYSTEM
+}
+
+enum payment_currency_enum {
+  USD
+  EUR
+  AUD
+  GBP
+  NGN
+}
+
+enum payment_method_enum {
+  paystack
+  paypal
+}
+
+enum platform_inventory_currency_enum {
+  USD
+  EUR
+  AUD
+  GBP
+  NGN
+}
+
+enum price_type_enum {
+  fixed
+  variable
+}
+
+enum promotions_discounttype_enum {
+  percent @map("%")
+  fixed   @map("$")
+}
+
+enum refunds_refundmethod_enum {
+  bank_transfer
+  card_refund
+  wallet_refund
+}
+
+enum refunds_status_enum {
+  pending
+  approved
+  rejected
+  processed
+}
+
+enum reminders_mode_enum {
+  sms
+  email
+}
+
+enum reminders_remindertype_enum {
+  upcoming
+  follow_up
+  custom
+  appointment
+}
+
+enum reviews_clienttype_enum {
+  regular
+  vip
+  new
+  all
+}
+
+enum staff_role_enum {
+  manager
+  stylist
+  receptionist
+  cashier
+}
+
+enum stripe_payment_intents_status_enum {
+  pending
+  held
+  released
+  refunded
+  partially_refunded
+  failed
+  cancelled
+}
+
+enum subscription_status_enum {
+  Active
+  Cancelled
+}
+
+enum system_alert_audience_enum {
+  merchant
+  customer
+  all
+}
+
+enum system_alert_severity_enum {
+  info
+  warning
+  critical
+}
+
+enum tickets_status_enum {
+  open
+  closed
+}
+
+enum transactions_currency_enum {
+  USD
+  EUR
+  AUD
+  GBP
+  NGN
+}
+
+enum transactions_method_enum {
+  Card
+  Bank
+  Paystack
+  PayPal
+  GiftCard
+  Cash
+  Stripe
+}
+
+enum transactions_status_enum {
+  pending
+  completed
+  failed
+  cancelled
+  processing
+}
+
+enum transactions_type_enum {
+  Earning
+  Withdrawal
+  Debit
+  Fee
+  Refund
+}
+
+enum user_adminrole_enum {
+  super_admin
+  admin
+}
+
+enum user_businessstaffrole_enum {
+  manager
+  stylist
+  receptionist
+  cashier
+}
+
+enum user_gender_enum {
+  MALE
+  FEMALE
+  CUSTOM
+  PREFER_NOT_TO_SAY
+  OTHER
+}
+
+enum user_preferences_language_enum {
+  en
+  es
+  fr
+}
+
+enum wallet_payment_methods_type_enum {
+  bank_account
+  credit_card
+  debit_card
+  digital_wallet
+  stripe_connect
+  airwallex_connect
+}

@@ -1,0 +1,47 @@
+/api/v1/notifications:
+  get:
+    tags: [Notifications]
+    summary: The signed-in customer's notifications
+    parameters:
+      - $ref: "#/components/parameters/PageParam"
+      - $ref: "#/components/parameters/LimitParam"
+      - { in: query, name: unreadOnly, schema: { type: boolean } }
+    responses:
+      "200": { description: "data: { notifications, total, page, limit, unreadCount }" }
+  delete:
+    tags: [Notifications]
+    summary: Delete all of them
+    responses:
+      "200": { description: "data: { deleted }" }
+
+/api/v1/notifications/unread-count:
+  get:
+    tags: [Notifications]
+    summary: How many are unread
+    responses:
+      "200": { description: "data: { unreadCount }" }
+
+/api/v1/notifications/read-all:
+  patch:
+    tags: [Notifications]
+    summary: Mark all as read
+    responses:
+      "200": { description: "data: { updated }" }
+
+/api/v1/notifications/{id}/read:
+  patch:
+    tags: [Notifications]
+    summary: Mark one as read
+    parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+    responses:
+      "200": { description: Marked as read }
+      "404": { description: Not one of this customer's notifications }
+
+/api/v1/notifications/{id}:
+  delete:
+    tags: [Notifications]
+    summary: Delete one
+    parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+    responses:
+      "200": { description: Deleted }
+      "404": { description: Not one of this customer's notifications }

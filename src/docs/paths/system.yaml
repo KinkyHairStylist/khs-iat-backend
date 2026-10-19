@@ -1,0 +1,12 @@
+/api/v1/health:
+  get:
+    tags:
+      - System
+    summary: Health check
+    description: Reports process uptime and database/Redis connectivity. Never gated by dbReady.
+    security: []
+    responses:
+      "200":
+        description: Service is healthy
+      "503":
+        description: Database or Redis is unreachable

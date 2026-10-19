@@ -1,0 +1,38 @@
+/api/v1/merchant/plans:
+  get:
+    tags: [Merchant - Setup]
+    summary: The merchant plans (paid tiers, Trial, MVP) — public, no Stripe ids
+    security: []
+    responses:
+      "200": { description: "data: { tiers: { Starter|Growth|Pro: { displayAmount, acquisitionFeeRate, available } }, commissionRate, trial, reveal }" }
+
+/api/v1/merchant/setup/card-setup:
+  post:
+    tags: [Merchant - Setup]
+    summary: Paying for a plan, step 1 — a Stripe customer and a SetupIntent to save the card
+    responses:
+      "200": { description: "data: { clientSecret, customerId }" }
+
+/api/v1/merchant/setup/subscribe:
+  post:
+    tags: [Merchant - Setup]
+    summary: Paying for a plan, step 2 — charges the first month (repeating returns the same subscription)
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema: { type: object, required: [tier, paymentMethodId, customerId], properties: { tier: { type: string, enum: [Starter, Growth, Pro] }, paymentMethodId: { type: string }, customerId: { type: string } } }
+    responses:
+      "200": { description: "data: { subscriptionId, customerId }" }
+      "400": { description: "PLAN_UNAVAILABLE or CARD_DECLINED" }
+      "403": { description: Payment session belongs to someone else }
+
+/api/v1/merchant/setup/business:
+  post:
+    tags: [Merchant - Setup]
+    summary: Creates the merchant's business (pending review) with its hours, policies, owner settings, wallet and plan record
+    description: One business per merchant. A paid choice needs a subscription from /merchant/setup/subscribe that Stripe confirms.
+    responses:
+      "201": { description: "data: { businessId, businessName }" }
+      "400": { description: "Validation, PAYMENT_REQUIRED, PAYMENT_NOT_CONFIRMED or MVP_CLOSED" }
+      "409": { description: "ALREADY_HAS_BUSINESS or PAYMENT_ALREADY_USED" }

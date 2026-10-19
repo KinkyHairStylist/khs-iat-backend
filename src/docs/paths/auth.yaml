@@ -1,0 +1,188 @@
+/api/v1/auth/get-started:
+  post:
+    tags: [Auth]
+    summary: "Sign-up step 1: email a verification code"
+    description: "Also records a referral from a referral link (refCode). One code per minute per email; 10 requests per 10 minutes per IP."
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [email]
+            properties:
+              email: { type: string, format: email }
+              refCode: { type: string, description: "From ?ref= on a referral link" }
+    responses:
+      "200": { description: Code sent }
+      "409": { description: "ACCOUNT_EXISTS: log in instead" }
+      "429": { description: "CODE_COOLDOWN (wait before another code) or RATE_LIMITED" }
+      "502": { description: EMAIL_SEND_FAILED }
+
+/api/v1/auth/resend-code:
+  post:
+    tags: [Auth]
+    summary: Send a new sign-up code
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema: { type: object, required: [email], properties: { email: { type: string, format: email } } }
+    responses:
+      "200": { description: Code sent }
+      "409": { description: ACCOUNT_EXISTS }
+      "429": { description: CODE_COOLDOWN }
+
+/api/v1/auth/verify-code:
+  post:
+    tags: [Auth]
+    summary: "Sign-up step 2: check the code"
+    description: "Returns a single-use signupToken (valid 30 minutes) for step 3. A code allows 5 attempts and expires after 10 minutes."
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [email, code]
+            properties:
+              email: { type: string, format: email }
+              code: { type: string, example: "12345" }
+    responses:
+      "200": { description: "data: { signupToken }" }
+      "400": { description: "CODE_INVALID, CODE_EXPIRED or CODE_ATTEMPTS_EXCEEDED" }
+
+/api/v1/auth/signup:
+  post:
+    tags: [Auth]
+    summary: "Sign-up step 3: set the password and details"
+    description: Creates the account and signs the customer in (sets the session cookies).
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [signupToken, password, firstName, surname, phoneNumber, gender]
+            properties:
+              signupToken: { type: string }
+              password: { type: string, format: password, minLength: 8, maxLength: 72, description: "Upper, lower, number and special character" }
+              firstName: { type: string, maxLength: 50 }
+              surname: { type: string, maxLength: 50 }
+              phoneNumber: { type: string, example: "+44 7700 900123" }
+              gender: { type: string, enum: [MALE, FEMALE, CUSTOM, PREFER_NOT_TO_SAY, OTHER] }
+              referralCode: { type: string, description: Optional }
+    responses:
+      "201": { description: "data: { user }, session cookies set" }
+      "400": { description: "VALIDATION_ERROR or SIGNUP_EXPIRED" }
+      "409": { description: ACCOUNT_EXISTS }
+
+/api/v1/auth/login:
+  post:
+    tags: [Auth]
+    summary: Log in
+    description: "Sets the httpOnly session cookies. 5 attempts per minute per IP; an account locks for 15 minutes after 10 failures."
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [email, password]
+            properties:
+              email: { type: string, format: email }
+              password: { type: string, format: password }
+    responses:
+      "200": { description: "data: { user }" }
+      "401": { description: INVALID_CREDENTIALS }
+      "403": { description: "ACCOUNT_SUSPENDED or NOT_CUSTOMER (a merchant or admin account)" }
+      "429": { description: "ACCOUNT_LOCKED or RATE_LIMITED" }
+
+/api/v1/auth/refresh:
+  post:
+    tags: [Auth]
+    summary: Renew the session
+    description: Uses the refresh cookie (rotated on every call). Call on 401 TOKEN_MISSING or TOKEN_EXPIRED, then retry.
+    security: []
+    responses:
+      "200": { description: "data: { user }" }
+      "401": { description: SESSION_EXPIRED }
+
+/api/v1/auth/logout:
+  post:
+    tags: [Auth]
+    summary: Log out
+    description: Ends the session and clears the cookies. Always succeeds.
+    security: []
+    responses:
+      "200": { description: Logged out }
+
+/api/v1/auth/me:
+  get:
+    tags: [Auth]
+    summary: The signed-in customer
+    responses:
+      "200": { description: "data: { id, email, firstName, surname, phoneNumber, gender, avatarUrl, referralCode, createdAt }" }
+      "401": { description: "TOKEN_MISSING / TOKEN_EXPIRED (refresh, then retry) or SESSION_REVOKED" }
+
+/api/v1/auth/reset-password/start:
+  post:
+    tags: [Auth]
+    summary: "Password reset step 1: email a code"
+    description: Answers the same whether or not the email has an account.
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema: { type: object, required: [email], properties: { email: { type: string, format: email } } }
+    responses:
+      "200": { description: Code sent if the account exists }
+      "429": { description: CODE_COOLDOWN }
+
+/api/v1/auth/reset-password/verify:
+  post:
+    tags: [Auth]
+    summary: "Password reset step 2: check the code"
+    description: Returns a single-use resetToken (valid 15 minutes).
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [email, code]
+            properties:
+              email: { type: string, format: email }
+              code: { type: string }
+    responses:
+      "200": { description: "data: { resetToken }" }
+      "400": { description: "CODE_INVALID, CODE_EXPIRED or CODE_ATTEMPTS_EXCEEDED" }
+
+/api/v1/auth/reset-password/finish:
+  post:
+    tags: [Auth]
+    summary: "Password reset step 3: set the new password"
+    description: Signs the account out on every device.
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [email, resetToken, newPassword, confirmPassword]
+            properties:
+              email: { type: string, format: email }
+              resetToken: { type: string }
+              newPassword: { type: string, format: password }
+              confirmPassword: { type: string, format: password }
+    responses:
+      "200": { description: Password reset }
+      "400": { description: "VALIDATION_ERROR or RESET_EXPIRED" }

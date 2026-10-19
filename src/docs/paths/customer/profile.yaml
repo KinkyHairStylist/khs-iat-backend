@@ -1,0 +1,84 @@
+/api/v1/customer/profile:
+  get:
+    tags: [Profile]
+    summary: The customer's personal details
+    responses:
+      "200": { description: "data: { id, email, firstName, surname, phoneNumber, gender, dateOfBirth (YYYY-MM-DD), avatarUrl }" }
+  patch:
+    tags: [Profile]
+    summary: Change some of the personal details (the email can't be changed)
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              firstName: { type: string, maxLength: 50 }
+              surname: { type: string, maxLength: 50 }
+              phoneNumber: { type: string, description: "Empty clears it" }
+              gender: { type: string, enum: [MALE, FEMALE, CUSTOM, PREFER_NOT_TO_SAY, OTHER] }
+              dateOfBirth: { type: string, description: "YYYY-MM-DD in the past; empty clears it" }
+    responses:
+      "200": { description: "data: the profile" }
+      "400": { description: Invalid value or nothing to update }
+
+/api/v1/customer/profile/avatar:
+  put:
+    tags: [Profile]
+    summary: Upload a profile photo (JPG, PNG or WebP by content, at most 5 MB); the previous one is removed
+    requestBody:
+      required: true
+      content:
+        multipart/form-data:
+          schema: { type: object, required: [file], properties: { file: { type: string, format: binary } } }
+    responses:
+      "200": { description: "data: the profile with the new avatarUrl" }
+      "400": { description: "NO_FILE, INVALID_UPLOAD or UNSUPPORTED_IMAGE" }
+      "413": { description: FILE_TOO_LARGE }
+  delete:
+    tags: [Profile]
+    summary: Remove the profile photo
+    responses:
+      "200": { description: "data: the profile (avatarUrl null)" }
+
+/api/v1/customer/addresses:
+  get:
+    tags: [Profile]
+    summary: Saved addresses, oldest first
+    responses:
+      "200": { description: "data: [{ id, type: Home|Work, fullAddress, createdAt }]" }
+  post:
+    tags: [Profile]
+    summary: Add an address (at most 10); the customer is emailed
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema: { type: object, required: [type, fullAddress], properties: { type: { type: string, enum: [Home, Work] }, fullAddress: { type: string, maxLength: 300 } } }
+    responses:
+      "201": { description: "data: the address" }
+      "400": { description: Invalid, or TOO_MANY_ADDRESSES }
+
+/api/v1/customer/addresses/{id}:
+  patch:
+    tags: [Profile]
+    summary: Change one of the customer's addresses; the customer is emailed
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema: { type: object, required: [type, fullAddress], properties: { type: { type: string, enum: [Home, Work] }, fullAddress: { type: string, maxLength: 300 } } }
+    responses:
+      "200": { description: "data: the address" }
+      "404": { description: Not this customer's address }
+  delete:
+    tags: [Profile]
+    summary: Delete one of the customer's addresses
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    responses:
+      "200": { description: Deleted }
+      "404": { description: Not this customer's address }

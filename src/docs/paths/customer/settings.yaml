@@ -1,0 +1,72 @@
+/api/v1/customer/preferences:
+  patch:
+    tags: [Settings]
+    summary: Change some preferences (language stays in the browser)
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              timeZone: { type: string, example: Australia/Sydney }
+              profileVisibility: { type: boolean }
+              locationServices: { type: boolean }
+    responses:
+      "200": { description: "data: { language, timeZone, profileVisibility, locationServices }" }
+
+/api/v1/customer/notification-settings:
+  get:
+    tags: [Settings]
+    summary: The email / SMS switches (defaults until first saved)
+    responses:
+      "200": { description: "data: { emailBookingConfirmations, emailAppointmentReminders, emailMarketingPromotions, emailSpecialOffers, emailNewSalonAlerts, sms… (same five) }" }
+  patch:
+    tags: [Settings]
+    summary: Flip some switches
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema: { type: object, additionalProperties: { type: boolean } }
+    responses:
+      "200": { description: "data: all ten switches" }
+
+/api/v1/customer/cards:
+  get:
+    tags: [Settings]
+    summary: Cards saved on the old site (brand, last four, expiry; never the number or CVV)
+    responses:
+      "200": { description: "data: [{ id, providerName, type, cardHolderName, lastFourDigits, expiryMonth, expiryYear, billingAddress, isDefault, createdAt }]" }
+
+/api/v1/customer/cards/{id}:
+  delete:
+    tags: [Settings]
+    summary: Remove a saved card (another becomes the default)
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    responses:
+      "200": { description: Removed }
+      "404": { description: Not this customer's card }
+
+/api/v1/customer/password:
+  post:
+    tags: [Settings]
+    summary: Change the password; every other device is signed out, this one stays
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema: { type: object, required: [currentPassword, newPassword], properties: { currentPassword: { type: string }, newPassword: { type: string, description: "8–72 characters with upper, lower, digit and symbol" } } }
+    responses:
+      "200": { description: Changed }
+      "400": { description: "WRONG_PASSWORD, or a weak / unchanged new password" }
+
+/api/v1/customer/account:
+  delete:
+    tags: [Settings]
+    summary: Close the account
+    description: Personal details and the customer's own data are removed; past bookings and payments stay, anonymised. Signs out everywhere and clears the cookies.
+    responses:
+      "200": { description: Closed }
+      "409": { description: "ACCOUNT_IN_USE (runs or works for a salon / staff) or HAS_UPCOMING_BOOKINGS" }

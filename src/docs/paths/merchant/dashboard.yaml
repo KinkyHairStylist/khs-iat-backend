@@ -1,0 +1,26 @@
+/api/v1/merchant/dashboard:
+  get:
+    tags: [Merchant - Dashboard]
+    summary: The dashboard home — today's bookings, this month, satisfaction, top team
+    parameters:
+      - { in: query, name: date, required: true, schema: { type: string, example: "2026-10-21" }, description: The salon's today (from the browser) }
+    responses:
+      "200": { description: "data: { business, hasServices, today: [{ id, clientName, service, time, stylists, status, amount, durationMinutes }], month: { bookings, completed, revenue }, satisfaction: { average, count, percent }, topTeam: [{ id, name, role, avatar, bookings, revenue, rating }] }" }
+      "403": { description: NO_BUSINESS }
+
+/api/v1/merchant/dashboard/stats:
+  get:
+    tags: [Merchant - Dashboard]
+    summary: The overview cards for a period, with the change from the period before
+    parameters:
+      - { in: query, name: date, required: true, schema: { type: string } }
+      - { in: query, name: period, schema: { type: string, enum: [today, week, month], default: today } }
+    responses:
+      "200": { description: "data: { period, metrics: { revenue, bookings, activeClients, averageServiceTimeMinutes } } — each { current, previous, growth: { percent, text, type } }" }
+
+/api/v1/merchant/subscription/status:
+  get:
+    tags: [Merchant - Billing]
+    summary: The merchant's plan status (for the dashboard's access check)
+    responses:
+      "200": { description: "data: { status: trialing|active|past_due|canceled|null, kind, trialEndsAt, currentPeriodEnd, hasPaymentMethod, planTier }" }

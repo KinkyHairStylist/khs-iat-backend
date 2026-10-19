@@ -1,0 +1,10 @@
+/api/v1/help/articles:
+  get:
+    tags: [Help]
+    summary: A help topic's articles (written by the team in the staff app), oldest first
+    security: []
+    parameters:
+      - { in: query, name: section, required: true, schema: { type: string, enum: [get_started, payment_method, booking_management] } }
+    responses:
+      "200": { description: "data: [{ id, section, title, content, fileUrl, createdAt }]" }
+      "400": { description: Unknown section }

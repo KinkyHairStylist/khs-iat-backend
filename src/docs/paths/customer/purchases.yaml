@@ -1,0 +1,146 @@
+/api/v1/salons/{id}/membership-packages:
+  get:
+    tags: [Memberships]
+    summary: The membership packages an approved salon sells
+    security: []
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    responses:
+      "200": { description: "data: [{ id, businessId, serviceId, pricePerSession, sessionCount, expiryDays, service: { id, name, price } }]" }
+
+/api/v1/salons/{id}/gift-cards:
+  get:
+    tags: [Gift cards]
+    summary: The gift cards an approved salon has for sale (codes are never listed)
+    security: []
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    responses:
+      "200": { description: "data: [{ id, businessId, title, description, amount, benefits: string[], expiryInDays, template, currency, business: { id, businessName } }]" }
+
+/api/v1/customer/memberships:
+  get:
+    tags: [Memberships]
+    summary: The customer's memberships, newest first
+    responses:
+      "200": { description: "data: [{ id, packageId, businessId, businessName, remainingSessions, purchasedAt, expiresAt, status, package }]" }
+
+/api/v1/customer/memberships/shop:
+  get:
+    tags: [Memberships]
+    summary: Every package for sale at approved salons, newest first
+    parameters:
+      - { in: query, name: businessId, schema: { type: string, format: uuid }, description: Only this salon's packages }
+    responses:
+      "200": { description: "data: [{ id, businessId, businessName, businessAddress, serviceId, serviceName, serviceCategory, pricePerSession, sessionCount, expiryDays, total, saving }]" }
+
+/api/v1/customer/memberships/shop/{id}:
+  get:
+    tags: [Memberships]
+    summary: One package for sale, for the purchase page
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    responses:
+      "200": { description: "data: { id, businessId, businessName, businessAddress, serviceId, serviceName, serviceCategory, pricePerSession, sessionCount, expiryDays, total, saving }" }
+      "404": { description: Withdrawn or never existed }
+
+/api/v1/customer/memberships/purchase:
+  post:
+    tags: [Memberships]
+    summary: Start buying a package (a card payment for the whole package)
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema: { type: object, required: [packageId], properties: { packageId: { type: string, format: uuid } } }
+    responses:
+      "200": { description: "data: { amount, sessionCount, clientSecret, reference }" }
+      "404": { description: Unknown or inactive package }
+
+/api/v1/customer/memberships/purchase/complete:
+  post:
+    tags: [Memberships]
+    summary: Grant the membership once Stripe reports the payment paid (safe to repeat)
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema: { type: object, required: [reference], properties: { reference: { type: string, example: pi_123 } } }
+    responses:
+      "200": { description: "data: { purchase, alreadyCompleted }" }
+      "400": { description: PAYMENT_NOT_COMPLETE }
+      "404": { description: Not this customer's payment }
+
+/api/v1/customer/gift-cards/owned:
+  get:
+    tags: [Gift cards]
+    summary: Gift cards the customer owns
+    responses:
+      "200": { description: "data: [{ id, title, code, businessId, amount, remainingAmount, status, expiresAt, currency, recipientName, senderName, message, template, createdAt, businesses }]" }
+
+/api/v1/customer/gift-cards/shop:
+  get:
+    tags: [Gift cards]
+    summary: Every gift card for sale at approved salons, newest first (codes are never listed)
+    parameters:
+      - { in: query, name: businessId, schema: { type: string, format: uuid }, description: Only this salon's cards }
+    responses:
+      "200": { description: "data: [{ id, businessId, title, description, amount, benefits: string[], expiryInDays, template, currency, business: { id, businessName } }]" }
+
+/api/v1/customer/gift-cards/shop/{id}:
+  get:
+    tags: [Gift cards]
+    summary: One card for sale, with KHS's fee rate (percent of the value) for the purchase page
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+    responses:
+      "200": { description: "data: { ...card, feeRate }" }
+      "404": { description: Sold, withdrawn or never existed }
+
+/api/v1/customer/gift-cards/validate:
+  post:
+    tags: [Gift cards]
+    summary: Whether a gift card code can be spent (at this salon), and its balance
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema: { type: object, required: [code], properties: { code: { type: string }, businessId: { type: string, format: uuid } } }
+    responses:
+      "200": { description: "data: { valid: true, amount, expiresAt, status } or { valid: false, reason, reasonCode? }" }
+      "404": { description: No such code }
+
+/api/v1/customer/gift-cards/purchase:
+  post:
+    tags: [Gift cards]
+    summary: Start buying a salon's gift card (its value plus KHS's fee); holds the card for 30 minutes
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [giftCardId]
+            properties:
+              giftCardId: { type: string, format: uuid }
+              recipientName: { type: string, maxLength: 80 }
+              recipientEmail: { type: string, format: email, description: "When given (and not the buyer's), the card is emailed here too" }
+              senderName: { type: string, maxLength: 80 }
+              message: { type: string, maxLength: 500 }
+    responses:
+      "200": { description: "data: { giftCardAmount, platformFee, totalAmount, clientSecret, reference }" }
+      "409": { description: "GIFT_CARD_SOLD, or GIFT_CARD_HELD (someone else is buying it)" }
+
+/api/v1/customer/gift-cards/purchase/complete:
+  post:
+    tags: [Gift cards]
+    summary: Make the buyer the owner and pay the salon once Stripe reports the payment paid (safe to repeat)
+    description: If the card was sold to someone else meanwhile, the payment is refunded and 409 GIFT_CARD_SOLD returned.
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema: { type: object, required: [reference], properties: { reference: { type: string } } }
+    responses:
+      "200": { description: "data: { giftCard: { id, code, title, businessId, remainingAmount, expiresAt, status }, alreadyCompleted }" }
+      "409": { description: GIFT_CARD_SOLD (refunded) }

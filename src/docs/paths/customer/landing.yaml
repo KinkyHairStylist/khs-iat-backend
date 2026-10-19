@@ -1,0 +1,74 @@
+/api/v1/landing/statistics:
+  get:
+    tags: [Landing]
+    summary: Active landing statistics
+    description: Ordered by displayOrder. Public.
+    security: []
+    responses:
+      "200":
+        description: "data: [{ id, label, description, icon, displayOrder, isActive, createdAt, updatedAt }]"
+
+/api/v1/landing/testimonials:
+  get:
+    tags: [Landing]
+    summary: Approved testimonials
+    description: Newest first. Public.
+    security: []
+    responses:
+      "200":
+        description: "data: [{ id, name, role, content, rating, avatar, ... }]"
+
+/api/v1/landing/blog:
+  get:
+    tags: [Landing]
+    summary: Published blog posts
+    description: Newest first. Public.
+    security: []
+    responses:
+      "200":
+        description: "data: [{ id, title, slug, excerpt, content, coverImage, author, publishedAt, ... }]"
+
+/api/v1/landing/faq:
+  get:
+    tags: [Landing]
+    summary: Active FAQs
+    description: Ordered by displayOrder. Public.
+    security: []
+    responses:
+      "200":
+        description: "data: [{ id, question, answer, category, displayOrder, ... }]"
+
+/api/v1/landing/stories:
+  get:
+    tags: [Landing]
+    summary: Published success stories
+    description: Newest first. Public.
+    security: []
+    responses:
+      "200":
+        description: "data: [{ id, name, role, quote, image, ... }]"
+
+/api/v1/landing/newsletter/subscribe:
+  post:
+    tags: [Landing]
+    summary: Subscribe to the newsletter
+    description: Public. At most 5 attempts per hour from one address.
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [email]
+            properties:
+              email: { type: string, format: email }
+    responses:
+      "201":
+        description: Subscribed
+      "400":
+        description: Not a valid email address
+      "409":
+        description: ALREADY_SUBSCRIBED
+      "429":
+        description: RATE_LIMITED

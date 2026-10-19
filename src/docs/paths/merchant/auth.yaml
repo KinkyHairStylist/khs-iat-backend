@@ -1,0 +1,75 @@
+/api/v1/merchant/auth/get-started:
+  post:
+    tags: [Merchant - Auth]
+    summary: Merchant sign-up step 1 — emails a 5-digit code (also used to resend)
+    security: []
+    requestBody: { required: true, content: { application/json: { schema: { type: object, required: [email], properties: { email: { type: string } } } } } }
+    responses:
+      "200": { description: Code sent }
+      "409": { description: ACCOUNT_EXISTS }
+
+/api/v1/merchant/auth/verify-code:
+  post:
+    tags: [Merchant - Auth]
+    summary: Merchant sign-up step 2 — checks the code, returns a single-use signupToken
+    security: []
+    requestBody: { required: true, content: { application/json: { schema: { type: object, required: [email, code], properties: { email: { type: string }, code: { type: string } } } } } }
+    responses:
+      "200": { description: "data: { signupToken }" }
+
+/api/v1/merchant/auth/signup:
+  post:
+    tags: [Merchant - Auth]
+    summary: Merchant sign-up step 3 — creates the merchant account and signs it in (merchant cookies)
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [signupToken, password, firstName, surname, phoneNumber, gender]
+            properties:
+              signupToken: { type: string }
+              password: { type: string }
+              firstName: { type: string }
+              surname: { type: string }
+              phoneNumber: { type: string }
+              gender: { type: string, enum: [MALE, FEMALE, CUSTOM, PREFER_NOT_TO_SAY, OTHER] }
+    responses:
+      "201": { description: "data: { user, hasBusiness, business }" }
+      "409": { description: "ACCOUNT_EXISTS or PHONE_TAKEN" }
+
+/api/v1/merchant/auth/login:
+  post:
+    tags: [Merchant - Auth]
+    summary: Merchant sign-in (sets the merchant cookies)
+    security: []
+    requestBody: { required: true, content: { application/json: { schema: { type: object, required: [email, password], properties: { email: { type: string }, password: { type: string } } } } } }
+    responses:
+      "200": { description: "data: { user, hasBusiness, business }" }
+      "401": { description: INVALID_CREDENTIALS }
+      "403": { description: "NOT_MERCHANT or ACCOUNT_SUSPENDED" }
+
+/api/v1/merchant/auth/refresh:
+  post:
+    tags: [Merchant - Auth]
+    summary: New access cookie from the merchant refresh cookie
+    security: []
+    responses:
+      "200": { description: "data: { user, hasBusiness, business }" }
+
+/api/v1/merchant/auth/logout:
+  post:
+    tags: [Merchant - Auth]
+    summary: Ends the merchant session and clears its cookies
+    security: []
+    responses:
+      "200": { description: Logged out }
+
+/api/v1/merchant/auth/me:
+  get:
+    tags: [Merchant - Auth]
+    summary: The signed-in merchant and their business (none yet → business setup)
+    responses:
+      "200": { description: "data: { user, hasBusiness, business: { id, businessName, status } | null }" }
