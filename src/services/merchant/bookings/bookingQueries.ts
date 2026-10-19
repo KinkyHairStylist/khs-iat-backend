@@ -117,7 +117,7 @@ export async function getBookingFormOptions(userId: string) {
     }),
     prisma.staff.findMany({
       where: { business_id: business.id, isActive: true },
-      select: { id: true, firstName: true, lastName: true, avatar: true },
+      select: { id: true, firstName: true, lastName: true, avatar: true, email: true, jobTitle: true, role: true },
       orderBy: { firstName: "asc" },
     }),
   ]);
@@ -130,6 +130,6 @@ export async function getBookingFormOptions(userId: string) {
       durationMinutes: parseDurationToMinutes(s.duration),
       price: Number(s.price ?? s.minPrice ?? s.maxPrice ?? 0),
     })),
-    team: team.map((s) => ({ id: s.id, name: fullName(s.firstName, s.lastName), avatar: s.avatar })),
+    team: team.map((s) => ({ id: s.id, name: fullName(s.firstName, s.lastName) || s.email || "", avatar: s.avatar, email: s.email, role: s.jobTitle || s.role })),
   };
 }

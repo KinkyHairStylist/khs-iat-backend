@@ -1,0 +1,80 @@
+/api/v1/merchant/services:
+  get:
+    tags: [Merchant - Services]
+    summary: The salon's services with team, plan and this month's bookings and revenue; its categories and review status
+    parameters:
+      - { in: query, name: date, required: true, schema: { type: string, example: "2026-10-21" }, description: The salon's today (picks the month) }
+    responses:
+      "200": { description: "data: { businessStatus, categories: string[], services: [{ id, name, description, category, serviceType, priceType, price, minPrice, maxPrice, duration, durationMinutes, images, advertisementPlan, staff, thisMonth: { bookings, revenue }, createdAt, updatedAt }] }" }
+  post:
+    tags: [Merchant - Services]
+    summary: Add a service (its category is added to the salon's list)
+    requestBody:
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [name, category, durationMinutes]
+            properties:
+              name: { type: string }
+              description: { type: string }
+              category: { type: string, enum: [hair-services, nail-services, makeup-services, spa-treatments, barbering, skincare, lashes-brows, body-care] }
+              serviceType: { type: string, description: Must belong to the category }
+              priceType: { type: string, enum: [fixed, variable] }
+              price: { type: number }
+              minPrice: { type: number }
+              maxPrice: { type: number }
+              durationMinutes: { type: integer, example: 60 }
+              staffIds: { type: array, items: { type: string, format: uuid } }
+              images: { type: array, items: { type: string }, description: URLs from POST /merchant/services/images }
+              advertisementPlanId: { type: string, format: uuid, nullable: true }
+    responses:
+      "201": { description: "data: the service" }
+      "400": { description: NOT_ON_TEAM / INVALID_IMAGE / PLAN_NOT_FOUND / validation }
+
+/api/v1/merchant/services/images:
+  post:
+    tags: [Merchant - Services]
+    summary: Upload a service photo (multipart "file", JPG/PNG/WebP, 5 MB)
+    requestBody: { content: { multipart/form-data: { schema: { type: object, properties: { file: { type: string, format: binary } } } } } }
+    responses: { "201": { description: "data: { url }" } }
+
+/api/v1/merchant/services/advertising-plans:
+  get:
+    tags: [Merchant - Services]
+    summary: The advertising plans set up by KHS
+    responses: { "200": { description: "data: [{ id, planName, price, durationDays, description, features, isRecommended, boost }]" } }
+
+/api/v1/merchant/services/{id}:
+  put:
+    tags: [Merchant - Services]
+    summary: Change a service (same body as adding)
+    parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+    responses: { "200": { description: "data: the service" }, "404": { description: Not this salon's service } }
+  delete:
+    tags: [Merchant - Services]
+    summary: Delete a service nobody has booked and no membership uses
+    parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+    responses: { "200": { description: Deleted }, "409": { description: SERVICE_HAS_BOOKINGS / SERVICE_IN_MEMBERSHIP } }
+
+/api/v1/merchant/services/{id}/staff:
+  put:
+    tags: [Merchant - Services]
+    summary: Set who can do the service (empty = anyone on the team)
+    parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+    requestBody: { content: { application/json: { schema: { type: object, required: [staffIds], properties: { staffIds: { type: array, items: { type: string, format: uuid } } } } } } }
+    responses: { "200": { description: "data: { staffIds }" } }
+
+/api/v1/merchant/service-categories:
+  post:
+    tags: [Merchant - Services]
+    summary: Add a category to the salon's list
+    requestBody: { content: { application/json: { schema: { type: object, required: [category], properties: { category: { type: string } } } } } }
+    responses: { "200": { description: "data: { categories }" } }
+
+/api/v1/merchant/service-categories/{category}:
+  delete:
+    tags: [Merchant - Services]
+    summary: Remove a category no service uses
+    parameters: [{ in: path, name: category, required: true, schema: { type: string } }]
+    responses: { "200": { description: "data: { categories }" }, "409": { description: CATEGORY_IN_USE } }

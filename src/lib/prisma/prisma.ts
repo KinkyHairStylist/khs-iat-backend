@@ -32,5 +32,7 @@ if (NODE_ENV !== "production") globalForPrisma.prisma = prisma;
  * remote database can pass Prisma's 5-second default.
  */
 export const MONEY_TX_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
+/** The same room for any multi-step write (the default 5 s is too tight for the shared database). */
+export const WRITE_TX_OPTIONS = MONEY_TX_OPTIONS;
 
 export default prisma;

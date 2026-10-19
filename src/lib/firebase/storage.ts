@@ -90,3 +90,36 @@ export async function uploadAvatar(userId: string, buffer: Buffer, mimeType: str
 export function deleteAvatarFiles(userId: string): Promise<void> {
   return clearFolder(avatarFolder(userId));
 }
+
+const serviceImageFolder = (businessId: string) => `KHS/serviceImages/${businessId}`;
+
+/** A photo for one of a salon's services, in that salon's own folder. */
+export function uploadServiceImage(businessId: string, buffer: Buffer, mimeType: string): Promise<UploadedImage> {
+  return saveImage(buffer, mimeType, serviceImageFolder(businessId));
+}
+
+// publicUrl() is "<endpoint>/<bucket>/<path with / encoded as %2F>".
+const bucketUrlPrefix = () => `https://storage.googleapis.com/${getStorage(app()).bucket().name}/`;
+
+/** The public URL prefix of a salon's service photos, so a saved service can only point at its own uploads. */
+export function serviceImageUrlPrefix(businessId: string): string | null {
+  if (!storageConfigured) return null;
+  return bucketUrlPrefix() + encodeURIComponent(`${serviceImageFolder(businessId)}/`);
+}
+
+/** Removes service photos no longer used. Best effort: a leftover file only costs storage. */
+export async function deleteServiceImages(businessId: string, urls: string[]): Promise<void> {
+  const prefix = serviceImageUrlPrefix(businessId);
+  if (!prefix) return;
+  const bucket = getStorage(app()).bucket();
+  await Promise.all(
+    urls
+      .filter((u) => u.startsWith(prefix))
+      .map((u) =>
+        bucket
+          .file(decodeURIComponent(u.slice(bucketUrlPrefix().length)))
+          .delete({ ignoreNotFound: true })
+          .catch((err: Error) => logger.warn("Could not remove a service photo", { url: u, error: err.message })),
+      ),
+  );
+}
