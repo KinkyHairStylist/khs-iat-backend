@@ -39,6 +39,23 @@
       "200":
         description: "data: ['Melbourne', 'Sydney', ...]"
 
+/api/v1/salons/by-link/{link}:
+  get:
+    tags: [Salons]
+    summary: Which approved salon a public booking link points to
+    description: >
+      Public, rate limited. Resolves /booking/{link}: the link merchants share ("name-slug-" plus the
+      first 8 characters of the salon id), an older name-only link, or a raw salon id. salonId is set when
+      exactly one salon matches; when a name is shared by several salons, salonId is null and matches
+      lists them (up to 20) for the visitor to choose.
+    security: []
+    parameters:
+      - { in: path, name: link, required: true, schema: { type: string, maxLength: 200 } }
+    responses:
+      "200": { description: "data: { salonId: string | null, matches: [{ id, businessName, businessAddress }] }" }
+      "404": { description: No approved salon matches }
+      "429": { description: Too many lookups }
+
 /api/v1/salons/{id}:
   get:
     tags: [Salons]

@@ -1,0 +1,113 @@
+/api/v1/merchant/settings:
+  get:
+    tags: [Merchant - Settings]
+    summary: "The salon's alerts, booking rules, cancellation window and deposit setting (never its API key or connected-app flags)"
+    responses: { "200": { description: "data: { notifications: { newBookingAlerts, cancellationAlerts }, bookingRules: { minimumLeadTimeMinutes, bufferTimeBetweenAppointmentsMinutes, maximumAdvanceBookingDays, sameDayBookingCutoff, allowDoubleBookings }, cancellationWindow, allowDepositPayment }" } }
+
+/api/v1/merchant/settings/notifications:
+  put:
+    tags: [Merchant - Settings]
+    summary: New-booking and cancellation alerts
+    requestBody: { content: { application/json: { schema: { type: object, required: [newBookingAlerts, cancellationAlerts], properties: { newBookingAlerts: { type: boolean }, cancellationAlerts: { type: boolean } } } } } }
+    responses: { "200": { description: "data: the settings" } }
+
+/api/v1/merchant/settings/booking-rules:
+  put:
+    tags: [Merchant - Settings]
+    summary: "Booking rules (lead time and buffer also update the salon's booking policies, which the booking flow reads)"
+    requestBody: { content: { application/json: { schema: { type: object, required: [minimumLeadTimeMinutes, bufferTimeBetweenAppointmentsMinutes, maximumAdvanceBookingDays, sameDayBookingCutoff, allowDoubleBookings], properties: { minimumLeadTimeMinutes: { type: integer, maximum: 43200 }, bufferTimeBetweenAppointmentsMinutes: { type: integer, maximum: 240 }, maximumAdvanceBookingDays: { type: integer, minimum: 1, maximum: 365 }, sameDayBookingCutoff: { type: string, description: "HH:MM or empty" }, allowDoubleBookings: { type: boolean } } } } } }
+    responses: { "200": { description: "data: the settings" } }
+
+/api/v1/merchant/settings/cancellation:
+  put:
+    tags: [Merchant - Settings]
+    summary: Free-cancellation window in hours (0–720)
+    requestBody: { content: { application/json: { schema: { type: object, required: [cancellationWindow], properties: { cancellationWindow: { type: integer } } } } } }
+    responses: { "200": { description: "data: the settings" } }
+
+/api/v1/merchant/settings/deposit:
+  put:
+    tags: [Merchant - Settings]
+    summary: Whether clients may pay a deposit instead of the full price
+    requestBody: { content: { application/json: { schema: { type: object, required: [allowDepositPayment], properties: { allowDepositPayment: { type: boolean } } } } } }
+    responses: { "200": { description: "data: the settings" } }
+
+/api/v1/merchant/business:
+  get:
+    tags: [Merchant - Settings]
+    summary: "The salon's profile for Settings > Business"
+    responses: { "200": { description: "data: { id, businessName, description, revenueGoal, businessAddress, country, hasMapPin, gallery: [url], bookingDays: [{ day, isOpen, startTime, endTime }] }" } }
+
+/api/v1/merchant/business/info:
+  put:
+    tags: [Merchant - Settings]
+    summary: Name, description and monthly revenue goal
+    requestBody: { content: { application/json: { schema: { type: object, required: [businessName], properties: { businessName: { type: string }, description: { type: string }, revenueGoal: { type: number, nullable: true } } } } } }
+    responses: { "200": { description: "data: the profile" } }
+
+/api/v1/merchant/business/hours:
+  put:
+    tags: [Merchant - Settings]
+    summary: Opening hours for all seven days
+    requestBody: { content: { application/json: { schema: { type: object, required: [bookingDays], properties: { bookingDays: { type: array, minItems: 7, maxItems: 7, items: { type: object, properties: { day: { type: string }, isOpen: { type: boolean }, startTime: { type: string, example: "09:00" }, endTime: { type: string, example: "17:00" } } } } } } } } }
+    responses: { "200": { description: "data: the profile" } }
+
+/api/v1/merchant/business/location:
+  put:
+    tags: [Merchant - Settings]
+    summary: "Address and country; the map pin follows the address when it can be found (mapPinUpdated). The country is locked while a connected payout account or withdrawal uses it."
+    requestBody: { content: { application/json: { schema: { type: object, required: [businessAddress], properties: { businessAddress: { type: string }, country: { type: string, example: AU } } } } } }
+    responses: { "200": { description: "data: the profile + mapPinUpdated" }, "409": { description: COUNTRY_LOCKED } }
+
+/api/v1/merchant/business/gallery:
+  post:
+    tags: [Merchant - Settings]
+    summary: Add a gallery photo (multipart "file"; up to 4)
+    responses: { "201": { description: "data: the profile" }, "400": { description: GALLERY_FULL } }
+  delete:
+    tags: [Merchant - Settings]
+    summary: Remove a gallery photo
+    requestBody: { content: { application/json: { schema: { type: object, required: [url], properties: { url: { type: string } } } } } }
+    responses: { "200": { description: "data: the profile" } }
+
+/api/v1/merchant/account/profile:
+  get:
+    tags: [Merchant - Settings]
+    summary: The owner's own profile (same as a customer's)
+    responses: { "200": { description: "data: { id, email, firstName, surname, phoneNumber, gender, dateOfBirth, avatarUrl }" } }
+  patch:
+    tags: [Merchant - Settings]
+    summary: Change name, phone, gender or date of birth
+    responses: { "200": { description: "data: the profile" } }
+
+/api/v1/merchant/account/profile/avatar:
+  put:
+    tags: [Merchant - Settings]
+    summary: Upload a profile photo (multipart "file")
+    responses: { "200": { description: "data: the profile" } }
+  delete:
+    tags: [Merchant - Settings]
+    summary: Remove the profile photo
+    responses: { "200": { description: "data: the profile" } }
+
+/api/v1/merchant/account/addresses:
+  get:
+    tags: [Merchant - Settings]
+    summary: The owner's saved addresses
+    responses: { "200": { description: "data: [{ id, type: Home|Work, fullAddress, createdAt }]" } }
+  post:
+    tags: [Merchant - Settings]
+    summary: Add an address
+    requestBody: { content: { application/json: { schema: { type: object, required: [type, fullAddress], properties: { type: { type: string, enum: [Home, Work] }, fullAddress: { type: string } } } } } }
+    responses: { "201": { description: "data: the address" } }
+
+/api/v1/merchant/account/addresses/{id}:
+  parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+  patch:
+    tags: [Merchant - Settings]
+    summary: Change an address
+    responses: { "200": { description: "data: the address" } }
+  delete:
+    tags: [Merchant - Settings]
+    summary: Delete an address
+    responses: { "200": { description: OK } }

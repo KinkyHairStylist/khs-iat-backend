@@ -19,6 +19,10 @@ export interface PaymentSettings {
   giftCardFeeRate: number;
   /** % of a late-cancelled (forfeited) payment the salon keeps; KHS keeps the rest. */
   lateCancellationSalonShare: number;
+  /** Taken from the salon, on top of the disputed amount, when a card dispute is lost. */
+  chargebackFee: number;
+  /** % of an expired gift card's or membership's unused value the salon keeps; KHS keeps the rest. */
+  prepaidExpirySalonShare: number;
 }
 
 const DEFAULTS: PaymentSettings = {
@@ -29,6 +33,8 @@ const DEFAULTS: PaymentSettings = {
   earlyCancellationFee: 10,
   giftCardFeeRate: 5,
   lateCancellationSalonShare: 70,
+  chargebackFee: 15,
+  prepaidExpirySalonShare: 50,
 };
 
 const numberOr = (value: unknown, fallback: number) => {
@@ -51,5 +57,7 @@ export async function getPaymentSettings(): Promise<PaymentSettings> {
     // Stored as "platformFee" (its old name, still what admin edits).
     giftCardFeeRate: numberOr(p.platformFee, DEFAULTS.giftCardFeeRate),
     lateCancellationSalonShare: Math.min(100, numberOr(p.lateCancellationStylistShare, DEFAULTS.lateCancellationSalonShare)),
+    chargebackFee: numberOr(p.chargebackFee, DEFAULTS.chargebackFee),
+    prepaidExpirySalonShare: Math.min(100, numberOr(p.prepaidExpirySalonShare, DEFAULTS.prepaidExpirySalonShare)),
   };
 }

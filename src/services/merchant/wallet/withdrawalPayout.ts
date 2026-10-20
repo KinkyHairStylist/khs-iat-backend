@@ -1,4 +1,4 @@
-import { createTransfer as airwallexTransfer, retrieveTransfer, type TransferMethod } from "../../../lib/airwallex";
+import { createTransfer as airwallexTransfer, retrieveTransfer, type Transfer, type TransferMethod } from "../../../lib/airwallex";
 import prisma from "../../../lib/prisma/prisma";
 import { createTransfer as stripeTransfer } from "../../../lib/stripe/connect";
 import { AppError } from "../../../middlewares/centralAppError";
@@ -69,27 +69,50 @@ export async function claimWithdrawal(userId: string, id: string) {
   return withdrawalView((await load(ctx, id))!);
 }
 
-/** Checks an Airwallex payout with Airwallex: sent → Completed; failed → back to Processing so it can be retried. */
-export async function refreshPayoutStatus(userId: string, id: string) {
-  const ctx = await walletContext(userId);
-  const w = await load(ctx, id);
-  if (!w) throw AppError.notFound("Withdrawal request");
-  if (w.status !== "Submitted" || w.payoutMethod !== "airwallex" || !w.payoutReference) return withdrawalView(w);
+type PayoutParty = Pick<WalletContext, "businessId" | "businessName" | "ownerId">;
+type SubmittedWithdrawal = { id: string; amount: { toString(): string }; currency: string; transactionId: string | null };
 
-  const transfer = await retrieveTransfer(w.payoutReference);
+/** Applies an Airwallex transfer's status: sent → Completed; failed → back to Processing so it can be retried. Only from Submitted. */
+async function applyTransferStatus(w: SubmittedWithdrawal, party: PayoutParty, transfer: Transfer): Promise<void> {
   if (transfer.status === "SENT" || transfer.status === "PAID") {
     const moved = await prisma.withdrawals.updateMany({ where: { id: w.id, status: "Submitted" }, data: { status: "Completed", paidAt: new Date(), updatedAt: new Date() } });
     if (moved.count) {
       await markLedgerCompleted(w.transactionId);
       announcePayoutSent({
-        id: w.id, businessId: ctx.businessId, businessName: ctx.businessName, ownerId: ctx.ownerId, amount: Number(w.amount), currency: w.currency,
+        id: w.id, businessId: party.businessId, businessName: party.businessName, ownerId: party.ownerId, amount: Number(w.amount), currency: w.currency,
         reference: withdrawalReference(w.id), provider: "Airwallex", providerReference: transfer.id,
       });
     }
   } else if (transfer.status === "FAILED" || transfer.status === "CANCELLED") {
     // Still owed: back to approved, for a retry or a payment by hand.
     const moved = await prisma.withdrawals.updateMany({ where: { id: w.id, status: "Submitted" }, data: { status: "Processing", updatedAt: new Date() } });
-    if (moved.count) alertPayoutFailed({ id: w.id, businessName: ctx.businessName, provider: "Airwallex" }, `Transfer ${transfer.id} came back ${transfer.status}${transfer.failure_type ? ` (${transfer.failure_type})` : ""}`);
+    if (moved.count) alertPayoutFailed({ id: w.id, businessName: party.businessName, provider: "Airwallex" }, `Transfer ${transfer.id} came back ${transfer.status}${transfer.failure_type ? ` (${transfer.failure_type})` : ""}`);
   }
+}
+
+/** The salon's "Refresh status" on an Airwallex payout. */
+export async function refreshPayoutStatus(userId: string, id: string) {
+  const ctx = await walletContext(userId);
+  const w = await load(ctx, id);
+  if (!w) throw AppError.notFound("Withdrawal request");
+  if (w.status !== "Submitted" || w.payoutMethod !== "airwallex" || !w.payoutReference) return withdrawalView(w);
+  await applyTransferStatus(w, ctx, await retrieveTransfer(w.payoutReference));
   return withdrawalView((await load(ctx, id))!);
+}
+
+/**
+ * The Airwallex webhook said a transfer moved: its status is read back from
+ * Airwallex (not taken from the event) and applied. Returns false for a
+ * transfer that isn't one of our Submitted payouts.
+ */
+export async function syncAirwallexTransfer(transferId: string): Promise<boolean> {
+  const w = await prisma.withdrawals.findFirst({
+    where: { payoutReference: transferId, payoutMethod: "airwallex", status: "Submitted" },
+    select: { id: true, amount: true, currency: true, transactionId: true, businessId: true, businessName: true },
+  });
+  if (!w?.businessId) return false;
+  const wallet = await prisma.business_wallets.findUnique({ where: { businessId: w.businessId }, select: { ownerId: true } });
+  if (!wallet) return false;
+  await applyTransferStatus(w, { businessId: w.businessId, businessName: w.businessName, ownerId: wallet.ownerId }, await retrieveTransfer(transferId));
+  return true;
 }

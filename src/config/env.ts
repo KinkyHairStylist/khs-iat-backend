@@ -18,6 +18,15 @@ const currency = makeValidator((value: string) => {
 });
 
 // A money amount above zero with at most 2 decimal places.
+const timeZone = makeValidator((value: string) => {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value });
+  } catch {
+    throw new Error(`must be an IANA time zone such as Australia/Sydney (got "${value}")`);
+  }
+  return value;
+});
+
 const positiveAmount = makeValidator((value: string | number) => {
   const amount = Number(value);
   if (!Number.isFinite(amount) || amount <= 0 || Math.round(amount * 100) !== amount * 100) {
@@ -68,6 +77,7 @@ export const {
   FIREBASE_STORAGE_BUCKET,
   // Payments
   STRIPE_SECRET_KEY,
+  STRIPE_WEBHOOK_SECRET,
   // Merchant payouts
   STRIPE_CONNECT_ENABLED,
   AIRWALLEX_ENABLED,
@@ -75,6 +85,10 @@ export const {
   AIRWALLEX_API_KEY,
   AIRWALLEX_BASE_URL,
   CURRENCY_API_KEY,
+  AIRWALLEX_WEBHOOK_SECRET,
+  // Scheduled jobs
+  JOBS_ENABLED,
+  PLATFORM_TIME_ZONE,
 } = cleanEnv(process.env, {
   NODE_ENV: str({
     choices: ["development", "production", "test"],
@@ -176,6 +190,9 @@ export const {
   // The same Stripe account as the Kinky-Hair-Stylist backend: booking payments
   // are charged in CURRENCY. Empty = card payments answer 503.
   STRIPE_SECRET_KEY: str({ default: "", docs: "sk_test_... or sk_live_..." }),
+  // Signing secret of the Stripe webhook endpoint pointed at POST /api/v1/webhooks/stripe.
+  // Empty = that endpoint refuses every event.
+  STRIPE_WEBHOOK_SECRET: str({ default: "", docs: "whsec_..." }),
 
   // ─── Merchant payouts ────────────────────────────────────────────────────────
   // Salons withdraw their wallet balance. Every request is reviewed by KHS; once
@@ -189,6 +206,18 @@ export const {
   // currencyapi.com — converts a withdrawal into the payout account's currency.
   // Empty = only payouts in the wallet's own currency are possible.
   CURRENCY_API_KEY: str({ default: "" }),
+  // Airwallex webhook (POST /api/v1/webhooks/airwallex) secret. Empty = events refused;
+  // Submitted payouts are then confirmed by the salon's "Refresh status".
+  AIRWALLEX_WEBHOOK_SECRET: str({ default: "" }),
+
+  // ─── Scheduled jobs ─────────────────────────────────────────────────────────
+  // Wallet release, plan trial/grace sweep, prepaid expiry and "service started"
+  // notices. Each run happens once across every worker and server (Redis). Keep
+  // false while the Kinky-Hair-Stylist backend still runs the same crons.
+  JOBS_ENABLED: bool({ default: false, docs: "Run the scheduled jobs on this server" }),
+  // When the daily jobs run (01:00 here), and the clock appointment times are
+  // read in for a customer who hasn't chosen a time zone.
+  PLATFORM_TIME_ZONE: timeZone({ default: "Australia/Sydney", docs: "IANA time zone" }),
 });
 
 if (AIRWALLEX_ENABLED && (!AIRWALLEX_CLIENT_ID || !AIRWALLEX_API_KEY)) {

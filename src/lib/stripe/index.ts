@@ -68,14 +68,18 @@ export async function cancelPaymentIntent(id: string): Promise<void> {
 }
 
 /** Gives a paid payment back: all of it, or `amountCents` of it. Returns the Stripe refund id. */
-export async function refundPaymentIntent(id: string, reason: string, amountCents?: number): Promise<string> {
+/** `idempotencyKey` makes a repeat of the same refund return the first one instead of failing (24 hours, at Stripe). */
+export async function refundPaymentIntent(id: string, reason: string, amountCents?: number, idempotencyKey?: string): Promise<string> {
   try {
-    const refund = await client().refunds.create({
-      payment_intent: id,
-      ...(amountCents !== undefined ? { amount: amountCents } : {}),
-      reason: "requested_by_customer",
-      metadata: { reason },
-    });
+    const refund = await client().refunds.create(
+      {
+        payment_intent: id,
+        ...(amountCents !== undefined ? { amount: amountCents } : {}),
+        reason: "requested_by_customer",
+        metadata: { reason },
+      },
+      idempotencyKey ? { idempotencyKey } : undefined,
+    );
     return refund.id;
   } catch (err) {
     throw stripeFailed("refund", err, { id });

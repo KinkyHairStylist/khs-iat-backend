@@ -8,6 +8,7 @@ import { connectRedis } from "./lib/redis/redisWatcher";
 import { PORT, NODE_ENV, WEB_CONCURRENCY } from "./config/env";
 import { getServiceLogger } from "./utils/loggerCreator";
 import { closeCustomerSocket, initCustomerSocket } from "./lib/socket/customerSocket";
+import { startJobs, stopJobs } from "./jobs/scheduler";
 
 const logger = getServiceLogger("server");
 const IS_PRODUCTION = NODE_ENV === "production";
@@ -41,11 +42,16 @@ async function startWorker(): Promise<void> {
 
   // Prevent connections from lingering past upstream load-balancer idle timeouts.
   // Both values must exceed nginx / ALB's keepalive timeout (typically 60 s).
+  // Scheduled jobs (only when JOBS_ENABLED; each run is claimed once across workers).
+  startJobs();
+
   server.keepAliveTimeout = 65_000;
   server.headersTimeout = 66_000;
 
   const gracefulShutdown = (signal: string): void => {
     logger.warn(`${signal} received — graceful shutdown (pid ${process.pid})`);
+
+    stopJobs();
 
     // Open sockets would keep server.close() waiting; drop them first (clients reconnect).
     closeCustomerSocket().catch((err: Error) => logger.error("Error closing live updates", { error: err.message }));

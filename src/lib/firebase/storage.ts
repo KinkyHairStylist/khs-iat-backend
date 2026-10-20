@@ -92,7 +92,7 @@ export function deleteAvatarFiles(userId: string): Promise<void> {
 }
 
 /** Folders for a salon's own photos (each salon has its own subfolder). */
-export type BusinessImageKind = "serviceImages" | "staffImages" | "clientImages";
+export type BusinessImageKind = "serviceImages" | "staffImages" | "clientImages" | "galleryImages";
 const businessImageFolder = (kind: BusinessImageKind, businessId: string) => `KHS/${kind}/${businessId}`;
 
 /** A photo for a salon's service or team member, in that salon's own folder. */

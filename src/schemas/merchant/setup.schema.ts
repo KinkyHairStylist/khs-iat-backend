@@ -10,9 +10,16 @@ const text = (label: string, max: number) => z.string({ error: `${label} is requ
 const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Times must look like 09:00.");
 const minutes = (label: string, max: number) => z.number({ error: `${label} must be a number.` }).int().min(0, `${label} can't be negative.`).max(max);
 
-const bookingDay = z
+/** One weekday's opening hours (setup and Settings > Business). */
+export const bookingDay = z
   .object({ day: z.enum(WEEK_DAYS), isOpen: z.boolean().default(false), startTime: time.default("09:00"), endTime: time.default("17:00") })
   .refine((d) => !d.isOpen || d.startTime < d.endTime, { message: "Closing time must be after opening time.", path: ["endTime"] });
+
+/** All seven days, each once. */
+export const weekHoursSchema = z
+  .array(bookingDay)
+  .length(7, "Opening hours must cover all 7 days.")
+  .refine((days) => new Set(days.map((d) => d.day)).size === 7, "Each day of the week must appear once.");
 
 export const signupChoiceSchema = z.object({
   option: z.enum(SIGNUP_OPTIONS, { error: "Choose a plan to start: Trial, MVP or a paid plan." }),
@@ -39,10 +46,7 @@ export const createBusinessSchema = z.object({
     allowDoubleBookings: z.boolean().optional(),
     allowDepositPayment: z.boolean().optional(),
   }),
-  bookingHours: z
-    .array(bookingDay)
-    .length(7, "Opening hours must cover all 7 days.")
-    .refine((days) => new Set(days.map((d) => d.day)).size === 7, "Each day of the week must appear once."),
+  bookingHours: weekHoursSchema,
   howDidYouHear: z.array(z.string().trim().min(1).max(60)).min(1, "Tell us how you heard about us.").max(10),
   signup: signupChoiceSchema,
 });

@@ -20,7 +20,8 @@ const logger = getServiceLogger("gift-card-sales");
 
 // While someone is paying for a card, nobody else can start buying it.
 const HOLD_SECONDS = 30 * 60;
-const holdKey = (giftCardId: string) => `customer-giftcard-hold:${giftCardId}`;
+/** A checkout in progress for this card (merchant changes wait for it). */
+export const holdKey = (giftCardId: string) => `customer-giftcard-hold:${giftCardId}`;
 
 /** Starts buying a card: a card payment for its value plus KHS's fee. The buyer holds the card for 30 minutes. */
 export async function startGiftCardPurchase(userId: string, giftCardId: string, recipient: GiftCardRecipient = {}) {
@@ -96,8 +97,8 @@ export async function completeGiftCardPurchase(userId: string, reference: string
   };
 
   const outcome = await prisma.$transaction(async (tx) => {
-    const [card] = await tx.$queryRaw<Array<{ id: string; soldStatus: string; ownerId: string | null; expiryInDays: number; businessId: string; ownerOfSalon: string }>>`
-      SELECT g.id, g."soldStatus"::text AS "soldStatus", g."ownerId"::text AS "ownerId", g."expiryInDays", g."businessId"::text AS "businessId",
+    const [card] = await tx.$queryRaw<Array<{ id: string; soldStatus: string; status: string; ownerId: string | null; expiryInDays: number; businessId: string; ownerOfSalon: string }>>`
+      SELECT g.id, g."soldStatus"::text AS "soldStatus", g.status::text AS status, g."ownerId"::text AS "ownerId", g."expiryInDays", g."businessId"::text AS "businessId",
              b.owner_id::text AS "ownerOfSalon"
       FROM business_gift_cards g JOIN businesses b ON b.id = g."businessId"
       WHERE g.id = ${giftCardId}::uuid FOR UPDATE OF g`;
@@ -107,6 +108,8 @@ export async function completeGiftCardPurchase(userId: string, reference: string
       const ours = await tx.transactions.findFirst({ where: { referenceId: reference, service: "GiftCard-Purchase", status: "completed" }, select: { id: true } });
       return ours ? { kind: "done" as const } : { kind: "sold-elsewhere" as const };
     }
+    // Taken off sale (deactivated or deleted by the salon) while the buyer was paying: refunded.
+    if (card.status !== "Active") return { kind: "missing" as const };
 
     const expiresAt = new Date(Date.now() + (card.expiryInDays || 365) * 86_400_000);
     await tx.business_gift_cards.update({
@@ -143,7 +146,8 @@ export async function completeGiftCardPurchase(userId: string, reference: string
 
 async function refundUnfulfilled(reference: string, giftCardId: string): Promise<void> {
   try {
-    await refundPaymentIntent(reference, "gift card already sold");
+    // The browser and the webhook can both get here: one refund, however many calls.
+    await refundPaymentIntent(reference, "gift card already sold", undefined, `gift-card-refund-${reference}`);
     await prisma.transactions.updateMany({ where: { referenceId: reference, status: "pending" }, data: { status: "cancelled" } });
   } catch (err) {
     logger.error("Could not refund a gift card that was sold elsewhere", { reference, error: (err as Error).message });

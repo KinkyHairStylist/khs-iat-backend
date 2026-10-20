@@ -1,4 +1,6 @@
+import type Stripe from "stripe";
 import { MERCHANT_APP_URL } from "../../../config/env";
+import type { wallet_payment_methods } from "../../../generated/prisma/client";
 import { beneficiaryFields, createBeneficiary, getFormSchema } from "../../../lib/airwallex";
 import prisma from "../../../lib/prisma/prisma";
 import { createConnectedAccount, createOnboardingLink, retrieveAccount } from "../../../lib/stripe/connect";
@@ -45,16 +47,8 @@ export async function stripeOnboardingLink(userId: string): Promise<{ url?: stri
   return { url: await createOnboardingLink(accountId, `${WALLET_PAGE}?stripeReturn=1`, `${WALLET_PAGE}?stripeRefresh=1`) };
 }
 
-/**
- * Reads the account's state from Stripe (when the salon comes back from
- * onboarding), so payouts open up without waiting for a webhook.
- */
-export async function syncStripeAccount(userId: string): Promise<PayoutMethodView | null> {
-  const ctx = await walletContext(userId);
-  const method = await prisma.wallet_payment_methods.findFirst({ where: { walletId: ctx.walletId, type: "stripe_connect", isActive: true } });
-  if (!method?.stripeAccountId || availableRail(ctx.country) !== "stripe") return method ? methodView(method) : null;
-
-  const account = await retrieveAccount(method.stripeAccountId);
+/** Records a connected account's payout state; tells the salon the first time payouts open up. */
+async function applyStripeAccount(method: wallet_payment_methods, account: Stripe.Account, ownerId: string): Promise<wallet_payment_methods> {
   const enabled = !!account.payouts_enabled;
   const currency = account.default_currency?.toUpperCase();
   const updated = await prisma.wallet_payment_methods.update({
@@ -66,13 +60,36 @@ export async function syncStripeAccount(userId: string): Promise<PayoutMethodVie
     },
   });
   if (enabled && !method.stripePayoutsEnabled) {
-    notifyUser(ctx.ownerId, {
+    notifyUser(ownerId, {
       title: "Your Stripe payout account is ready",
       message: "Approved withdrawals can now be sent straight to your Stripe account.",
       link: "/merchant/dashboard/wallet",
     });
   }
-  return methodView(updated);
+  return updated;
+}
+
+/**
+ * Reads the account's state from Stripe (when the salon comes back from
+ * onboarding), so payouts open up without waiting for the webhook.
+ */
+export async function syncStripeAccount(userId: string): Promise<PayoutMethodView | null> {
+  const ctx = await walletContext(userId);
+  const method = await prisma.wallet_payment_methods.findFirst({ where: { walletId: ctx.walletId, type: "stripe_connect", isActive: true } });
+  if (!method?.stripeAccountId || availableRail(ctx.country) !== "stripe") return method ? methodView(method) : null;
+  return methodView(await applyStripeAccount(method, await retrieveAccount(method.stripeAccountId), ctx.ownerId));
+}
+
+/** Stripe's account.updated webhook. Returns false for an account that isn't a salon's payout account. */
+export async function applyStripeAccountEvent(account: Stripe.Account): Promise<boolean> {
+  const method = await prisma.wallet_payment_methods.findFirst({
+    where: { stripeAccountId: account.id, type: "stripe_connect", isActive: true },
+    include: { business_wallets: { select: { ownerId: true } } },
+  });
+  if (!method) return false;
+  const { business_wallets: wallet, ...row } = method;
+  await applyStripeAccount(row, account, wallet.ownerId);
+  return true;
 }
 
 /** The bank fields Airwallex needs for this salon's country. */

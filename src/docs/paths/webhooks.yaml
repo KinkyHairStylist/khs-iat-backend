@@ -1,0 +1,30 @@
+/api/v1/webhooks/stripe:
+  post:
+    tags: [Webhooks]
+    summary: Stripe events
+    description: >
+      Called by Stripe, signed with STRIPE_WEBHOOK_SECRET (Stripe-Signature header, raw body). Handles
+      payment_intent.succeeded (settles a booking, or completes a gift card or membership purchase whose
+      page was closed), payment_intent.payment_failed, customer.subscription.deleted,
+      invoice.payment_failed, invoice.payment_succeeded, charge.dispute.created, charge.dispute.closed
+      (a lost dispute is recovered from the salon once) and account.updated. Each event runs once;
+      a failure answers 500 so Stripe retries it.
+    security: []
+    responses:
+      "200": { description: "{ received: true } (also for a duplicate)" }
+      "400": { description: Signature missing or wrong, or the secret isn't configured }
+      "500": { description: Handling failed; Stripe retries }
+
+/api/v1/webhooks/airwallex:
+  post:
+    tags: [Webhooks]
+    summary: Airwallex payout transfer events
+    description: >
+      Called by Airwallex, signed with AIRWALLEX_WEBHOOK_SECRET (x-timestamp + x-signature, raw body,
+      at most 5 minutes old). payout.transfer.sent/paid/failed/cancelled: the transfer's status is read
+      back from Airwallex and applied to the salon's Submitted withdrawal.
+    security: []
+    responses:
+      "200": { description: "{ received: true }" }
+      "400": { description: Signature missing, wrong or too old }
+      "500": { description: Handling failed; Airwallex retries }

@@ -1,0 +1,28 @@
+/api/v1/merchant/membership-packages:
+  get:
+    tags: [Merchant - Memberships]
+    summary: The salon's membership packages, on sale first
+    responses:
+      "200": { description: "data: [{ id, serviceId, serviceName, pricePerSession, sessionCount, total, expiryDays, isActive, purchases, createdAt }]" }
+  post:
+    tags: [Merchant - Memberships]
+    summary: Create a package for one of the salon's services
+    requestBody:
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [serviceId, pricePerSession, sessionCount]
+            properties:
+              serviceId: { type: string, format: uuid }
+              pricePerSession: { type: number, minimum: 0.01 }
+              sessionCount: { type: integer, minimum: 1, maximum: 500 }
+              expiryDays: { type: integer, minimum: 1, maximum: 1095, default: 365 }
+    responses: { "201": { description: "data: the package" }, "400": { description: SERVICE_NOT_FOUND } }
+
+/api/v1/merchant/membership-packages/{id}/deactivate:
+  put:
+    tags: [Merchant - Memberships]
+    summary: "Take a package off sale (customers who bought it keep their sessions)"
+    parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+    responses: { "200": { description: "data: the package" }, "404": { description: NOT_FOUND } }

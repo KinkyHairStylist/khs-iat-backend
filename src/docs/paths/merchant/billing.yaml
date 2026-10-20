@@ -1,0 +1,19 @@
+/api/v1/merchant/billing/card-setup:
+  post:
+    tags: [Merchant - Billing]
+    summary: A Stripe SetupIntent for saving the card plans are charged to
+    responses: { "200": { description: "data: { clientSecret }" }, "400": { description: NOT_APPROVED } }
+
+/api/v1/merchant/billing/subscribe:
+  post:
+    tags: [Merchant - Billing]
+    summary: "Start a paid plan with the saved card (charged now, or when a Trial / MVP ends). A business suspended for billing is reactivated once paid."
+    requestBody: { content: { application/json: { schema: { type: object, required: [tier, paymentMethodId], properties: { tier: { type: string, enum: [Starter, Growth, Pro] }, paymentMethodId: { type: string } } } } } }
+    responses: { "200": { description: "data: { status: active|trialing, reactivated }" }, "409": { description: ALREADY_SUBSCRIBED / BILLING_BUSY }, "400": { description: CARD_DECLINED / PLAN_UNAVAILABLE } }
+
+/api/v1/merchant/billing/card:
+  post:
+    tags: [Merchant - Billing]
+    summary: Change the card a live plan is charged to; a failed payment is retried on it
+    requestBody: { content: { application/json: { schema: { type: object, required: [paymentMethodId], properties: { paymentMethodId: { type: string } } } } } }
+    responses: { "200": { description: "data: { status, retried }" }, "400": { description: NO_SUBSCRIPTION / CARD_DECLINED } }

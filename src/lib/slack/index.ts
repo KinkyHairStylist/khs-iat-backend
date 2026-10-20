@@ -7,7 +7,10 @@ const logger = getServiceLogger("slack");
 // Same vocabulary as the KHS backend's alerts, so both services read alike in the channel.
 export type SlackNode = "Human Resource" | "User Management" | "Application" | "Payment" | "Finance" | "Support";
 export type SlackSeverity = "INFO" | "ERROR" | "CRITICAL";
-export type SlackEventType = "USER_REGISTRATION" | "SYSTEM_NOTIFICATION" | "ERROR_ALERT";
+// Same names as the KHS backend's SlackEventType, so alerts from both read alike.
+export type SlackEventType =
+  | "USER_REGISTRATION" | "SYSTEM_NOTIFICATION" | "ERROR_ALERT"
+  | "PAYMENT_SUCCESS" | "PAYMENT_FAILURE" | "SUBSCRIPTION_UPDATE" | "SUBSCRIPTION_CANCEL" | "CRON_EXECUTION";
 
 export interface SlackAlert {
   node: SlackNode;

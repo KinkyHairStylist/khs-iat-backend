@@ -76,17 +76,19 @@ export async function bookingFees(db: Tx, input: { businessId: string; clientId:
 }
 
 /**
- * Takes a fee from the salon's wallet, pending balance first. Used when the
- * salon was already paid for this money (a gift card it sold). Atomic, so two
+ * Takes money from the salon's wallet, pending balance first, with its record.
+ * Used when the salon was already paid for this money: a gift card it sold, a
+ * lost card dispute, KHS's share of an expired gift card. Atomic, so two
  * debits can't overwrite each other.
  */
-export async function debitSalonWallet(db: Tx, input: {
-  businessId: string; ownerId: string; amountCents: number; subtype: "Acquisition" | "Commission"; orderId: string; customerName: string;
+export async function chargeSalonWallet(db: Tx, input: {
+  businessId: string; ownerId: string; amountCents: number; type: "Fee" | "Debit"; feeSubtype?: string;
+  description: string; referenceId: string; service?: string; customerName?: string;
 }): Promise<void> {
   const amount = fromCents(input.amountCents);
   await db.$executeRaw`
     INSERT INTO business_wallets ("businessId", "ownerId", currency, description)
-    VALUES (${input.businessId}::uuid, ${input.ownerId}::uuid, ${LEDGER_CURRENCY}::business_wallets_currency_enum, 'Business wallet - auto-created from booking')
+    VALUES (${input.businessId}::uuid, ${input.ownerId}::uuid, ${LEDGER_CURRENCY}::business_wallets_currency_enum, 'Business wallet - auto-created')
     ON CONFLICT ("businessId") DO NOTHING`;
   const [wallet] = await db.$queryRaw<Array<{ id: string; currency: transactions_currency_enum }>>`
     UPDATE business_wallets SET
@@ -98,10 +100,21 @@ export async function debitSalonWallet(db: Tx, input: {
     RETURNING id, currency::text AS currency`;
   await db.transactions.create({
     data: {
-      walletId: wallet.id, senderId: input.ownerId, amount, type: "Fee", feeSubtype: input.subtype, currency: wallet.currency,
-      description: `${input.subtype === "Acquisition" ? "Acquisition fee" : "Commission"} for appointment order ${input.orderId}`,
-      referenceId: input.orderId, status: "completed", mode: "Web", method: "Stripe", customerName: input.customerName,
+      walletId: wallet.id, senderId: input.ownerId, amount, type: input.type, feeSubtype: input.feeSubtype ?? null, currency: wallet.currency,
+      description: input.description, referenceId: input.referenceId, status: "completed", mode: "Web", method: "Stripe",
+      customerName: input.customerName ?? null, service: input.service ?? null,
     },
+  });
+}
+
+/** A booking fee taken from the wallet (the salon was already paid this money by a gift card it sold). */
+export async function debitSalonWallet(db: Tx, input: {
+  businessId: string; ownerId: string; amountCents: number; subtype: "Acquisition" | "Commission"; orderId: string; customerName: string;
+}): Promise<void> {
+  await chargeSalonWallet(db, {
+    businessId: input.businessId, ownerId: input.ownerId, amountCents: input.amountCents, type: "Fee", feeSubtype: input.subtype,
+    description: `${input.subtype === "Acquisition" ? "Acquisition fee" : "Commission"} for appointment order ${input.orderId}`,
+    referenceId: input.orderId, customerName: input.customerName,
   });
 }
 

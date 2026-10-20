@@ -57,7 +57,7 @@ async function assertCustomerIsTheirs(userId: string, customerId: string): Promi
  * settings are shared, Stripe ids aren't). Checked on every purchase; only a
  * missing price is replaced (and saved) so the merchant never sees "No such price".
  */
-async function usablePriceId(tier: PlanTier, price: { priceId: string; displayAmount: number }): Promise<string> {
+export async function usablePriceId(tier: PlanTier, price: { priceId: string; displayAmount: number }): Promise<string> {
   if (await priceExists(price.priceId)) return price.priceId;
   const created = await createPlanPrice(tier, Math.round(Number(price.displayAmount) * 100));
   await savePlanPriceId(tier, created.id, price.displayAmount);

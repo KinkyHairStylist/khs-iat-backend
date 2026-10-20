@@ -24,6 +24,7 @@ import {
 } from "./middlewares";
 
 import router from "./routes";
+import webhooksRouter from "./routes/webhooksRouter";
 
 const app: Application = express();
 
@@ -54,6 +55,10 @@ app.use(
 
 // ─── 6. Compression ──────────────────────────────────────────────────────────
 app.use(compression());
+
+// ─── 6b. Provider webhooks (raw, signed bodies) ──────────────────────────────
+// Before body parsing, the rate limiter and the browser guards; see webhooksRouter.
+app.use("/api/v1/webhooks", webhooksRouter);
 
 // ─── 7. HTTP parameter pollution prevention ───────────────────────────────────
 // Repeated query keys collapse to the last value, except where a list is

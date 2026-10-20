@@ -6,6 +6,7 @@ import * as salonsService from "../../services/customer/salonsService";
 import { getSalonDetail } from "../../services/customer/salonDetailService";
 import { getSalonReviews } from "../../services/customer/salonReviewsService";
 import { getSimilarSalons } from "../../services/customer/similarSalonsService";
+import { resolveSalonLink } from "../../services/customer/salonLinkService";
 
 /** The salon id from the URL; one that can't be a real id is "not found". */
 export function salonIdParam(req: Request): string {
@@ -37,4 +38,11 @@ export const getReviews = catchAsync(async (req: Request, res: Response) => {
 
 export const getSimilar = catchAsync(async (req: Request, res: Response) => {
   res.success(await getSimilarSalons(salonIdParam(req)));
+});
+
+// /booking/<link> → which salon. An over-long or empty link can't match one: 404.
+export const getSalonByLink = catchAsync(async (req: Request, res: Response) => {
+  const link = String(req.params.link ?? "");
+  if (link.length === 0 || link.length > 200) throw AppError.notFound("Salon");
+  res.success(await resolveSalonLink(link));
 });

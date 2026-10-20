@@ -32,6 +32,7 @@ const paths: PathsObject = {
   ...importPaths("notifications.yaml"),
   ...importPaths("support.yaml"),
   ...importPaths("help.yaml"),
+  ...importPaths("webhooks.yaml"),
 
   // Merchant — one file per domain under ./paths/merchant.
   ...importPaths("merchant/auth.yaml"),
@@ -42,6 +43,10 @@ const paths: PathsObject = {
   ...importPaths("merchant/staff.yaml"),
   ...importPaths("merchant/clients.yaml"),
   ...importPaths("merchant/wallet.yaml"),
+  ...importPaths("merchant/giftCards.yaml"),
+  ...importPaths("merchant/memberships.yaml"),
+  ...importPaths("merchant/billing.yaml"),
+  ...importPaths("merchant/settings.yaml"),
 };
 
 export const openApiSpec = {
