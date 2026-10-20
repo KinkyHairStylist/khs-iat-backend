@@ -1,0 +1,135 @@
+/api/v1/merchant/wallet:
+  get:
+    tags: [Merchant - Wallet]
+    summary: The salon wallet (created on first use) — balances, earnings today / this month on the merchant's calendar, payouts under way, and the automatic payout rail for its country
+    parameters:
+      - { in: query, name: date, required: true, schema: { type: string, example: "2026-10-21" }, description: The merchant's today }
+      - { in: query, name: timezoneOffset, schema: { type: integer, example: -600 }, description: The browser's Date.getTimezoneOffset() }
+    responses:
+      "200": { description: "data: { walletId, businessName, country, currency, status, balance, pendingBalance, totalIncome, totalExpenses, stats: { todayRevenue, todayChange, transactionsToday, monthlyRevenue, monthlyChange, payoutsInProgress, openPayouts }, payoutRail: stripe|airwallex|null, payoutRailAvailable }" }
+
+/api/v1/merchant/wallet/transactions:
+  get:
+    tags: [Merchant - Wallet]
+    summary: The wallet ledger (no fee rows — each earning carries the fees taken from it), newest first
+    parameters:
+      - { in: query, name: type, schema: { type: string, enum: [All, Earning, Withdrawal, Debit, Refund] } }
+      - { in: query, name: sortOrder, schema: { type: string, enum: [asc, desc] } }
+      - { in: query, name: page, schema: { type: integer } }
+      - { in: query, name: limit, schema: { type: integer, maximum: 100 } }
+    responses:
+      "200": { description: "data: { transactions: [{ id, type, status, amount, currency, description, service, method, reference, createdAt, availableAt, counterparty: { name, email }, feeBreakdown: { grossAmount, commissionAmount, acquisitionFeeAmount } }], total, page, totalPages, startIndex, endIndex }" }
+
+/api/v1/merchant/wallet/payout-methods:
+  get:
+    tags: [Merchant - Wallet]
+    summary: Saved payout accounts. Only the last four digits of any account or card number are returned.
+    responses:
+      "200": { description: "data: [{ id, type, bankName, accountHolderName, last4, sortCode, payoutCurrency, country, isDefault, stripePayoutsEnabled, airwallexTransferMethod, usable, createdAt }]" }
+
+/api/v1/merchant/wallet/payout-methods/bank:
+  post:
+    tags: [Merchant - Wallet]
+    summary: Save a bank account KHS pays by hand (cards can't be added)
+    requestBody:
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [accountHolderName, bankName, accountNumber, sortCode, payoutCurrency]
+            properties:
+              accountHolderName: { type: string }
+              bankName: { type: string }
+              accountNumber: { type: string, description: 6–18 digits }
+              sortCode: { type: string, description: Sort code / BSB / routing number, 6–9 digits }
+              payoutCurrency: { type: string, enum: [USD, EUR, AUD, GBP, NGN] }
+              isDefault: { type: boolean }
+    responses:
+      "201": { description: "data: the payout account" }
+      "409": { description: DUPLICATE_ACCOUNT }
+
+/api/v1/merchant/wallet/payout-methods/{id}/currency:
+  put:
+    tags: [Merchant - Wallet]
+    summary: Set the payout currency on a saved bank account or card (connected accounts' currency is set by the provider)
+    parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+    requestBody: { content: { application/json: { schema: { type: object, required: [payoutCurrency], properties: { payoutCurrency: { type: string, enum: [USD, EUR, AUD, GBP, NGN] } } } } } }
+    responses: { "200": { description: "data: the payout account" } }
+
+/api/v1/merchant/wallet/payout-methods/{id}/default:
+  put:
+    tags: [Merchant - Wallet]
+    summary: Make this the default payout account
+    parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+    responses: { "200": { description: OK } }
+
+/api/v1/merchant/wallet/payout-methods/{id}:
+  delete:
+    tags: [Merchant - Wallet]
+    summary: Remove a payout account (refused while a withdrawal to it is under way)
+    parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+    responses: { "200": { description: OK }, "409": { description: METHOD_IN_USE } }
+
+/api/v1/merchant/wallet/stripe/onboarding-link:
+  post:
+    tags: [Merchant - Wallet]
+    summary: Stripe hosted onboarding for automatic payouts (Australian salons; STRIPE_CONNECT_ENABLED)
+    responses: { "200": { description: "data: { url } or { alreadyConnected: true }" } }
+
+/api/v1/merchant/wallet/stripe/sync:
+  post:
+    tags: [Merchant - Wallet]
+    summary: Read the connected Stripe account's state (after returning from onboarding)
+    responses: { "200": { description: "data: the payout account, or null" } }
+
+/api/v1/merchant/wallet/airwallex/form:
+  get:
+    tags: [Merchant - Wallet]
+    summary: The bank fields Airwallex needs for the salon's country (AIRWALLEX_ENABLED)
+    responses: { "200": { description: "data: { country, currency, transferMethod, fields: [{ key, label, type, required, placeholder, tip, default, options }] }" } }
+
+/api/v1/merchant/wallet/airwallex/beneficiary:
+  post:
+    tags: [Merchant - Wallet]
+    summary: Connect an Airwallex beneficiary (usable at once)
+    requestBody: { content: { application/json: { schema: { type: object, required: [answers], properties: { answers: { type: object, additionalProperties: { type: string } } } } } } }
+    responses: { "201": { description: "data: the payout account" }, "409": { description: ALREADY_CONNECTED } }
+
+/api/v1/merchant/wallet/withdrawals:
+  get:
+    tags: [Merchant - Wallet]
+    summary: The salon's withdrawal requests, newest first
+    responses: { "200": { description: "data: [{ id, reference, amount, currency, payoutAmount, payoutCurrency, status: Pending|Processing|Submitted|Completed|Rejected|Cancelled, payoutMethod, payoutReference, rejectionReason, createdAt, paidAt, method, canClaim }]" } }
+  post:
+    tags: [Merchant - Wallet]
+    summary: Request a withdrawal — the amount leaves the balance at once and waits for KHS review
+    requestBody: { content: { application/json: { schema: { type: object, required: [amount, methodId], properties: { amount: { type: number }, methodId: { type: string, format: uuid } } } } } }
+    responses: { "201": { description: "data: the withdrawal" }, "400": { description: INSUFFICIENT_BALANCE / NO_PAYOUT_CURRENCY / METHOD_NOT_READY } }
+
+/api/v1/merchant/wallet/withdrawals/preview:
+  post:
+    tags: [Merchant - Wallet]
+    summary: What the salon would receive in the account's currency (and the Airwallex fee estimate). Moves nothing.
+    requestBody: { content: { application/json: { schema: { type: object, required: [amount, methodId], properties: { amount: { type: number }, methodId: { type: string, format: uuid } } } } } }
+    responses: { "200": { description: "data: { amount, currency, payoutCurrency, exchangeRate, payoutAmount, estimatedFee, feeCurrency }" } }
+
+/api/v1/merchant/wallet/withdrawals/{id}/cancel:
+  put:
+    tags: [Merchant - Wallet]
+    summary: Cancel a Pending request; the money returns to the balance
+    parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+    responses: { "200": { description: "data: the withdrawal" }, "409": { description: NOT_CANCELLABLE } }
+
+/api/v1/merchant/wallet/withdrawals/{id}/claim:
+  put:
+    tags: [Merchant - Wallet]
+    summary: Send an approved (Processing) withdrawal to the connected Stripe / Airwallex account. Idempotent.
+    parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+    responses: { "200": { description: "data: the withdrawal (Completed for Stripe, Submitted for Airwallex)" } }
+
+/api/v1/merchant/wallet/withdrawals/{id}/refresh:
+  put:
+    tags: [Merchant - Wallet]
+    summary: Check a Submitted Airwallex payout — sent becomes Completed, failed returns to Processing
+    parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+    responses: { "200": { description: "data: the withdrawal" } }

@@ -1,0 +1,120 @@
+/api/v1/merchant/clients:
+  get:
+    tags: [Merchant - Clients]
+    summary: The salon clients, searched, filtered and paged, with visits, lifetime value, next appointment, membership and rating given
+    parameters:
+      - { in: query, name: search, schema: { type: string } }
+      - { in: query, name: segment, schema: { type: string, enum: [all, members, regular, new] } }
+      - { in: query, name: sort, schema: { type: string, enum: [newest, oldest, nameAsc, nameDesc] } }
+      - { in: query, name: page, schema: { type: integer } }
+      - { in: query, name: limit, schema: { type: integer, maximum: 200 } }
+      - { in: query, name: date, required: true, schema: { type: string, example: "2026-10-21" }, description: The salon today (for next appointment) }
+    responses:
+      "200": { description: "data: { clients: [{ id, firstName, lastName, name, email, phone, profileImage, location, segment, isMember, membershipSessionsLeft, averageRating, visits, lifetimeValue, noShows, nextAppointment }], totalItems, totalPages, page, startIndex, endIndex }" }
+  post:
+    tags: [Merchant - Clients]
+    summary: Add a client (profile, addresses, emergency contacts and settings in one). Never creates a KHS account.
+    requestBody:
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [firstName, lastName, email, phone, phoneCode, gender, pronouns]
+            properties:
+              firstName: { type: string }
+              lastName: { type: string }
+              email: { type: string }
+              phone: { type: string, example: "412345678" }
+              phoneCode: { type: string, example: "+61" }
+              dateOfBirth: { type: string }
+              gender: { type: string, enum: [MALE, FEMALE, CUSTOM, PREFER_NOT_TO_SAY] }
+              pronouns: { type: string, enum: [he-him, she-her, they-them, other] }
+              occupation: { type: string }
+              clientSource: { type: string, enum: [walk-in, referral, instagram, website, facebook, other] }
+              profileImage: { type: string, description: URL from POST /merchant/clients/images }
+              addresses: { type: array, maxItems: 2, items: { type: object, properties: { addressName: { type: string }, addressLine2: { type: string }, location: { type: string }, city: { type: string }, state: { type: string }, zipCode: { type: string }, country: { type: string } } } }
+              emergencyContacts: { type: array, maxItems: 2, items: { type: object, properties: { firstName: { type: string }, lastName: { type: string }, email: { type: string }, relationship: { type: string }, phone: { type: string }, phoneCode: { type: string } } } }
+              settings: { type: object, properties: { emailNotifications: { type: boolean }, smsNotifications: { type: boolean }, marketingEmails: { type: boolean }, notes: { type: string }, preferredContactMethod: { type: string, enum: [email, sms, phone] }, language: { type: string }, timezone: { type: string } } }
+    responses:
+      "201": { description: "data: the client" }
+      "409": { description: CLIENT_EXISTS }
+
+/api/v1/merchant/clients/messaging:
+  get:
+    tags: [Merchant - Clients]
+    summary: Every active client (id, name, email, photo) for the message picker
+    responses: { "200": { description: "data: [{ id, name, email, profileImage }]" } }
+
+/api/v1/merchant/clients/messages:
+  post:
+    tags: [Merchant - Clients]
+    summary: Email clients a message (one or many), a reminder or a promotion. Addresses come from the salon records; daily limit per salon.
+    requestBody:
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - { type: object, required: [kind, clientIds, subject, message], properties: { kind: { type: string, enum: [message] }, clientIds: { type: array, items: { type: string } }, subject: { type: string }, message: { type: string }, closingRemarks: { type: string, enum: [Thank you, Best regards, Looking forward] } } }
+              - { type: object, required: [kind, clientIds, reminderType, date, time, message], properties: { kind: { type: string, enum: [reminder] }, clientIds: { type: array, items: { type: string } }, reminderType: { type: string, enum: [appointment, follow_up, upcoming, custom] }, date: { type: string }, time: { type: string, example: "14:30" }, message: { type: string } } }
+              - { type: object, required: [kind, clientIds, promotionTitle, discountType, discount, promotionCode, expiryDate, description], properties: { kind: { type: string, enum: [promotion] }, clientIds: { type: array, items: { type: string } }, promotionTitle: { type: string }, discountType: { type: string, enum: [percent, amount] }, discount: { type: number }, promotionCode: { type: string }, expiryDate: { type: string }, description: { type: string } } }
+    responses:
+      "200": { description: "data: { sent, skipped: [{ id, name, reason: email-off | no-marketing }] }" }
+      "400": { description: NOT_YOUR_CLIENT / NO_RECIPIENTS }
+      "429": { description: DAILY_LIMIT }
+
+/api/v1/merchant/clients/images:
+  post:
+    tags: [Merchant - Clients]
+    summary: Upload a client photo (multipart "file", JPG/PNG/WebP, 5 MB)
+    responses: { "201": { description: "data: { url }" } }
+
+/api/v1/merchant/clients/{id}:
+  get:
+    tags: [Merchant - Clients]
+    summary: One client in full (profile, addresses, contacts, settings, membership, rating given)
+    parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+    responses: { "200": { description: "data: the client" }, "404": { description: Not this salon client } }
+  put:
+    tags: [Merchant - Clients]
+    summary: Change a client (same body as adding)
+    parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+    responses: { "200": { description: "data: the client" } }
+  delete:
+    tags: [Merchant - Clients]
+    summary: Remove a client from the list (kept for history; adding them again restores the record)
+    parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+    responses: { "200": { description: Deleted } }
+
+/api/v1/merchant/clients/{id}/appointments:
+  get:
+    tags: [Merchant - Clients]
+    summary: The client bookings with the salon (made for the record or by the matching KHS account)
+    parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+    responses: { "200": { description: "data: [{ id, date, time, status, amount, serviceName, staff }]" } }
+
+/api/v1/merchant/clients/{id}/overview:
+  get:
+    tags: [Merchant - Clients]
+    summary: Completed-booking value for the period by day/week/month, change from the period before, and counts
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      - { in: query, name: period, schema: { type: string, enum: [week, month, year] } }
+      - { in: query, name: date, required: true, schema: { type: string } }
+    responses: { "200": { description: "data: { period, total, previousTotal, growth, buckets: [{ label, value }], appointments, cancelled, noShows, rating }" } }
+
+/api/v1/merchant/clients/{id}/reviews:
+  get:
+    tags: [Merchant - Clients]
+    summary: The client reviews of the salon (matched by their KHS account email), unreplied first
+    parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+    responses: { "200": { description: "data: [{ id, rating, comment, reply, replyTime, replyBy, likes, clientName, service, clientType, createdAt, staffRating }]" } }
+
+/api/v1/merchant/clients/{id}/reviews/{reviewId}/reply:
+  put:
+    tags: [Merchant - Clients]
+    summary: Reply to one of the client reviews (once); the client is emailed
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      - { in: path, name: reviewId, required: true, schema: { type: string, format: uuid } }
+    requestBody: { content: { application/json: { schema: { type: object, required: [reply], properties: { reply: { type: string } } } } } }
+    responses: { "200": { description: "data: the review" }, "409": { description: ALREADY_REPLIED } }

@@ -20,3 +20,5 @@ export { bookingCancelledEmail, bookingRescheduledEmail, merchantBookingCancelle
 export { merchantWelcomeEmail, merchantUnderReviewEmail } from "./merchantAccountEmails";
 export { bookingAcceptedBySalonEmail, bookingCancelledBySalonEmail, bookingCompletedEmail, bookingNoShowEmail } from "./salonBookingEmails";
 export { staffAddedEmail, staffRemovedEmail } from "./staffEmails";
+export { salonMessageEmail, salonReminderEmail, salonPromotionEmail, reviewReplyEmail } from "./clientMessageEmails";
+export { withdrawalRequestedEmail, payoutSentEmail } from "./walletEmails";

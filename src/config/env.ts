@@ -50,6 +50,7 @@ export const {
   SENDGRID_API_KEY,
   SENDGRID_FROM_EMAIL,
   SENDGRID_FROM_NAME,
+  CLIENT_MESSAGES_PER_DAY,
   DELIVERY_TEAM_EMAIL,
   SUPPORT_EMAIL,
   // Slack alerts
@@ -67,6 +68,13 @@ export const {
   FIREBASE_STORAGE_BUCKET,
   // Payments
   STRIPE_SECRET_KEY,
+  // Merchant payouts
+  STRIPE_CONNECT_ENABLED,
+  AIRWALLEX_ENABLED,
+  AIRWALLEX_CLIENT_ID,
+  AIRWALLEX_API_KEY,
+  AIRWALLEX_BASE_URL,
+  CURRENCY_API_KEY,
 } = cleanEnv(process.env, {
   NODE_ENV: str({
     choices: ["development", "production", "test"],
@@ -132,6 +140,7 @@ export const {
   SENDGRID_API_KEY: str({ default: "", docs: "SendGrid API key" }),
   SENDGRID_FROM_EMAIL: str({ default: "", docs: "Verified sender address in SendGrid" }),
   SENDGRID_FROM_NAME: str({ default: "Kinky Hair Stylist" }),
+  CLIENT_MESSAGES_PER_DAY: num({ default: 500, docs: "How many client emails one salon can send a day (messages, reminders, promotions)" }),
   // Told about every new customer, and copied on welcome emails. Never copied
   // on anything carrying a code. Empty = no team emails.
   DELIVERY_TEAM_EMAIL: str({ default: "", docs: "KHS team mailbox. Leave empty for none" }),
@@ -167,7 +176,24 @@ export const {
   // The same Stripe account as the Kinky-Hair-Stylist backend: booking payments
   // are charged in CURRENCY. Empty = card payments answer 503.
   STRIPE_SECRET_KEY: str({ default: "", docs: "sk_test_... or sk_live_..." }),
+
+  // ─── Merchant payouts ────────────────────────────────────────────────────────
+  // Salons withdraw their wallet balance. Every request is reviewed by KHS; once
+  // approved, a salon with a connected Stripe (Australia) or Airwallex (other
+  // payout countries) account sends it to itself, otherwise KHS pays by hand.
+  STRIPE_CONNECT_ENABLED: bool({ default: false, docs: "Lets Australian salons connect a Stripe Express payout account" }),
+  AIRWALLEX_ENABLED: bool({ default: false, docs: "Lets salons in the other payout countries connect an Airwallex beneficiary" }),
+  AIRWALLEX_CLIENT_ID: str({ default: "" }),
+  AIRWALLEX_API_KEY: str({ default: "" }),
+  AIRWALLEX_BASE_URL: url({ default: "https://api-demo.airwallex.com", docs: "https://api.airwallex.com in production" }),
+  // currencyapi.com — converts a withdrawal into the payout account's currency.
+  // Empty = only payouts in the wallet's own currency are possible.
+  CURRENCY_API_KEY: str({ default: "" }),
 });
+
+if (AIRWALLEX_ENABLED && (!AIRWALLEX_CLIENT_ID || !AIRWALLEX_API_KEY)) {
+  throw new Error("AIRWALLEX_ENABLED=true requires AIRWALLEX_CLIENT_ID and AIRWALLEX_API_KEY");
+}
 
 if (COOKIE_SAMESITE === "none" && !COOKIE_SECURE) {
   throw new Error("COOKIE_SAMESITE=none requires COOKIE_SECURE=true");

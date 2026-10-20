@@ -20,6 +20,8 @@ export interface SendEmailInput {
   /** Plain-text fallback for clients that don't render HTML. */
   text?: string;
   cc?: string;
+  /** Where replies go (e.g. the salon owner, for a salon's message to its client). */
+  replyTo?: string;
 }
 
 /**
@@ -40,6 +42,7 @@ export async function sendEmail(input: SendEmailInput): Promise<void> {
     await sgMail.send({
       to,
       ...(cc ? { cc } : {}),
+      ...(input.replyTo ? { replyTo: input.replyTo } : {}),
       from: { email: SENDGRID_FROM_EMAIL, name: SENDGRID_FROM_NAME },
       subject,
       html,

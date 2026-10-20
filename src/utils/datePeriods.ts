@@ -15,7 +15,7 @@ function toUtc(date: string): Date {
   return new Date(Date.UTC(y, m - 1, d));
 }
 const iso = (d: Date) => d.toISOString().slice(0, 10);
-const addDays = (date: string, days: number) => iso(new Date(toUtc(date).getTime() + days * DAY_MS));
+export const addDays = (date: string, days: number) => iso(new Date(toUtc(date).getTime() + days * DAY_MS));
 
 /** Sunday to Saturday around `date` (the week the team figures use). */
 export function weekOf(date: string): DateRange {
@@ -28,6 +28,11 @@ export function monthOf(date: string): DateRange {
   const start = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
   const end = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0));
   return { start: iso(start), end: iso(end) };
+}
+
+export function yearOf(date: string): DateRange {
+  const y = toUtc(date).getUTCFullYear();
+  return { start: `${y}-01-01`, end: `${y}-12-31` };
 }
 
 /** The period containing `date`, and the one before it (for "vs yesterday / last week / last month"). */
