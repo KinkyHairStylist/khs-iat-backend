@@ -1,0 +1,72 @@
+/api/v1/merchant/staff:
+  get:
+    tags: [Merchant - Staff]
+    summary: The active team with this week's bookings, earnings and commission, rating and next appointment
+    parameters:
+      - { in: query, name: date, required: true, schema: { type: string, example: "2026-10-21" }, description: The salon's today (picks the week) }
+    responses:
+      "200": { description: "data: [{ id, firstName, lastName, name, email, phoneNumber, gender, dob, jobTitle, role, avatar, employmentType, settings, commissionRate, addresses, emergencyContacts, servicesAssigned, rating, reviews, stats: { bookingsThisWeek, earningsThisWeek }, commissionEarnedThisWeek, nextAppointment }]" }
+  post:
+    tags: [Merchant - Staff]
+    summary: Add a team member (a salon record only; no KHS account is created or changed)
+    requestBody:
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [firstName, lastName, email, gender, phoneNumber]
+            properties:
+              firstName: { type: string }
+              lastName: { type: string }
+              email: { type: string }
+              gender: { type: string, enum: [MALE, FEMALE, CUSTOM, PREFER_NOT_TO_SAY] }
+              dob: { type: string, example: "1990-05-20" }
+              phoneNumber: { type: string, example: "+61 412345678" }
+              jobTitle: { type: string }
+              employmentType: { type: string, enum: [full-time, part-time, contract] }
+              avatar: { type: string, description: URL from POST /merchant/staff/images }
+              addresses: { type: array, items: { type: object, properties: { name: { type: string }, location: { type: string }, isPrimary: { type: boolean } } } }
+              emergencyContacts: { type: array, items: { type: object, properties: { firstName: { type: string }, lastName: { type: string }, relationship: { type: string }, email: { type: string }, phoneNumber: { type: string } } } }
+              servicesAssigned: { type: array, items: { type: string, format: uuid } }
+              settings: { type: object, properties: { role: { type: string, enum: [manager, staff] }, permissions: { type: object } } }
+              commissionRate: { type: number, nullable: true }
+    responses:
+      "201": { description: "data: the team member" }
+      "409": { description: ALREADY_ON_TEAM / EMAIL_IN_USE }
+
+/api/v1/merchant/staff/images:
+  post:
+    tags: [Merchant - Staff]
+    summary: Upload a team member photo (multipart "file", JPG/PNG/WebP, 5 MB)
+    responses: { "201": { description: "data: { url }" } }
+
+/api/v1/merchant/staff/{id}:
+  put:
+    tags: [Merchant - Staff]
+    summary: Change a team member (same body as adding)
+    parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+    responses: { "200": { description: "data: the team member" }, "404": { description: Not on this salon team } }
+  delete:
+    tags: [Merchant - Staff]
+    summary: Remove from the team (kept inactive for history); returns how many upcoming bookings still have them
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      - { in: query, name: date, required: true, schema: { type: string } }
+    responses: { "200": { description: "data: { upcomingBookings }" } }
+
+/api/v1/merchant/staff/{id}/schedule:
+  get:
+    tags: [Merchant - Staff]
+    summary: A team member bookings from the start of this week on
+    parameters:
+      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      - { in: query, name: date, required: true, schema: { type: string } }
+    responses: { "200": { description: "data: [{ id, date, time, duration, durationMinutes, status, amount, serviceName, clientName }]" } }
+
+/api/v1/merchant/staff/{id}/services:
+  put:
+    tags: [Merchant - Staff]
+    summary: Set which services this person does (others on those services are unchanged)
+    parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+    requestBody: { content: { application/json: { schema: { type: object, required: [serviceIds], properties: { serviceIds: { type: array, items: { type: string, format: uuid } } } } } } }
+    responses: { "200": { description: "data: { serviceIds }" } }

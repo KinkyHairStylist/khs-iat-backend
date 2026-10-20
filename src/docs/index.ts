@@ -39,6 +39,7 @@ const paths: PathsObject = {
   ...importPaths("merchant/dashboard.yaml"),
   ...importPaths("merchant/bookings.yaml"),
   ...importPaths("merchant/services.yaml"),
+  ...importPaths("merchant/staff.yaml"),
 };
 
 export const openApiSpec = {

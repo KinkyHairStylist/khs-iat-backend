@@ -1,7 +1,7 @@
 import prisma, { WRITE_TX_OPTIONS } from "../../../lib/prisma/prisma";
 import { Prisma } from "../../../generated/prisma/client";
 import type { Service_category_enum, Service_servicetype_enum } from "../../../generated/prisma/enums";
-import { deleteServiceImages, serviceImageUrlPrefix, uploadServiceImage } from "../../../lib/firebase/storage";
+import { businessImageUrlPrefix, deleteBusinessImages, uploadBusinessImage } from "../../../lib/firebase/storage";
 import { AppError } from "../../../middlewares/centralAppError";
 import type { ServiceInput } from "../../../schemas/merchant/services.schema";
 import { requireMerchantBusiness } from "../merchantBusiness";
@@ -22,7 +22,7 @@ async function assertTeam(businessId: string, staffIds: string[]) {
 
 /** Photos uploaded for this salon, or ones the service already had (older services were stored elsewhere). */
 function assertImages(businessId: string, images: string[], existing: string[]) {
-  const prefix = serviceImageUrlPrefix(businessId);
+  const prefix = businessImageUrlPrefix("serviceImages", businessId);
   const bad = images.find((url) => !existing.includes(url) && !(prefix && url.startsWith(prefix)));
   if (bad) throw AppError.badRequest("Please upload the photos again.", "INVALID_IMAGE");
 }
@@ -94,7 +94,7 @@ export async function updateService(userId: string, serviceId: string, input: Se
     await ensureCategory(tx, business.id, input.category);
   }, WRITE_TX_OPTIONS);
   const service = await prisma.service.findUniqueOrThrow({ where: { id: serviceId }, select: SERVICE_SELECT });
-  void deleteServiceImages(business.id, existing.images.filter((url) => !input.images.includes(url)));
+  void deleteBusinessImages("serviceImages", business.id, existing.images.filter((url) => !input.images.includes(url)));
   return serviceView(service);
 }
 
@@ -113,7 +113,7 @@ export async function deleteService(userId: string, serviceId: string) {
   if (bookings > 0) throw AppError.conflict("This service has bookings, so it can't be deleted.", "SERVICE_HAS_BOOKINGS");
   if (memberships > 0) throw AppError.conflict("This service is part of a membership package. Remove it from the package first.", "SERVICE_IN_MEMBERSHIP");
   await prisma.service.delete({ where: { id: serviceId } });
-  void deleteServiceImages(business.id, existing.images);
+  void deleteBusinessImages("serviceImages", business.id, existing.images);
 }
 
 /** Sets who can do a service (empty = anyone on the team). */
@@ -128,6 +128,6 @@ export async function assignServiceStaff(userId: string, serviceId: string, staf
 /** A photo for a service, saved in this salon's folder; returns its URL for the service form. */
 export async function addServiceImage(userId: string, buffer: Buffer, mimeType: string) {
   const business = await requireMerchantBusiness(userId);
-  const { url } = await uploadServiceImage(business.id, buffer, mimeType);
+  const { url } = await uploadBusinessImage("serviceImages", business.id, buffer, mimeType);
   return { url };
 }

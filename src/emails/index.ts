@@ -19,3 +19,4 @@ export { membershipPurchasedEmail, giftCardPurchasedEmail, giftCardReceivedEmail
 export { bookingCancelledEmail, bookingRescheduledEmail, merchantBookingCancelledEmail, merchantAvailabilityConfirmedEmail } from "./bookingChangeEmails";
 export { merchantWelcomeEmail, merchantUnderReviewEmail } from "./merchantAccountEmails";
 export { bookingAcceptedBySalonEmail, bookingCancelledBySalonEmail, bookingCompletedEmail, bookingNoShowEmail } from "./salonBookingEmails";
+export { staffAddedEmail, staffRemovedEmail } from "./staffEmails";

@@ -24,6 +24,7 @@ import merchantSetupRouter from "./merchant/setupRouter";
 import merchantDashboardRouter from "./merchant/dashboardRouter";
 import merchantBookingsRouter from "./merchant/bookingsRouter";
 import merchantServicesRouter from "./merchant/servicesRouter";
+import merchantStaffRouter from "./merchant/staffRouter";
 
 const router = Router();
 
@@ -52,5 +53,6 @@ router.use("/merchant", merchantSetupRouter);
 router.use("/merchant", merchantDashboardRouter);
 router.use("/merchant", merchantBookingsRouter);
 router.use("/merchant", merchantServicesRouter);
+router.use("/merchant", merchantStaffRouter);
 
 export default router;

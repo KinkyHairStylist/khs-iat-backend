@@ -13,7 +13,7 @@ function firstImage(value: unknown): string | null {
 export async function getMerchantBusiness(userId: string) {
   const business = await prisma.businesses.findFirst({
     where: { owner_id: userId },
-    select: { id: true, businessName: true, status: true, businessImage: true },
+    select: { id: true, businessName: true, status: true, businessImage: true, businessAddress: true },
     orderBy: { createdAt: "asc" },
   });
   if (!business) return { hasBusiness: false, business: null };
