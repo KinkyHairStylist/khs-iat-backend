@@ -47,6 +47,7 @@ const paths: PathsObject = {
   ...importPaths("merchant/memberships.yaml"),
   ...importPaths("merchant/billing.yaml"),
   ...importPaths("merchant/settings.yaml"),
+  ...importPaths("merchant/integrations.yaml"),
 };
 
 export const openApiSpec = {

@@ -7,6 +7,7 @@ import { newOrderId } from "../../bookings/createBookingService";
 import { claimSlot, lockSalonDay, prepareSlot } from "../../bookings/slotCheck";
 import { requireMerchantBusiness } from "../merchantBusiness";
 import { changeOf } from "./bookingActions";
+import { syncBookingConfirmed } from "../integrations/integrationSync";
 import { announceSalonChange } from "./salonBookingAnnouncements";
 import { isStillBooked, loadSalonOrder, lockOrder, orderKey } from "./salonOrder";
 
@@ -36,7 +37,7 @@ export async function createSalonBooking(userId: string, input: CreateSalonBooki
   const durationMinutes = parseDurationToMinutes(service.duration);
   const prepared = await prepareSlot(business.id);
 
-  return prisma.$transaction(async (tx) => {
+  const created = await prisma.$transaction(async (tx) => {
     await lockSalonDay(tx, business.id, input.date);
     const stylist = await claimSlot(tx, {
       salonId: business.id, date: input.date, time: input.time, durationMinutes, timezoneOffsetMinutes: input.timezoneOffsetMinutes,
@@ -56,6 +57,8 @@ export async function createSalonBooking(userId: string, input: CreateSalonBooki
     if (stylist) await tx.appointment_staff.create({ data: { appointment_id: id, staff_id: stylist.id } });
     return { id, orderId };
   }, MONEY_TX_OPTIONS);
+  syncBookingConfirmed(created.orderId);
+  return created;
 }
 
 /** Moves a booking (the whole order) to a new day and time. A paid booking stays paid. */

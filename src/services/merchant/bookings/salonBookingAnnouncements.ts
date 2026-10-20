@@ -7,6 +7,7 @@ import {
 import type { RenderedEmail } from "../../../emails";
 import { getServiceLogger } from "../../../utils/loggerCreator";
 import { notifyUser, type NotificationType } from "../../notificationsService";
+import { syncBookingCancelled, syncBookingConfirmed, syncBookingRescheduled } from "../integrations/integrationSync";
 
 const logger = getServiceLogger("salon-booking-changes");
 
@@ -64,6 +65,9 @@ function emailFor(change: SalonChangeKind, d: { name: string; businessName: stri
 }
 
 export function announceSalonChange(c: SalonChange, change: SalonChangeKind): void {
+  if (change.kind === "accepted") syncBookingConfirmed(c.orderId);
+  else if (change.kind === "cancelled") syncBookingCancelled(c.orderId);
+  else if (change.kind === "rescheduled") syncBookingRescheduled(c.orderId);
   void (async () => {
     if (c.customerId) {
       const bell = BELL[change.kind];

@@ -6,6 +6,7 @@ import { bookingConfirmedEmail, merchantNewBookingEmail } from "../../emails";
 import { formatMoney } from "../../utils/money";
 import { getServiceLogger } from "../../utils/loggerCreator";
 import { notifyUser } from "../notificationsService";
+import { syncBookingConfirmed } from "../merchant/integrations/integrationSync";
 import { loadOrder, orderServiceNames } from "./orderStore";
 
 const logger = getServiceLogger("booking-announcements");
@@ -26,6 +27,8 @@ export interface HowPaid {
  * Never throws: the booking is already confirmed.
  */
 export async function announceConfirmedBooking(orderId: string, paid: HowPaid): Promise<void> {
+  // The salon's connected apps (calendar, audience, invoices) follow in the background.
+  syncBookingConfirmed(orderId);
   try {
     const rows = await loadOrder(orderId);
     const first = rows[0];

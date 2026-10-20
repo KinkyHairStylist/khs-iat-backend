@@ -89,6 +89,14 @@ export const {
   // Scheduled jobs
   JOBS_ENABLED,
   PLATFORM_TIME_ZONE,
+  // Salon integrations
+  SETTINGS_ENCRYPTION_KEY,
+  GOOGLE_CLIENT_ID,
+  GOOGLE_CLIENT_SECRET,
+  GOOGLE_REDIRECT_URI,
+  ZOHO_CLIENT_ID,
+  ZOHO_CLIENT_SECRET,
+  ZOHO_REDIRECT_URI,
 } = cleanEnv(process.env, {
   NODE_ENV: str({
     choices: ["development", "production", "test"],
@@ -218,7 +226,26 @@ export const {
   // When the daily jobs run (01:00 here), and the clock appointment times are
   // read in for a customer who hasn't chosen a time zone.
   PLATFORM_TIME_ZONE: timeZone({ default: "Australia/Sydney", docs: "IANA time zone" }),
+
+  // ─── Salon integrations (Settings → Integrations) ───────────────────────────
+  // Each salon connects its own Google Calendar, Mailchimp and ZohoBooks; their
+  // tokens and keys are stored encrypted with this key (AES-256-GCM, the same
+  // format and variable as the Kinky-Hair-Stylist backend). Empty = integrations off.
+  SETTINGS_ENCRYPTION_KEY: str({ default: "", docs: "base64 of 32 random bytes: openssl rand -base64 32" }),
+  // KHS's OAuth apps. Empty = that integration shows as unavailable. The redirect
+  // URI (default: the merchant Settings → Integrations page) must be registered
+  // with the provider exactly as it resolves.
+  GOOGLE_CLIENT_ID: str({ default: "" }),
+  GOOGLE_CLIENT_SECRET: str({ default: "" }),
+  GOOGLE_REDIRECT_URI: str({ default: "", docs: "Default MERCHANT_APP_URL/merchant/dashboard/settings?tab=integrations" }),
+  ZOHO_CLIENT_ID: str({ default: "" }),
+  ZOHO_CLIENT_SECRET: str({ default: "" }),
+  ZOHO_REDIRECT_URI: str({ default: "", docs: "Default MERCHANT_APP_URL/merchant/dashboard/settings?tab=integrations&type=zohobooks" }),
 });
+
+if (SETTINGS_ENCRYPTION_KEY && Buffer.from(SETTINGS_ENCRYPTION_KEY, "base64").length !== 32) {
+  throw new Error("SETTINGS_ENCRYPTION_KEY must be base64 of exactly 32 bytes (openssl rand -base64 32)");
+}
 
 if (AIRWALLEX_ENABLED && (!AIRWALLEX_CLIENT_ID || !AIRWALLEX_API_KEY)) {
   throw new Error("AIRWALLEX_ENABLED=true requires AIRWALLEX_CLIENT_ID and AIRWALLEX_API_KEY");

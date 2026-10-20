@@ -1,0 +1,86 @@
+/api/v1/merchant/integrations:
+  get:
+    tags: [Merchant Integrations]
+    summary: Which apps the salon has connected, and which this server offers
+    description: Read from the saved credentials. `available` is false for an app whose OAuth app or the encryption key isn't configured.
+    responses:
+      "200": { description: "data: { googleCalendar, mailChimp, zohoBooks, available: { googleCalendar, mailChimp, zohoBooks } }" }
+
+/api/v1/merchant/integrations/google-calendar/connect:
+  post:
+    tags: [Merchant Integrations]
+    summary: Google's sign-in URL for the owner to authorise
+    description: The URL carries a signed, single-use state (15 minutes) tied to this owner and salon. Google returns to GOOGLE_REDIRECT_URI.
+    responses:
+      "200": { description: "data: { url }" }
+      "503": { description: INTEGRATION_NOT_CONFIGURED }
+
+/api/v1/merchant/integrations/google-calendar/callback:
+  post:
+    tags: [Merchant Integrations]
+    summary: Finish connecting Google Calendar with the code and state Google returned
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema: { type: object, required: [code, state], properties: { code: { type: string }, state: { type: string } } }
+    responses:
+      "200": { description: Connected }
+      "400": { description: "OAUTH_STATE_INVALID (expired, reused or not this owner's), INTEGRATION_NOT_GRANTED, INTEGRATION_CONNECT_FAILED" }
+
+/api/v1/merchant/integrations/google-calendar:
+  delete:
+    tags: [Merchant Integrations]
+    summary: Disconnect Google Calendar (access revoked at Google, tokens deleted)
+    responses:
+      "200": { description: Disconnected }
+
+/api/v1/merchant/integrations/zohobooks/connect:
+  post:
+    tags: [Merchant Integrations]
+    summary: Zoho's sign-in URL for the owner to authorise
+    responses:
+      "200": { description: "data: { url }" }
+      "503": { description: INTEGRATION_NOT_CONFIGURED }
+
+/api/v1/merchant/integrations/zohobooks/callback:
+  post:
+    tags: [Merchant Integrations]
+    summary: Finish connecting ZohoBooks
+    description: accountsServer is Zoho's "accounts-server" redirect parameter (the salon's region); only Zoho's known hosts are used.
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema: { type: object, required: [code, state], properties: { code: { type: string }, state: { type: string }, accountsServer: { type: string } } }
+    responses:
+      "200": { description: Connected }
+      "400": { description: "OAUTH_STATE_INVALID, ZOHO_NO_ORGANIZATION, INTEGRATION_NOT_GRANTED, INTEGRATION_CONNECT_FAILED" }
+
+/api/v1/merchant/integrations/zohobooks:
+  delete:
+    tags: [Merchant Integrations]
+    summary: Disconnect ZohoBooks (token revoked, credentials deleted)
+    responses:
+      "200": { description: Disconnected }
+
+/api/v1/merchant/integrations/mailchimp:
+  post:
+    tags: [Merchant Integrations]
+    summary: Connect the salon's own Mailchimp account
+    description: >
+      With several audiences and no audienceId, nothing is saved and data is { connected: false, audiences }
+      for the owner to pick from. The key is stored encrypted and never returned.
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema: { type: object, required: [apiKey], properties: { apiKey: { type: string }, audienceId: { type: string } } }
+    responses:
+      "200": { description: "data: { connected: true, audienceName } | { connected: false, audiences: [{ id, name }] }" }
+      "400": { description: "MAILCHIMP_KEY_INVALID, MAILCHIMP_KEY_REJECTED, MAILCHIMP_NO_AUDIENCE, MAILCHIMP_AUDIENCE_NOT_FOUND" }
+  delete:
+    tags: [Merchant Integrations]
+    summary: Disconnect Mailchimp
+    responses:
+      "200": { description: Disconnected }

@@ -31,6 +31,7 @@ import merchantGiftCardsRouter from "./merchant/giftCardsRouter";
 import merchantMembershipsRouter from "./merchant/membershipsRouter";
 import merchantBillingRouter from "./merchant/billingRouter";
 import merchantSettingsRouter from "./merchant/settingsRouter";
+import merchantIntegrationsRouter from "./merchant/integrationsRouter";
 
 const router = Router();
 
@@ -66,5 +67,6 @@ router.use("/merchant", merchantGiftCardsRouter);
 router.use("/merchant", merchantMembershipsRouter);
 router.use("/merchant", merchantBillingRouter);
 router.use("/merchant", merchantSettingsRouter);
+router.use("/merchant", merchantIntegrationsRouter);
 
 export default router;

@@ -4,6 +4,7 @@ import { sendEmailInBackground } from "../../lib/emailEngine/sendgrid";
 import { notifySlack } from "../../lib/slack";
 import { bookingCancelledEmail, bookingRescheduledEmail, merchantAvailabilityConfirmedEmail, merchantBookingCancelledEmail } from "../../emails";
 import { getServiceLogger } from "../../utils/loggerCreator";
+import { syncBookingCancelled, syncBookingRescheduled } from "../merchant/integrations/integrationSync";
 import { notifyUser } from "../notificationsService";
 
 const logger = getServiceLogger("booking-changes");
@@ -44,6 +45,7 @@ const run = (label: string, orderId: string, work: () => Promise<void>) =>
  * e.g. checkout abandoned) means only the customer's bell hears of it.
  */
 export function announceCancellation(change: Change, opts: { salonWasTold: boolean; customerMoneyNote?: string; merchantMoneyNote?: string }): void {
+  syncBookingCancelled(change.orderId);
   run("a cancellation", change.orderId, async () => {
     const p = await parties(change);
     const businessName = p.salon?.businessName ?? "the salon";
@@ -88,6 +90,7 @@ export function announceCancellation(change: Change, opts: { salonWasTold: boole
 
 /** A paid booking moved to a new time. */
 export function announceReschedule(change: Change): void {
+  syncBookingRescheduled(change.orderId);
   run("a reschedule", change.orderId, async () => {
     const p = await parties(change);
     if (!p.customer?.email) return;
