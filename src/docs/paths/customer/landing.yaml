@@ -28,6 +28,17 @@
       "200":
         description: "data: [{ id, title, slug, excerpt, content, coverImage, author, publishedAt, ... }]"
 
+/api/v1/landing/blog/{slug}:
+  get:
+    tags: [Landing]
+    summary: One published blog post
+    security: []
+    parameters:
+      - { in: path, name: slug, required: true, schema: { type: string, maxLength: 200 } }
+    responses:
+      "200": { description: "data: { id, title, slug, excerpt, content, coverImage, author, category, publishedAt, ... }" }
+      "404": { description: Unknown or not published }
+
 /api/v1/landing/faq:
   get:
     tags: [Landing]

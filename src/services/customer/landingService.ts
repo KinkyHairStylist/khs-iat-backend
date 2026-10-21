@@ -29,6 +29,13 @@ export function listPublishedBlogPosts() {
   });
 }
 
+/** One published post by its slug; a draft or unknown slug is "not found". */
+export async function getPublishedBlogPost(slug: string) {
+  const post = await prisma.blog_posts.findFirst({ where: { slug, isPublished: true } });
+  if (!post) throw AppError.notFound("Blog post");
+  return post;
+}
+
 export function listActiveFaqs() {
   return prisma.faqs.findMany({
     where: { isActive: true },

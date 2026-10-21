@@ -11,6 +11,7 @@ const newsletterLimiter = createRateLimiter("newsletter", 60 * 60 * 1000, 5);
 router.get("/statistics", landingController.getStats);
 router.get("/testimonials", landingController.getTestimonials);
 router.get("/blog", landingController.getBlogPosts);
+router.get("/blog/:slug", landingController.getBlogPost);
 router.get("/faq", landingController.getFaqs);
 router.get("/stories", landingController.getStories);
 router.post("/newsletter/subscribe", newsletterLimiter, landingController.subscribeNewsletter);

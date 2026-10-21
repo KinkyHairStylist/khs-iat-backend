@@ -94,6 +94,7 @@ export const {
   GOOGLE_CLIENT_ID,
   GOOGLE_CLIENT_SECRET,
   GOOGLE_REDIRECT_URI,
+  GOOGLE_LOGIN_REDIRECT_URI,
   ZOHO_CLIENT_ID,
   ZOHO_CLIENT_SECRET,
   ZOHO_REDIRECT_URI,
@@ -238,6 +239,8 @@ export const {
   GOOGLE_CLIENT_ID: str({ default: "" }),
   GOOGLE_CLIENT_SECRET: str({ default: "" }),
   GOOGLE_REDIRECT_URI: str({ default: "", docs: "Default MERCHANT_APP_URL/merchant/dashboard/settings?tab=integrations" }),
+  // "Continue with Google" on /auth uses the same OAuth client; Google returns to this backend.
+  GOOGLE_LOGIN_REDIRECT_URI: str({ default: "", docs: "Default http://localhost:PORT/api/v1/auth/google/callback; register it in Google Cloud" }),
   ZOHO_CLIENT_ID: str({ default: "" }),
   ZOHO_CLIENT_SECRET: str({ default: "" }),
   ZOHO_REDIRECT_URI: str({ default: "", docs: "Default MERCHANT_APP_URL/merchant/dashboard/settings?tab=integrations&type=zohobooks" }),

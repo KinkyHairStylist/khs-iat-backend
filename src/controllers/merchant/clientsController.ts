@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { idParamSchema } from "../../schemas/fields";
+import { clientRef } from "../../services/merchant/routeRefs";
 import { clientListQuerySchema, clientOverviewQuerySchema, clientSchema, reviewReplySchema } from "../../schemas/merchant/clients.schema";
 import { clientMessageSchema } from "../../schemas/merchant/clientMessages.schema";
 import { AppError } from "../../middlewares/centralAppError";
@@ -11,8 +11,7 @@ import { clientsForMessaging, getClient, listClients } from "../../services/merc
 import { clientReviews, replyToReview } from "../../services/merchant/clients/clientReviews";
 import { merchantHandler } from "./merchantHandler";
 
-const clientId = (params: unknown) => parseSchema(idParamSchema, params).id;
-const reviewParams = z.object({ id: z.string().uuid(), reviewId: z.string().uuid("We couldn't find that review.") });
+const reviewParams = z.object({ id: z.string().min(1).max(200), reviewId: z.string().uuid("We couldn't find that review.") });
 
 export const list = merchantHandler(async (req, res, userId) => {
   res.success(await listClients(userId, parseSchema(clientListQuerySchema, req.query)));
@@ -23,7 +22,7 @@ export const messagingList = merchantHandler(async (_req, res, userId) => {
 });
 
 export const detail = merchantHandler(async (req, res, userId) => {
-  res.success(await getClient(userId, clientId(req.params)));
+  res.success(await getClient(userId, await clientRef(userId, req.params)));
 });
 
 export const create = merchantHandler(async (req, res, userId) => {
@@ -31,30 +30,30 @@ export const create = merchantHandler(async (req, res, userId) => {
 });
 
 export const update = merchantHandler(async (req, res, userId) => {
-  res.success(await updateClient(userId, clientId(req.params), parseSchema(clientSchema, req.body)), "Client updated");
+  res.success(await updateClient(userId, await clientRef(userId, req.params), parseSchema(clientSchema, req.body)), "Client updated");
 });
 
 export const remove = merchantHandler(async (req, res, userId) => {
-  await deleteClient(userId, clientId(req.params));
+  await deleteClient(userId, await clientRef(userId, req.params));
   res.success(null, "Client deleted");
 });
 
 export const appointments = merchantHandler(async (req, res, userId) => {
-  res.success(await clientAppointments(userId, clientId(req.params)));
+  res.success(await clientAppointments(userId, await clientRef(userId, req.params)));
 });
 
 export const overview = merchantHandler(async (req, res, userId) => {
   const { period, date } = parseSchema(clientOverviewQuerySchema, req.query);
-  res.success(await clientOverview(userId, clientId(req.params), period, date));
+  res.success(await clientOverview(userId, await clientRef(userId, req.params), period, date));
 });
 
 export const reviews = merchantHandler(async (req, res, userId) => {
-  res.success(await clientReviews(userId, clientId(req.params)));
+  res.success(await clientReviews(userId, await clientRef(userId, req.params)));
 });
 
 export const reply = merchantHandler(async (req, res, userId) => {
   const { id, reviewId } = parseSchema(reviewParams, req.params);
-  res.success(await replyToReview(userId, id, reviewId, parseSchema(reviewReplySchema, req.body).reply), "Reply sent");
+  res.success(await replyToReview(userId, await clientRef(userId, { id }), reviewId, parseSchema(reviewReplySchema, req.body).reply), "Reply sent");
 });
 
 export const message = merchantHandler(async (req, res, userId) => {

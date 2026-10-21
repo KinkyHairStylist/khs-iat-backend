@@ -14,6 +14,7 @@ const EARNING = new Set(["Confirmed", "Rescheduled", "Completed"]);
 
 interface Row {
   id: string;
+  orderId: string | null;
   date: string;
   time: string;
   status: string;
@@ -25,7 +26,7 @@ interface Row {
 
 function bookingsBetween(businessId: string, range: DateRange) {
   return prisma.$queryRaw<Row[]>`
-    SELECT a.id::text AS id, a.date, a.time, a.status::text AS status, a.amount, a.duration, a."serviceName",
+    SELECT a.id::text AS id, a."orderId", a.date, a.time, a.status::text AS status, a.amount, a.duration, a."serviceName",
            COALESCE(a.client_id::text, a.business_client_id::text) AS "clientKey"
     FROM appointments a
     WHERE a.business_id = ${businessId}::uuid AND a.date BETWEEN ${range.start} AND ${range.end} AND ${liveBookingSql()}`;
@@ -144,6 +145,7 @@ export async function getDashboardHome(userId: string, date: string) {
     hasServices: serviceCount > 0,
     today: today.map((r) => ({
       id: r.id,
+      orderId: r.orderId,
       clientName: (r.clientKey && names.get(r.clientKey)) || null,
       service: r.serviceName,
       time: r.time,

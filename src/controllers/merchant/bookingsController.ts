@@ -1,4 +1,4 @@
-import { idParamSchema } from "../../schemas/fields";
+import { bookingRef } from "../../services/merchant/routeRefs";
 import {
   assignStaffSchema, availableTimesQuerySchema, completeBookingSchema, createSalonBookingSchema, dateRangeQuerySchema,
   noShowSchema, salonCancelSchema, salonRescheduleSchema,
@@ -10,7 +10,6 @@ import { getBookingFormOptions, getSalonBooking, listSalonBookings } from "../..
 import { listAvailableTimes } from "../../services/merchant/bookings/availableTimesService";
 import { merchantHandler } from "./merchantHandler";
 
-const bookingId = (params: unknown) => parseSchema(idParamSchema, params).id;
 
 export const list = merchantHandler(async (req, res, userId) => {
   const { from, to } = parseSchema(dateRangeQuerySchema, req.query);
@@ -26,7 +25,7 @@ export const availableTimes = merchantHandler(async (req, res, userId) => {
 });
 
 export const detail = merchantHandler(async (req, res, userId) => {
-  res.success(await getSalonBooking(userId, bookingId(req.params)));
+  res.success(await getSalonBooking(userId, await bookingRef(userId, req.params)));
 });
 
 export const create = merchantHandler(async (req, res, userId) => {
@@ -34,27 +33,27 @@ export const create = merchantHandler(async (req, res, userId) => {
 });
 
 export const accept = merchantHandler(async (req, res, userId) => {
-  res.success(await acceptBooking(userId, bookingId(req.params)), "Booking accepted");
+  res.success(await acceptBooking(userId, await bookingRef(userId, req.params)), "Booking accepted");
 });
 
 export const cancel = merchantHandler(async (req, res, userId) => {
   const { reason } = parseSchema(salonCancelSchema, req.body ?? {});
-  res.success(await cancelBooking(userId, bookingId(req.params), reason), "Booking cancelled");
+  res.success(await cancelBooking(userId, await bookingRef(userId, req.params), reason), "Booking cancelled");
 });
 
 export const complete = merchantHandler(async (req, res, userId) => {
-  res.success(await completeBooking(userId, bookingId(req.params), parseSchema(completeBookingSchema, req.body ?? {})), "Booking completed");
+  res.success(await completeBooking(userId, await bookingRef(userId, req.params), parseSchema(completeBookingSchema, req.body ?? {})), "Booking completed");
 });
 
 export const noShow = merchantHandler(async (req, res, userId) => {
-  res.success(await markNoShow(userId, bookingId(req.params), parseSchema(noShowSchema, req.body ?? {})), "Marked as a no-show");
+  res.success(await markNoShow(userId, await bookingRef(userId, req.params), parseSchema(noShowSchema, req.body ?? {})), "Marked as a no-show");
 });
 
 export const reschedule = merchantHandler(async (req, res, userId) => {
-  res.success(await rescheduleSalonBooking(userId, bookingId(req.params), parseSchema(salonRescheduleSchema, req.body)), "Booking rescheduled");
+  res.success(await rescheduleSalonBooking(userId, await bookingRef(userId, req.params), parseSchema(salonRescheduleSchema, req.body)), "Booking rescheduled");
 });
 
 export const staff = merchantHandler(async (req, res, userId) => {
   const { staffIds } = parseSchema(assignStaffSchema, req.body);
-  res.success(await assignStaff(userId, bookingId(req.params), staffIds), "Team updated");
+  res.success(await assignStaff(userId, await bookingRef(userId, req.params), staffIds), "Team updated");
 });

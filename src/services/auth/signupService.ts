@@ -104,7 +104,7 @@ export async function completeSignup(input: SignupInput): Promise<SessionResult>
 }
 
 /** Welcome email, the team's notice and the Slack alert — none of them hold up sign-up. */
-function announceNewCustomer(user: { id: string; email: string; firstName: string | null; surname: string | null; phoneNumber: string | null }): void {
+export function announceNewCustomer(user: { id: string; email: string; firstName: string | null; surname: string | null; phoneNumber: string | null }): void {
   const name = displayName(user);
 
   sendEmailInBackground({ to: user.email, cc: DELIVERY_TEAM_EMAIL || undefined, ...welcomeEmail({ name }) });

@@ -93,7 +93,7 @@ export async function completeMerchantSignup(input: MerchantSignupInput): Promis
 }
 
 /** Welcome email and the Slack alert — neither holds up sign-up. */
-function announceNewMerchant(user: { id: string; email: string; firstName: string | null; surname: string | null; phoneNumber: string | null }): void {
+export function announceNewMerchant(user: { id: string; email: string; firstName: string | null; surname: string | null; phoneNumber: string | null }): void {
   const name = displayName(user) === "Customer" ? "Merchant" : displayName(user);
   sendEmailInBackground({ to: user.email, cc: DELIVERY_TEAM_EMAIL || undefined, ...merchantWelcomeEmail({ name }) });
   notifySlack({

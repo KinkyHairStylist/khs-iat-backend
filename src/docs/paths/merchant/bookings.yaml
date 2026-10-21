@@ -51,7 +51,7 @@
   get:
     tags: [Merchant - Bookings]
     summary: One booking with its client, services, team, payment and review
-    parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+    parameters: [{ in: path, name: id, required: true, description: "Appointment id or order number (BKID-1234567)", schema: { type: string } }]
     responses:
       "200": { description: "data: { id, referenceId, status, createdAt, client, appointment, staff, serviceStaffIds, services, payment, notes, review }" }
       "404": { description: Not this salon's booking }
@@ -60,14 +60,14 @@
   post:
     tags: [Merchant - Bookings]
     summary: Accept one of the salon's own Pending bookings (a customer's checkout confirms itself when paid)
-    parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+    parameters: [{ in: path, name: id, required: true, description: "Appointment id or order number (BKID-1234567)", schema: { type: string } }]
     responses: { "200": { description: "data: { status }" }, "400": { description: NOT_PENDING / CUSTOMER_CHECKOUT } }
 
 /api/v1/merchant/bookings/{id}/cancel:
   post:
     tags: [Merchant - Bookings]
     summary: The salon cancels or rejects the booking (whole order); a held card payment is refunded in full
-    parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+    parameters: [{ in: path, name: id, required: true, description: "Appointment id or order number (BKID-1234567)", schema: { type: string } }]
     requestBody: { content: { application/json: { schema: { type: object, properties: { reason: { type: string } } } } } }
     responses: { "200": { description: "data: { status, refunded? }" } }
 
@@ -75,7 +75,7 @@
   post:
     tags: [Merchant - Bookings]
     summary: Complete a confirmed booking (from its day on); the held payment is released to the salon's wallet
-    parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+    parameters: [{ in: path, name: id, required: true, description: "Appointment id or order number (BKID-1234567)", schema: { type: string } }]
     requestBody: { content: { application/json: { schema: { type: object, properties: { notes: { type: string }, timezoneOffsetMinutes: { type: integer } } } } } }
     responses: { "200": { description: "data: { status }" }, "400": { description: NOT_CONFIRMED / TOO_EARLY } }
 
@@ -83,14 +83,14 @@
   post:
     tags: [Merchant - Bookings]
     summary: Mark a confirmed booking as a no-show (once it has started); the salon is paid as for a completed booking
-    parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+    parameters: [{ in: path, name: id, required: true, description: "Appointment id or order number (BKID-1234567)", schema: { type: string } }]
     responses: { "200": { description: "data: { status }" } }
 
 /api/v1/merchant/bookings/{id}/reschedule:
   post:
     tags: [Merchant - Bookings]
     summary: Move the booking (whole order) to a new day and time
-    parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+    parameters: [{ in: path, name: id, required: true, description: "Appointment id or order number (BKID-1234567)", schema: { type: string } }]
     requestBody:
       content:
         application/json:
@@ -101,7 +101,7 @@
   put:
     tags: [Merchant - Bookings]
     summary: Set who does the booking (first is the main stylist)
-    parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+    parameters: [{ in: path, name: id, required: true, description: "Appointment id or order number (BKID-1234567)", schema: { type: string } }]
     requestBody: { content: { application/json: { schema: { type: object, required: [staffIds], properties: { staffIds: { type: array, items: { type: string, format: uuid } } } } } } }
     responses: { "200": { description: "data: { staffIds }" }, "400": { description: NOT_ON_TEAM / NOT_EDITABLE } }
 

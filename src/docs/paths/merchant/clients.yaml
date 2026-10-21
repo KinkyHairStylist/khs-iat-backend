@@ -72,24 +72,24 @@
   get:
     tags: [Merchant - Clients]
     summary: One client in full (profile, addresses, contacts, settings, membership, rating given)
-    parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+    parameters: [{ in: path, name: id, required: true, description: "Client id or name plus short id (jane-doe-3f9a1c2e)", schema: { type: string } }]
     responses: { "200": { description: "data: the client" }, "404": { description: Not this salon client } }
   put:
     tags: [Merchant - Clients]
     summary: Change a client (same body as adding)
-    parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+    parameters: [{ in: path, name: id, required: true, description: "Client id or name plus short id (jane-doe-3f9a1c2e)", schema: { type: string } }]
     responses: { "200": { description: "data: the client" } }
   delete:
     tags: [Merchant - Clients]
     summary: Remove a client from the list (kept for history; adding them again restores the record)
-    parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+    parameters: [{ in: path, name: id, required: true, description: "Client id or name plus short id (jane-doe-3f9a1c2e)", schema: { type: string } }]
     responses: { "200": { description: Deleted } }
 
 /api/v1/merchant/clients/{id}/appointments:
   get:
     tags: [Merchant - Clients]
     summary: The client bookings with the salon (made for the record or by the matching KHS account)
-    parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+    parameters: [{ in: path, name: id, required: true, description: "Client id or name plus short id (jane-doe-3f9a1c2e)", schema: { type: string } }]
     responses: { "200": { description: "data: [{ id, date, time, status, amount, serviceName, staff }]" } }
 
 /api/v1/merchant/clients/{id}/overview:
@@ -97,7 +97,7 @@
     tags: [Merchant - Clients]
     summary: Completed-booking value for the period by day/week/month, change from the period before, and counts
     parameters:
-      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      - { in: path, name: id, required: true, description: "Client id or name plus short id (jane-doe-3f9a1c2e)", schema: { type: string } }
       - { in: query, name: period, schema: { type: string, enum: [week, month, year] } }
       - { in: query, name: date, required: true, schema: { type: string } }
     responses: { "200": { description: "data: { period, total, previousTotal, growth, buckets: [{ label, value }], appointments, cancelled, noShows, rating }" } }
@@ -106,7 +106,7 @@
   get:
     tags: [Merchant - Clients]
     summary: The client reviews of the salon (matched by their KHS account email), unreplied first
-    parameters: [{ in: path, name: id, required: true, schema: { type: string, format: uuid } }]
+    parameters: [{ in: path, name: id, required: true, description: "Client id or name plus short id (jane-doe-3f9a1c2e)", schema: { type: string } }]
     responses: { "200": { description: "data: [{ id, rating, comment, reply, replyTime, replyBy, likes, clientName, service, clientType, createdAt, staffRating }]" } }
 
 /api/v1/merchant/clients/{id}/reviews/{reviewId}/reply:
@@ -114,7 +114,7 @@
     tags: [Merchant - Clients]
     summary: Reply to one of the client reviews (once); the client is emailed
     parameters:
-      - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      - { in: path, name: id, required: true, description: "Client id or name plus short id (jane-doe-3f9a1c2e)", schema: { type: string } }
       - { in: path, name: reviewId, required: true, schema: { type: string, format: uuid } }
     requestBody: { content: { application/json: { schema: { type: object, required: [reply], properties: { reply: { type: string } } } } } }
     responses: { "200": { description: "data: the review" }, "409": { description: ALREADY_REPLIED } }
