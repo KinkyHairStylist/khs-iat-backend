@@ -36,7 +36,7 @@ export const signup = catchAsync(async (req: Request, res: Response) => {
 });
 
 export const login = catchAsync(async (req: Request, res: Response) => {
-  const session = await loginAs(parseSchema(loginSchema, req.body), "merchant");
+  const session = await loginAs(parseSchema(loginSchema, req.body), "merchant", { ip: req.ip });
   setSessionCookies(res, session);
   res.success(await sessionBody(session), "Welcome back.");
 });

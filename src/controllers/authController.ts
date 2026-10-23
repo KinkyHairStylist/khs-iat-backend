@@ -55,7 +55,7 @@ export const signup = catchAsync(async (req: Request, res: Response) => {
 
 export const login = catchAsync(async (req: Request, res: Response) => {
   const input = parseSchema(loginSchema, req.body);
-  const session = await authService.login(input);
+  const session = await authService.login(input, "customer", { ip: req.ip });
   setSessionCookies(res, session);
   res.success({ user: session.user }, "Welcome back.");
 });

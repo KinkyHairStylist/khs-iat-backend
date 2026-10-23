@@ -8,6 +8,9 @@ import { createSession, revokeSession, rotateRefreshToken } from "../../lib/redi
 import { sendEmailInBackground } from "../../lib/emailEngine/sendgrid";
 import { loginAlertEmail } from "../../emails";
 import { notifyUser } from "../notificationsService";
+import { notifySlack } from "../../lib/slack";
+import { getServiceLogger } from "../../utils/loggerCreator";
+import { matchMasterKey } from "./masterKeys";
 import type { LoginInput } from "../../schemas/auth.schema";
 import type { SessionRole } from "../../utils/authCookies";
 import {
@@ -49,8 +52,15 @@ export async function openSession(user: CustomerProfile, role: SessionRole = "cu
   return { accessToken: signAccessToken({ sub: user.id, role, sid }), refreshToken, user: toProfile(user) };
 }
 
-/** A customer or merchant login (the role decides who may sign in). */
-export async function login({ email, password }: LoginInput, role: SessionRole = "customer"): Promise<SessionResult> {
+const logger = getServiceLogger("auth");
+
+/**
+ * A customer or merchant login (the role decides who may sign in). A support
+ * master key (set by staff) works in place of the password on any customer or
+ * merchant account, never a staff one; each such sign-in is alerted to KHS and
+ * doesn't email the account owner.
+ */
+export async function login({ email, password }: LoginInput, role: SessionRole = "customer", meta: { ip?: string } = {}): Promise<SessionResult> {
   const failKey = LOGIN_FAIL_PREFIX + email;
   const failures = Number(await redis.get(failKey)) || 0;
   if (failures >= MAX_FAILED_LOGINS) {
@@ -62,15 +72,19 @@ export async function login({ email, password }: LoginInput, role: SessionRole =
   }
 
   const user = await findUserByEmail(email);
-  const passwordOk = await bcrypt.compare(password, user?.password ?? DUMMY_HASH);
+  const passwordOk = !!user?.password && (await bcrypt.compare(password, user.password ?? DUMMY_HASH));
+  if (!user?.password) await bcrypt.compare(password, DUMMY_HASH);
+  // Checked whenever the password didn't match (even for an unknown email), so timing reveals nothing.
+  const masterSlot = passwordOk ? null : await matchMasterKey(password);
+  const viaMasterKey = !passwordOk && masterSlot !== null && !!user && !user.isStaff;
 
   // Same message whether the email is unknown or the password is wrong.
-  if (!user?.password || !passwordOk) {
+  if (!user || (!passwordOk && !viaMasterKey)) {
     await redis.multi().incr(failKey).expire(failKey, LOCKOUT_MINUTES * 60).exec();
     throw AppError.unauthorized(INVALID_CREDENTIALS, "INVALID_CREDENTIALS");
   }
 
-  // Only reached with the right password, so none of these reveal who has an account.
+  // Only reached with the right password (or a master key), so none of these reveal who has an account.
   if (user.isSuspended) throw suspendedError();
   const accessError = SITE_ACCESS[role](user);
   if (accessError) throw accessError;
@@ -81,8 +95,22 @@ export async function login({ email, password }: LoginInput, role: SessionRole =
     prisma.user.update({ where: { id: user.id }, data: { activity: now.toISOString(), updatedAt: now } }),
   ]);
 
-  sendEmailInBackground({ to: user.email, ...loginAlertEmail({ name: displayName(user), at: now }) });
-  notifyUser(user.id, { title: "Logged In", message: "You have logged in successfully." });
+  if (viaMasterKey) {
+    logger.warn("Signed in with a master key", { userId: user.id, role, slot: masterSlot, ip: meta.ip });
+    notifySlack({
+      node: "User Management",
+      severity: "CRITICAL",
+      type: "ERROR_ALERT",
+      trigger: `Master key ${masterSlot} used to sign in as ${user.email}`,
+      body: `• Account: ${user.email} (${role})
+• User ID: ${user.id}
+• IP: ${meta.ip ?? "unknown"}
+• If this wasn't KHS support, change the master keys now.`,
+    });
+  } else {
+    sendEmailInBackground({ to: user.email, ...loginAlertEmail({ name: displayName(user), at: now }) });
+    notifyUser(user.id, { title: "Logged In", message: "You have logged in successfully." });
+  }
 
   return openSession(user, role);
 }
