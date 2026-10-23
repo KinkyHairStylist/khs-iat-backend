@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "nodemon --exec ts-node src/server.ts",
+    "dev": "node --watch-path=src -r ts-node/register src/server.ts",
     "build": "prisma generate && tsc && node -e \"require('fs').cpSync('src/docs/paths', 'dist/docs/paths', { recursive: true })\"",
     "start": "node dist/server.js",
     "lint": "eslint \"src/**/*.ts\"",
@@ -62,10 +62,9 @@
     "@typescript-eslint/eslint-plugin": "^8.59.4",
     "@typescript-eslint/parser": "^8.59.4",
     "eslint": "^9.19.0",
-    "nodemon": "^3.1.14",
     "socket.io-client": "^4.8.4",
     "ts-node": "^10.9.2",
     "typescript": "^6.0.3",
-    "vitest": "^3.2.7"
+    "vitest": "^5.0.5"
   }
 }

@@ -1,5 +1,0 @@
-{
-  "watch": ["src", ".env"],
-  "ext": "ts,json,yaml",
-  "ignore": ["src/generated/**", "logs/**"]
-}
