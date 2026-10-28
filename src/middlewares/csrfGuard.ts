@@ -24,12 +24,8 @@ export function csrfGuard(req: Request, res: Response, next: NextFunction): void
     return;
   }
 
-  const isPublicWaitlist =
-    req.path === "/api/waitlist" ||
-    req.path === "/waitlist" ||
-    req.path === "/api/v1/waitlist";
   const origin = req.headers.origin;
-  const hasHeader = isPublicWaitlist || req.headers[CSRF_HEADER] === CSRF_HEADER_VALUE;
+  const hasHeader = req.headers[CSRF_HEADER] === CSRF_HEADER_VALUE;
   const originAllowed = !origin || CORS_ORIGINS.includes(origin);
 
   if (!hasHeader || !originAllowed) {

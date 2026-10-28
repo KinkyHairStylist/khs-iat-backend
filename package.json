@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "node --watch-path=src -r ts-node/register src/server.ts",
+    "dev": "node --watch-path=src -r ts-node/register/transpile-only src/server.ts",
     "build": "prisma generate && tsc && node -e \"require('fs').cpSync('src/docs/paths', 'dist/docs/paths', { recursive: true })\"",
     "start": "node dist/server.js",
     "lint": "eslint \"src/**/*.ts\"",

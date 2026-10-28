@@ -83,3 +83,57 @@
         description: ALREADY_SUBSCRIBED
       "429":
         description: RATE_LIMITED
+
+/api/v1/landing/waitlist:
+  post:
+    tags: [Landing]
+    summary: Join the pre-launch waitlist
+    description: >-
+      Public. Stage 1 (email, role, consent) joins the list; stage 2 adds optional
+      details to the same row (pass the signupId stage 1 returned). At most 20
+      requests per 15 minutes from one address.
+    security: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [email, role, consent]
+            properties:
+              stage: { type: integer, enum: [1, 2], default: 1 }
+              signupId: { type: string, format: uuid }
+              email: { type: string, format: email }
+              role: { type: string, enum: [Client, Customer, Hairstylist, Stylist] }
+              consent: { type: boolean, enum: [true] }
+              consentText: { type: string }
+              launchDate: { type: string }
+              clientTime: { type: string, format: date-time }
+              utm_source: { type: string }
+              utm_medium: { type: string }
+              utm_campaign: { type: string }
+              utm_content: { type: string }
+              utm_term: { type: string }
+              ref: { type: string }
+              referrer: { type: string }
+              page: { type: string }
+              details:
+                type: object
+                properties:
+                  hairType: { type: string }
+                  styles: { type: array, items: { type: string } }
+                  workSetting: { type: string }
+                  social: { type: string }
+                  postcode: { type: string }
+                  city: { type: string }
+    responses:
+      "201":
+        description: "Joined (stage 1). data: { id, stage }"
+      "200":
+        description: "Details saved (stage 2). data: { id, stage }"
+      "400":
+        description: VALIDATION_ERROR
+      "409":
+        description: EMAIL_EXISTS
+      "429":
+        description: RATE_LIMITED
