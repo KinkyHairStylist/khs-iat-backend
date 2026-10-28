@@ -5,6 +5,7 @@ import authRouter from "./authRouter";
 import { customerNotificationsRouter, merchantNotificationsRouter } from "./notificationsRouter";
 import supportRouter from "./supportRouter";
 import helpRouter from "./helpRouter";
+import waitlistRouter from "./waitlistRouter";
 
 // Customer — one router per domain under ./customer, ported from
 // Kinky-Hair-Stylist-BE-Redesign.
@@ -44,6 +45,7 @@ router.use("/landing", landingRouter);
 router.use("/salons", salonsRouter);
 router.use("/alerts", alertsRouter);
 router.use("/help", helpRouter);
+router.use("/waitlist", waitlistRouter);
 
 // Signed-in customer.
 router.use("/customer", accountRouter);
