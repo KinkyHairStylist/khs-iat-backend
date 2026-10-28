@@ -5,9 +5,20 @@ import { NODE_ENV, DATABASE_URL } from "../../config/env";
 
 const logger = getServiceLogger("prisma");
 
+const needsSsl =
+  DATABASE_URL.includes("sslmode=require") ||
+  process.env.DB_SSL === "require" ||
+  process.env.DB_SSL === "true";
+const normalizedDatabaseUrl = needsSsl
+  ? DATABASE_URL.replace(/sslmode=require/gi, "sslmode=no-verify")
+  : DATABASE_URL;
+
 const prismaClientSingleton = () =>
   new PrismaClient({
-    adapter: new PrismaPg({ connectionString: DATABASE_URL }),
+    adapter: new PrismaPg({
+      connectionString: normalizedDatabaseUrl,
+      ...(needsSsl ? { ssl: { rejectUnauthorized: false } } : {}),
+    }),
     log: [
       { emit: "event", level: "warn" },
       { emit: "event", level: "error" },

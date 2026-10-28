@@ -25,6 +25,7 @@ import {
 
 import router from "./routes";
 import webhooksRouter from "./routes/webhooksRouter";
+import waitlistRouter from "./routes/waitlistRouter";
 
 const app: Application = express();
 
@@ -129,6 +130,8 @@ app.get("/api/v1/health", (_req: Request, res: Response) => {
 app.use(dbReady);
 
 // ─── 13. API routes ───────────────────────────────────────────────────────────
+app.use("/api/waitlist", waitlistRouter);
+app.use("/waitlist", waitlistRouter);
 app.use("/api/v1", router);
 
 // ─── 14. 404 handler ─────────────────────────────────────────────────────────

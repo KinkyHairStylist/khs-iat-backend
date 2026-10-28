@@ -1362,6 +1362,44 @@ model withdrawals {
   @@index([businessId], map: "IDX_7d10a34d9731d39e0deeaaed5c")
 }
 
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model waitlist_signup {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  brand          String    @default("KHS") @db.VarChar(64)
+  email          String    @db.VarChar(320)
+  role           String    @db.VarChar(100)
+  segment        String    @db.VarChar(50)
+  stage          Int       @default(1) @db.SmallInt
+  consent        Boolean   @default(true)
+  consent_text   String?
+  launch_date    String?   @db.VarChar(64)
+  client_time    DateTime? @db.Timestamptz(6)
+  utm_source     String?   @db.VarChar(255)
+  utm_medium     String?   @db.VarChar(255)
+  utm_campaign   String?   @db.VarChar(255)
+  utm_content    String?   @db.VarChar(255)
+  utm_term       String?   @db.VarChar(255)
+  ref            String?   @db.VarChar(255)
+  referrer       String?
+  page           String?   @db.VarChar(500)
+  details        Json      @default("{}")
+  hair_type      String?   @db.VarChar(100)
+  styles         Json?
+  work_setting   String?   @db.VarChar(100)
+  social         String?   @db.VarChar(255)
+  cuisines       Json?
+  dietary        Json?
+  fulfilment     String?   @db.VarChar(100)
+  kitchen_status String?   @db.VarChar(100)
+  business       String?   @db.VarChar(255)
+  postcode       String?   @db.VarChar(50)
+  city           String?   @db.VarChar(120)
+  ip_address     String?   @db.VarChar(64)
+  user_agent     String?
+  created_at     DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime  @default(now()) @db.Timestamptz(6)
+}
+
 model zohobooks_credentials {
   id             String      @id(map: "PK_6760dbd966a0303ecb7d93978bc") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   accessToken    String
