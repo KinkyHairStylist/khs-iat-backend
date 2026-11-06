@@ -83,6 +83,8 @@ export async function getCustomerBooking(userId: string, orderId: string) {
       reviews: Number(performance.reviews ?? 0),
       latitude: salon.latitude,
       longitude: salon.longitude,
+      /** Approved by KHS and finished setting up payouts: shown as "Verified by KHS". */
+      verified: salon.status === "approved" && salon.stripeOnboardingComplete,
     },
     stylist: stylist ? { id: stylist.id, name: `${stylist.firstName ?? ""} ${stylist.lastName ?? ""}`.trim() || null } : null,
     services: rows.map((r) => ({

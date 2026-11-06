@@ -11,6 +11,8 @@ const linkLimiter = createRateLimiter("salon-link", 60_000, 60);
 router.get("/service-types", salonsController.getServiceTypes);
 router.get("/locations", salonsController.getLocations);
 router.get("/", salonsController.listSalons);
+// Before "/:id", so "next-free" isn't read as a salon id. Up to 100 services (one search page) per call.
+router.get("/next-free", createRateLimiter("salon-next-free", 60_000, 60), salonsController.getNextFree);
 router.get("/by-link/:link", linkLimiter, salonsController.getSalonByLink);
 router.get("/:id", salonsController.getSalon);
 router.get("/:id/reviews", salonsController.getReviews);

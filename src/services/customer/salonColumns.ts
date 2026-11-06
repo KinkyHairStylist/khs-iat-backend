@@ -6,12 +6,14 @@ import { Prisma } from "../../generated/prisma/client";
 
 // What a customer may see of a salon. Leaves out the owner's revenue figures,
 // email address and Stripe account; the phone number is the salon's contact.
+// "verified": KHS has approved the salon and it has finished setting up payouts (Stripe).
 export const BUSINESS_COLUMNS = Prisma.sql`
   b.id, b."businessName", b.description, b.owner_id AS "ownerId", b."ownerName", b."ownerPhone",
   b."primaryAudience", b.service, b.category, b."businessAddress", b.country, b."businessImage",
   b.longitude, b.latitude, b."companySize"::text AS "companySize", b."howDidYouHear", b.status::text AS status,
   b."isLuxury", b."luxuryOverride", b.bookings, b.plan, b."planTier"::text AS "planTier", b.performance,
-  b."createdAt", b."updatedAt"`;
+  b."createdAt", b."updatedAt",
+  (b.status = 'approved' AND b."stripeOnboardingComplete") AS verified`;
 
 // Prices are sent as text so 10.50 never turns into 10.499999.
 export const SERVICE_COLUMNS = Prisma.sql`

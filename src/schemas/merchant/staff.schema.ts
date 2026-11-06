@@ -4,7 +4,8 @@ import { calendarDate, email, phoneNumber } from "../fields";
 // The salon's team: profile, addresses, emergency contacts, services and settings.
 
 const text = (label: string, max: number) => z.string({ error: `${label} is required.` }).trim().min(1, `${label} is required.`).max(max, `${label} must be ${max} characters or fewer.`);
-const optionalText = (max: number) => z.string().trim().max(max).optional().transform((v) => v || null);
+// Empty, missing or null all mean "not given" (forms send null for a cleared field).
+const optionalText = (max: number) => z.string().trim().max(max).nullish().transform((v) => v || null);
 
 export const STAFF_GENDERS = ["MALE", "FEMALE", "CUSTOM", "PREFER_NOT_TO_SAY"] as const;
 export const EMPLOYMENT_TYPES = ["full-time", "part-time", "contract"] as const;

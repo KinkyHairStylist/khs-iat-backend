@@ -5,7 +5,8 @@ import { calendarDate, email } from "../fields";
 // addresses, emergency contacts, settings in one), and photos.
 
 const text = (label: string, max: number) => z.string({ error: `${label} is required.` }).trim().min(1, `${label} is required.`).max(max, `${label} must be ${max} characters or fewer.`);
-const optional = (max: number) => z.string().trim().max(max).optional().transform((v) => v || null);
+// Empty, missing or null all mean "not given" (forms send null for a cleared field).
+const optional = (max: number) => z.string().trim().max(max).nullish().transform((v) => v || null);
 const blankToUndefined = <T extends z.ZodTypeAny>(schema: T) => z.union([schema, z.literal("").transform(() => undefined)]).optional();
 
 const phoneCode = z.string().trim().regex(/^\+\d{1,4}$/, "Choose a country code.");
