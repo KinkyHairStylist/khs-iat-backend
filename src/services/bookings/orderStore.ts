@@ -26,6 +26,8 @@ const ORDER_SELECT = {
     select: {
       id: true, businessName: true, businessAddress: true, businessImage: true, owner_id: true, ownerName: true, ownerEmail: true,
       ownerPhone: true, planTier: true, performance: true, latitude: true, longitude: true,
+      // For "Verified by KHS" at checkout: approved by KHS and payouts set up.
+      status: true, stripeOnboardingComplete: true,
     },
   },
 } satisfies Prisma.appointmentsSelect;

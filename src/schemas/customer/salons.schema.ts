@@ -61,4 +61,13 @@ export function salonsQuery(query: Record<string, unknown>): Record<string, unkn
 // A salon or review id from the URL. Anything that isn't a uuid can't exist,
 // so it's a 404 like any unknown id, not a validation error.
 export const salonIdSchema = z.object({ id: z.string().uuid() });
+
+/** GET /salons/next-free?services=<id>,<id>&tz=<the browser's getTimezoneOffset()>: the services on a search page. */
+export const nextFreeQuerySchema = z.object({
+  services: z
+    .union([z.string(), z.array(z.string())])
+    .transform((v) => [...new Set((Array.isArray(v) ? v : v.split(",")).map((id) => id.trim()).filter(Boolean))])
+    .pipe(z.array(z.string().uuid("Please choose valid services.")).min(1, "Choose at least one service.").max(100, "Ask for 100 services at most.")),
+  tz: z.coerce.number().int().min(-14 * 60).max(14 * 60).optional(),
+});
 export const reviewIdSchema = z.object({ reviewId: z.string().uuid() });

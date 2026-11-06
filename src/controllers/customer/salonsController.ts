@@ -1,7 +1,8 @@
 import { Request, Response } from "express";
 import { AppError, catchAsync } from "../../middlewares/centralAppError";
 import { parseSchema } from "../../utils/parseSchema";
-import { listSalonsSchema, salonIdSchema, salonsQuery } from "../../schemas/customer/salons.schema";
+import { listSalonsSchema, nextFreeQuerySchema, salonIdSchema, salonsQuery } from "../../schemas/customer/salons.schema";
+import { nextFreeTimes } from "../../services/customer/nextFreeService";
 import * as salonsService from "../../services/customer/salonsService";
 import { getSalonDetail } from "../../services/customer/salonDetailService";
 import { getSalonReviews } from "../../services/customer/salonReviewsService";
@@ -45,4 +46,10 @@ export const getSalonByLink = catchAsync(async (req: Request, res: Response) => 
   const link = String(req.params.link ?? "");
   if (link.length === 0 || link.length > 200) throw AppError.notFound("Salon");
   res.success(await resolveSalonLink(link));
+});
+
+/** GET /salons/next-free: the earliest bookable time for each service on a search page ("Next free" on its card). */
+export const getNextFree = catchAsync(async (req: Request, res: Response) => {
+  const { services, tz } = parseSchema(nextFreeQuerySchema, req.query as Record<string, unknown>);
+  res.success(await nextFreeTimes(services, tz));
 });
