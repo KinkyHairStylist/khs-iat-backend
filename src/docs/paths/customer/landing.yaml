@@ -59,6 +59,16 @@
       "200":
         description: "data: [{ id, name, role, quote, image, ... }]"
 
+/api/v1/landing/offers:
+  get:
+    tags: [Landing]
+    summary: The launch offers
+    description: The first-booking discount, and the founding stylist offer with how many places are left. Public.
+    security: []
+    responses:
+      "200":
+        description: "data: { firstBooking: { discountPercent, available }, founding: { salonLimit, spotsLeft, commissionFreeMonths, launchDate, endsAtIfApprovedToday, available } }"
+
 /api/v1/landing/newsletter/subscribe:
   post:
     tags: [Landing]

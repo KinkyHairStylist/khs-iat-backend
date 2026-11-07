@@ -7,6 +7,7 @@ import { allowsDeposit } from "./bookingQueryService";
 import { holdIsLive } from "./bookingHolds";
 import { cancelUnpaidAttempts, settleOutstandingPayments, settlePaidIntent } from "./cardPaymentSettle";
 import { startCardPayment } from "./cardPaymentStart";
+import { firstBookingDiscountCents, isFirstBooking } from "../offers/launchOffers";
 import { getPaymentSettings } from "./paymentSettings";
 import { fromCents, quotePayment, type PaymentQuote } from "./paymentQuote";
 import { confirmFreeBooking, payWithGiftCard } from "./payWithoutCard";
@@ -22,6 +23,7 @@ const quoteView = (q: PaymentQuote, depositOnly: boolean) => ({
   depositOnly,
   serviceTotal: fromCents(q.serviceTotalCents),
   giftCardApplied: fromCents(q.giftCardAppliedCents),
+  firstBookingDiscount: fromCents(q.discountCents),
   processingFee: fromCents(q.processingFeeCents),
   payNow: fromCents(q.cardChargeCents),
   balanceDue: fromCents(q.balanceDueCents),
@@ -58,7 +60,7 @@ export async function startPayment(userId: string, orderId: string, input: Start
     await cancelUnpaidAttempts(orderId);
     await payWithMembership({ orderId, rows, membershipPurchaseId: input.membershipPurchaseId, party });
     // Nothing is charged: the sessions were paid for when the membership was bought.
-    const quote = { depositOnly: false, serviceTotal: fromCents(totalCents), giftCardApplied: 0, processingFee: 0, payNow: 0, balanceDue: 0, paidWithMembership: true };
+    const quote = { depositOnly: false, serviceTotal: fromCents(totalCents), giftCardApplied: 0, firstBookingDiscount: 0, processingFee: 0, payNow: 0, balanceDue: 0, paidWithMembership: true };
     return { kind: "confirmed" as const, quote };
   }
 
@@ -75,12 +77,17 @@ export async function startPayment(userId: string, orderId: string, input: Start
   }
 
   const settings = await getPaymentSettings();
+  // The first-booking offer is for a booking paid by card (not with a gift card or membership).
+  const discountCents = !input.giftCard && (await isFirstBooking(prisma, userId, orderId))
+    ? firstBookingDiscountCents(totalCents, settings.firstBookingDiscountRate)
+    : 0;
   const quote = quotePayment({
     serviceTotalCents: totalCents,
     giftCardBalanceCents,
     depositOnly: input.depositOnly,
     passthroughRate: settings.stripePassthroughRate,
     passthroughFixedFee: settings.stripePassthroughFixedFee,
+    discountCents,
   });
 
   if (quote.cardChargeCents === 0 && input.giftCard) {

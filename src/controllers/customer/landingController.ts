@@ -5,11 +5,16 @@ import { subscribeNewsletterSchema } from "../../schemas/customer/landing.schema
 import { waitlistSignupSchema } from "../../schemas/customer/waitlist.schema";
 import * as landingService from "../../services/customer/landingService";
 import { signUpForWaitlist } from "../../services/customer/waitlistService";
+import { publicOffers } from "../../services/offers/launchOffers";
 import { getClientIp } from "../../utils/requestIp";
 import { sanitizeLogValue } from "../../utils/loggerCreator";
 
 export const getStats = catchAsync(async (_req: Request, res: Response) => {
   res.success(await landingService.listActiveStats());
+});
+
+export const getOffers = catchAsync(async (_req: Request, res: Response) => {
+  res.success(await publicOffers());
 });
 
 export const getTestimonials = catchAsync(async (_req: Request, res: Response) => {

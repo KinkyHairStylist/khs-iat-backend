@@ -7,7 +7,7 @@ describe("quotePayment", () => {
   it("full card payment adds the processing fee on top", () => {
     // $100: fee = 1.75 + 0.30 = 2.05
     expect(quotePayment({ serviceTotalCents: 10_000, ...rates })).toEqual({
-      serviceTotalCents: 10_000, giftCardAppliedCents: 0, cardBaseCents: 10_000, processingFeeCents: 205, cardChargeCents: 10_205, balanceDueCents: 0,
+      serviceTotalCents: 10_000, giftCardAppliedCents: 0, discountCents: 0, cardBaseCents: 10_000, processingFeeCents: 205, cardChargeCents: 10_205, balanceDueCents: 0,
     });
   });
 

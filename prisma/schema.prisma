@@ -346,6 +346,10 @@ model businesses {
   stripeAccountId              String?                        @db.VarChar
   stripeOnboardingComplete     Boolean                        @default(false)
   planTier                     businesses_plantier_enum       @default(Starter)
+  /// When KHS approved the salon (set by the staff app on approval).
+  approvedAt                   DateTime?                      @db.Timestamp(6)
+  /// 1–100 for the first salons approved: they get the founding stylist offer.
+  foundingNumber               Int?                           @unique(map: "UQ_businesses_foundingNumber")
   Service                      Service[]
   appointments                 appointments[]
   blocked_time_slots           blocked_time_slots[]
@@ -1059,6 +1063,8 @@ model stripe_payment_intents {
   commissionFeeAmount        Decimal                            @default(0) @db.Decimal(12, 2)
   stripePassthroughFeeAmount Decimal                            @default(0) @db.Decimal(12, 2)
   isDeposit                  Boolean                            @default(false)
+  /// First-booking discount taken off this payment; KHS covers it, so the salon is paid as if it wasn't there.
+  khsDiscountAmount          Decimal                            @default(0) @db.Decimal(12, 2)
 
   @@index([businessId], map: "IDX_stripe_payment_intents_businessId")
   @@index([orderId], map: "IDX_stripe_payment_intents_orderId")
