@@ -7,6 +7,9 @@
 //  - A deposit is half the service price; the rest is paid at the salon. It
 //    can't be combined with a gift card.
 //  - A gift card pays first; the card pays what's left.
+//  - A first-booking discount comes off what's paid by card now (the deposit, or what the gift card
+//    didn't cover), never below zero. KHS covers it: fees and the salon's payout are worked out on
+//    the full price, and what's paid at the salon is unchanged.
 
 export const toCents = (amount: number) => Math.round(amount * 100);
 export const fromCents = (cents: number) => cents / 100;
@@ -21,12 +24,16 @@ export interface QuoteInput {
   depositOnly?: boolean;
   passthroughRate: number;
   passthroughFixedFee: number;
+  /** The first-booking discount KHS gives on this booking, if any. */
+  discountCents?: number;
 }
 
 export interface PaymentQuote {
   serviceTotalCents: number;
   giftCardAppliedCents: number;
-  /** The part of the service price paid by card now (all of the rest, or the deposit). */
+  /** The first-booking discount taken off the card payment (KHS covers it). */
+  discountCents: number;
+  /** The part of the service price paid by card now (all of the rest, or the deposit), after the discount. */
   cardBaseCents: number;
   processingFeeCents: number;
   /** Charged to the card now: cardBase + processing fee. */
@@ -45,15 +52,18 @@ export function quotePayment(input: QuoteInput): PaymentQuote {
   const total = Math.max(0, input.serviceTotalCents);
   const giftCardAppliedCents = input.depositOnly ? 0 : Math.min(Math.max(0, input.giftCardBalanceCents ?? 0), total);
   const remaining = total - giftCardAppliedCents;
-  const cardBaseCents = input.depositOnly ? Math.round(total / 2) : remaining;
+  const cardBeforeDiscount = input.depositOnly ? Math.round(total / 2) : remaining;
+  const discountCents = Math.min(Math.max(0, input.discountCents ?? 0), cardBeforeDiscount);
+  const cardBaseCents = cardBeforeDiscount - discountCents;
   const fee = processingFeeCents(cardBaseCents, input.passthroughRate, input.passthroughFixedFee);
   return {
     serviceTotalCents: total,
     giftCardAppliedCents,
+    discountCents,
     cardBaseCents,
     processingFeeCents: fee,
     cardChargeCents: cardBaseCents + fee,
-    balanceDueCents: input.depositOnly ? total - cardBaseCents : 0,
+    balanceDueCents: input.depositOnly ? total - cardBeforeDiscount : 0,
   };
 }
 

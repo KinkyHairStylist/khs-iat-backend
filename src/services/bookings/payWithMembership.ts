@@ -2,6 +2,7 @@ import prisma, { MONEY_TX_OPTIONS } from "../../lib/prisma/prisma";
 import { AppError } from "../../middlewares/centralAppError";
 import { announceConfirmedBooking } from "./bookingAnnouncements";
 import { creditSalonWallet, LEDGER_CURRENCY, payoutAvailableAt, type LedgerParty } from "./ledger";
+import { commissionRateFor } from "../offers/launchOffers";
 import { getPaymentSettings } from "./paymentSettings";
 import { confirmOrder, type OrderAppointment } from "./orderStore";
 import { fromCents } from "./paymentQuote";
@@ -17,7 +18,8 @@ export async function payWithMembership(input: {
   const { orderId, rows, party } = input;
   const businessId = rows[0].business_id!;
   const sessionsNeeded = rows.length;
-  const { commissionRate } = await getPaymentSettings();
+  // No commission while the salon's founding stylist months run.
+  const commissionRate = await commissionRateFor(prisma, businessId, await getPaymentSettings());
 
   const result = await prisma.$transaction(async (tx) => {
     // Locked, so two bookings can't use the same last session.

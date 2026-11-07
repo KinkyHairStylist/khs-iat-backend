@@ -6,7 +6,8 @@ import { creditSalonWallet, debitSalonWallet, payoutAvailableAt } from "../../bo
 // credited the booking amount minus KHS's acquisition fee and commission, into
 // its pending balance for 48 hours. When a gift card paid most of the booking
 // the fees can be more than the card payment; what's left is taken from the
-// salon's wallet. Runs inside the same transaction as the status change, so a
+// salon's wallet. A first-booking discount KHS gave the customer is added back,
+// so the salon is paid as if there were no discount. Runs inside the same transaction as the status change, so a
 // booking is never marked done without its payout (the old code paid out
 // afterwards, and a failure left the salon unpaid with nothing retrying it).
 
@@ -17,6 +18,7 @@ interface HeldPayment {
   bookingAmount: string;
   acquisitionFeeAmount: string;
   commissionFeeAmount: string;
+  khsDiscountAmount: string;
   userId: string;
   businessId: string;
 }
@@ -34,7 +36,8 @@ async function claimForRelease(tx: Tx, orderId: string): Promise<HeldPayment[]> 
     UPDATE stripe_payment_intents SET status = 'released', "releasedAt" = NOW(), "updatedAt" = NOW()
     WHERE "orderId" = ${orderId} AND status = 'held'
     RETURNING "stripePaymentIntentId", "bookingAmount"::text AS "bookingAmount", "acquisitionFeeAmount"::text AS "acquisitionFeeAmount",
-              "commissionFeeAmount"::text AS "commissionFeeAmount", "userId"::text AS "userId", "businessId"::text AS "businessId"`;
+              "commissionFeeAmount"::text AS "commissionFeeAmount", "khsDiscountAmount"::text AS "khsDiscountAmount",
+              "userId"::text AS "userId", "businessId"::text AS "businessId"`;
 }
 
 /**
@@ -50,7 +53,8 @@ export async function releaseHeldPayments(tx: Tx, input: {
   for (const p of payments) {
     const acquisition = cents(p.acquisitionFeeAmount);
     const commission = cents(p.commissionFeeAmount);
-    const net = cents(p.bookingAmount) - acquisition - commission;
+    // What the customer paid, plus the first-booking discount KHS covers, minus KHS's fees.
+    const net = cents(p.bookingAmount) + cents(p.khsDiscountAmount) - acquisition - commission;
 
     if (net > 0) {
       await creditSalonWallet(tx, {

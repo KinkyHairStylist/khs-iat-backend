@@ -16,6 +16,8 @@ router.get("/blog", landingController.getBlogPosts);
 router.get("/blog/:slug", landingController.getBlogPost);
 router.get("/faq", landingController.getFaqs);
 router.get("/stories", landingController.getStories);
+// The launch offers (first-booking discount, founding stylist) and how many founding places are left.
+router.get("/offers", landingController.getOffers);
 router.post("/newsletter/subscribe", newsletterLimiter, landingController.subscribeNewsletter);
 router.post("/waitlist", waitlistLimiter, landingController.joinWaitlist);
 

@@ -49,6 +49,8 @@ export async function startCardPayment(input: {
       // Taken off the gift card once the card payment goes through.
       giftCardCode: input.giftCardCode ?? "",
       giftCardCents: String(quote.giftCardAppliedCents),
+      // First-booking discount KHS covers (the salon is paid as if it weren't there).
+      khsDiscountCents: String(quote.discountCents),
     },
   });
   if (!intent.client_secret) throw AppError.internal();
@@ -60,7 +62,9 @@ export async function startCardPayment(input: {
       : []),
     bookingPaymentRow(party, {
       amountCents: quote.cardBaseCents, method: "Stripe", referenceId: ref, completed: false,
-      description: input.depositOnly ? `50% deposit (Stripe) for appointment order ${orderId}` : `Card payment (Stripe) for appointment order ${orderId}`,
+      description: `${input.depositOnly ? "50% deposit (Stripe)" : "Card payment (Stripe)"} for appointment order ${orderId}${
+        quote.discountCents > 0 ? ` (first-booking discount of ${formatMoney(fromCents(quote.discountCents))} covered by KHS)` : ""
+      }`,
     }),
     ...(fees.acquisitionCents > 0
       ? [bookingFeeRow(party, { amountCents: fees.acquisitionCents, subtype: "Acquisition", method: "Stripe", description: `Acquisition fee for appointment order ${orderId}`, referenceId: ref, completed: false })]
@@ -88,6 +92,7 @@ export async function startCardPayment(input: {
         commissionFeeAmount: fromCents(fees.commissionCents),
         stripePassthroughFeeAmount: fromCents(quote.processingFeeCents),
         isDeposit: input.depositOnly,
+        khsDiscountAmount: fromCents(quote.discountCents),
         status: "pending",
       },
     }),

@@ -1,6 +1,7 @@
 import { CURRENCY } from "../../config/env";
 import { Prisma } from "../../generated/prisma/client";
 import type { transactions_currency_enum, transactions_method_enum } from "../../generated/prisma/enums";
+import { commissionRateFor } from "../offers/launchOffers";
 import { getPaymentSettings } from "./paymentSettings";
 import { fromCents, salonFeesCents } from "./paymentQuote";
 
@@ -67,12 +68,16 @@ export async function claimAcquisition(db: Tx, businessId: string, clientId: str
   return inserted === 1;
 }
 
-/** KHS's fees on a booking: commission, plus the acquisition fee unless this customer was already claimed. */
+/**
+ * KHS's fees on a booking: commission (none while the salon's founding stylist months run), plus
+ * the acquisition fee unless this customer was already claimed.
+ */
 export async function bookingFees(db: Tx, input: { businessId: string; clientId: string; planTier: string; serviceTotalCents: number }) {
   const settings = await getPaymentSettings();
   const firstBooking = !(await hasAcquisitionClaim(db, input.businessId, input.clientId));
   const acquisitionRate = firstBooking ? settings.acquisitionFeeTiers[input.planTier] ?? 0 : 0;
-  return { ...salonFeesCents(input.serviceTotalCents, settings.commissionRate, acquisitionRate), settings };
+  const commissionRate = await commissionRateFor(db, input.businessId, settings);
+  return { ...salonFeesCents(input.serviceTotalCents, commissionRate, acquisitionRate), settings };
 }
 
 /**

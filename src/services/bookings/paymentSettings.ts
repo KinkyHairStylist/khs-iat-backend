@@ -23,6 +23,14 @@ export interface PaymentSettings {
   chargebackFee: number;
   /** % of an expired gift card's or membership's unused value the salon keeps; KHS keeps the rest. */
   prepaidExpirySalonShare: number;
+  /** % off a customer's first KHS booking paid by card. KHS covers it: the salon is paid in full. */
+  firstBookingDiscountRate: number;
+  /** How many salons, in order of approval, get the founding stylist offer. */
+  foundingSalonLimit: number;
+  /** Months a founding salon pays no commission, from launch or its approval, whichever is later. */
+  foundingCommissionFreeMonths: number;
+  /** The day KHS opens (YYYY-MM-DD). A founding salon approved before it starts its free months then. */
+  launchDate: string;
 }
 
 const DEFAULTS: PaymentSettings = {
@@ -35,7 +43,14 @@ const DEFAULTS: PaymentSettings = {
   lateCancellationSalonShare: 70,
   chargebackFee: 15,
   prepaidExpirySalonShare: 50,
+  firstBookingDiscountRate: 3,
+  foundingSalonLimit: 100,
+  foundingCommissionFreeMonths: 2,
+  launchDate: "2027-01-01",
 };
+
+const dateOr = (value: unknown, fallback: string) =>
+  typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value)) ? value : fallback;
 
 const numberOr = (value: unknown, fallback: number) => {
   const n = Number(value);
@@ -59,5 +74,9 @@ export async function getPaymentSettings(): Promise<PaymentSettings> {
     lateCancellationSalonShare: Math.min(100, numberOr(p.lateCancellationStylistShare, DEFAULTS.lateCancellationSalonShare)),
     chargebackFee: numberOr(p.chargebackFee, DEFAULTS.chargebackFee),
     prepaidExpirySalonShare: Math.min(100, numberOr(p.prepaidExpirySalonShare, DEFAULTS.prepaidExpirySalonShare)),
+    firstBookingDiscountRate: Math.min(100, numberOr(p.firstBookingDiscountRate, DEFAULTS.firstBookingDiscountRate)),
+    foundingSalonLimit: Math.floor(numberOr(p.foundingSalonLimit, DEFAULTS.foundingSalonLimit)),
+    foundingCommissionFreeMonths: Math.floor(numberOr(p.foundingCommissionFreeMonths, DEFAULTS.foundingCommissionFreeMonths)),
+    launchDate: dateOr(p.launchDate, DEFAULTS.launchDate),
   };
 }
